@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 import re
+import ipaddress
 
 CREATE_TASK_PATH = "/api/v1/jobs/createTask"
 IMAGE_ASPECTS = frozenset(("1:1","2:3","3:2","3:4","4:3","4:5","5:4","9:16","16:9","21:9","auto"))
@@ -28,9 +29,16 @@ def _url(value: str) -> str:
     parts=urlsplit(value)
     if parts.scheme not in ("https", "oss") or not parts.netloc or parts.username or parts.password or parts.fragment:
         raise ValueError("media URLs must be authenticated-upload HTTPS/OSS URLs")
-    if parts.scheme=="https" and (parts.hostname in ("localhost","127.0.0.1","::1")
-                                  or (parts.hostname or "").endswith(".local")):
+    host=(parts.hostname or "").lower()
+    if (not host or host in ("localhost", "localhost.localdomain")
+            or host.endswith((".local", ".internal", ".localhost"))):
         raise ValueError("local media URL disallowed")
+    try:
+        ip=ipaddress.ip_address(host)
+    except ValueError:
+        ip=None
+    if ip is not None and not ip.is_global:
+        raise ValueError("non-public media IP address disallowed")
     return value
 
 
@@ -167,8 +175,6 @@ def kling_omni_reference_to_video(prompt, image_urls=(), *, video_url=None,
             shots.append({"prompt": _prompt(shot["prompt"], 512), "duration": seconds})
         if sum(shot["duration"] for shot in shots) > 15:
             raise ValueError("custom shot sum exceeds 15 seconds")
-        if sum(shot["duration"] for shot in shots) != duration:
-            raise ValueError("shot durations must sum to output duration")
     elif multi_prompt:
         raise ValueError("custom shots require customize_multi_shots")
     body = {"prompt": _prompt(prompt, 3072), "resolution": resolution,
