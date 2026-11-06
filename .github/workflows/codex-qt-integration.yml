@@ -1,0 +1,83 @@
+name: AI SMM / Codex Qt lifecycle integration
+on:
+  push:
+    branches: [main]
+    paths: ['.github/CODEX_CONTINUE_REQUEST.md']
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    concurrency:
+      group: ai-smm-codex-pr2-integration
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - name: Work directly on the existing draft integration branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin codex/architecture-42191626323
+          git switch --track origin/codex/architecture-42191626323
+          python ci/verify_tree.py
+      - name: Install Codex CLI
+        run: npm install --global @openai/codex
+      - name: Complete integrated Qt task lifecycle with tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMM_CODEX_TASK: >
+            Starting from the existing draft PR #2 and its already passing eight-shard
+            Linux/Windows Python regression, continue SYSTEMIC development of AI SMM
+            Manager. Audit the complete lifecycle: project creation, project switching
+            and isolation, one-off tasks, intake, planning and independent plan review,
+            actual task execution, independent result acceptance, recovery and restart,
+            shutdown of Qt workers, and durability of state/artifacts. Use actual
+            application code and the published PROJECT_VISION.md / AGENTS.md /
+            RELEASE_POLICY.md requirements. Strengthen a representative native PySide6
+            Qt E2E smoke path for Windows CI (using offscreen Qt where necessary) with
+            realistic randomized task scenarios and strict assertions for task
+            completion, errors, isolation and restart. Prefer shared root-cause
+            architectural corrections over local test fixes. Do not weaken source
+            quality guards, skipped-test limits, release checks, model acceptance
+            authority or native E2E policy. Do not claim the offscreen smoke test
+            proves 10 real-model interactive Windows E2E passes. Keep production
+            modules mirrored exactly to the developer tree. All meaningful code
+            changes must have regression coverage. No intermediate release archive.
+        run: python ci/codex_cycle.py
+      - name: Reject changes to protected quality authority
+        run: python ci/protect_qa.py
+      - name: Verify source/test integrity
+        run: python ci/verify_tree.py
+      - name: Commit verified coding work onto existing draft PR branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name 'ai-smm-codex-bot'
+          git config user.email 'ai-smm-codex-bot@users.noreply.github.com'
+          git add -- AI_SMM_Work_Architecture_A75 AI_SMM_Developer_A75
+          git diff --cached --quiet && { echo 'BLOCKED: no code/test changes'; exit 2; }
+          git commit -m 'Codex: integrate Qt task lifecycle and native smoke verification'
+          gh auth setup-git
+          git push origin HEAD:codex/architecture-42191626323
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-qt-integration-diagnostics
+          path: ci_evidence/
+          if-no-files-found: warn
+          retention-days: 14
