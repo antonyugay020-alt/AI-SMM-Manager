@@ -250,6 +250,20 @@ class ApplicationRuntime:
         self.executions = ExecutionRuntime(db)
         self.publications = ResultPublicationRuntime(db, workspace, execution=self.executions, batches=self.batches)
 
+    def close(self):
+        """Dispose the application's database after its worker fence has drained.
+
+        Pending outbox effects remain durable for restart. Closing must never
+        silently discard a transaction belonging to a different operation.
+        The Qt adapter is responsible for checking native worker completion.
+        """
+        if getattr(self, '_closed', False):
+            return
+        if self.db.in_transaction:
+            raise RuntimeError('Cannot close while an operation owns the transaction')
+        self.db.close()
+        self._closed = True
+
     def record_execution_failure(self, *, project_id, attempt=None, response=None, timestamp=None):
         """One failure commit: settle worker authority and persist its explanation.
 

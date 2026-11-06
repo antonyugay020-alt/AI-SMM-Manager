@@ -3,8 +3,8 @@
 No GUI, model, or external network required. A killed child must not make a
 committed task lose its receipt or remove an unrelated pending checkpoint.
 """
-import hashlib
 from contextlib import closing
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -74,7 +74,7 @@ with sqlite3.connect(dbpath,factory=ProjectConnection) as db:
         self.assertFalse(self.receipt.exists())
         with closing(sqlite3.connect(self.dbfile,factory=ProjectConnection)) as db, db:
             self.assertEqual(drain(db,lambda _:self.workspace,export_document=lambda *_:None)['completed'],3)
-        self.assertTrue(json.loads(self.receipt.read_text())['saved_and_read_back'])
+        self.assertTrue(json.loads(self.receipt.read_text(encoding='utf-8'))['saved_and_read_back'])
         self.assertFalse(self.checkpoint.exists())
 
     def test_killed_after_receipt_write_before_outbox_ack(self):

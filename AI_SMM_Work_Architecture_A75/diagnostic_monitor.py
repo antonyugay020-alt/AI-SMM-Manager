@@ -1,6 +1,7 @@
 """Read-only watcher for AI SMM Studio task diagnostics. Standard library only."""
 import argparse
 import collections
+from contextlib import closing
 import datetime as dt
 import json
 import os
@@ -38,7 +39,7 @@ def discover_projects(root, explicit_root=None):
         if db.exists():
             try:
                 # Open database read-only: monitoring must never modify app state.
-                with sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=2) as con:
+                with closing(sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=2)) as con:
                     rows = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='project_locations'").fetchall()
                     if rows:
                         for (folder,) in con.execute('SELECT folder FROM project_locations'):

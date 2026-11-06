@@ -32,7 +32,7 @@ class TextProjectionContract(unittest.TestCase):
         self.registered()
         self.assertFalse(self.target.exists())
         self.assertEqual(self.replay()['completed'],1)
-        self.assertEqual(self.target.read_text(),'durable content')
+        self.assertEqual(self.target.read_text(encoding='utf-8'),'durable content')
         self.assertEqual(self.replay()['completed'],0)
 
     def test_rollback_cancels_both_records(self):
@@ -46,9 +46,9 @@ class TextProjectionContract(unittest.TestCase):
     def test_conflict_remains_pending_without_overwrite(self):
         self.registered()
         self.target.parent.mkdir()
-        self.target.write_text('unrelated')
+        self.target.write_text('unrelated', encoding='utf-8')
         self.assertEqual(self.replay()['failed'],1)
-        self.assertEqual(self.target.read_text(),'unrelated')
+        self.assertEqual(self.target.read_text(encoding='utf-8'),'unrelated')
         self.assertEqual(self.replay()['pending'],1)
 
     def test_tampered_sql_payload_does_not_publish(self):

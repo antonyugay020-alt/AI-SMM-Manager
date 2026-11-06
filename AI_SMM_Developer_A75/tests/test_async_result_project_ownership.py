@@ -54,7 +54,7 @@ class AsyncProjectOwnership(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.db = sqlite3.connect(':memory:')
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE projects (id TEXT PRIMARY KEY)')
         self.db.execute('CREATE TABLE messages (project_id TEXT,role TEXT,content TEXT,created_at TEXT)')
         self.db.execute('CREATE TABLE project_files (id TEXT, project_id TEXT,kind TEXT,display_name TEXT,path TEXT,created_at TEXT)')

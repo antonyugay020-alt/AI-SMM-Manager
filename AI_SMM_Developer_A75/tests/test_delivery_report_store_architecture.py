@@ -24,8 +24,8 @@ class ReportAuthorityTests(unittest.TestCase):
             a = store_delivery_report(folder, self.a, self.report(self.a))
             b = store_delivery_report(folder, self.b, self.report(self.b))
             self.assertNotEqual(a, b)
-            self.assertEqual(json.loads(a.read_text())['task_signature'], self.a)
-            self.assertEqual(json.loads(b.read_text())['task_signature'], self.b)
+            self.assertEqual(json.loads(a.read_text(encoding='utf-8'))['task_signature'], self.a)
+            self.assertEqual(json.loads(b.read_text(encoding='utf-8'))['task_signature'], self.b)
             self.assertEqual(len(list((Path(folder)/'drafts').glob('content_delivery_*.json'))), 2)
 
     def test_foreign_legacy_short_digest_is_not_replaced(self):
@@ -36,7 +36,7 @@ class ReportAuthorityTests(unittest.TestCase):
             before = old.read_bytes()
             current = store_delivery_report(folder, self.b, self.report(self.b))
             self.assertEqual(old.read_bytes(), before)
-            self.assertEqual(json.loads(current.read_text())['task_signature'], self.b)
+            self.assertEqual(json.loads(current.read_text(encoding='utf-8'))['task_signature'], self.b)
 
     def test_matching_legacy_is_archived_without_loss(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -46,8 +46,8 @@ class ReportAuthorityTests(unittest.TestCase):
             path = store_delivery_report(folder, self.a, self.report(self.a, 'PASS'), request=self.request)
             history = list((drafts/'content_delivery_history'/self.a).glob('*.json'))
             self.assertEqual(len(history), 1)
-            self.assertEqual(json.loads(history[0].read_text())['independent_editor']['status'], 'BLOCKED')
-            self.assertEqual(json.loads(path.read_text())['independent_editor']['status'], 'PASS')
+            self.assertEqual(json.loads(history[0].read_text(encoding='utf-8'))['independent_editor']['status'], 'BLOCKED')
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['independent_editor']['status'], 'PASS')
 
     def test_foreign_provenance_does_not_modify_previous_report(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -87,4 +87,4 @@ class DraftFinalSeparationTests(unittest.TestCase):
                                           stage='draft', archive=False)
             self.assertNotEqual(draft, accepted)
             self.assertEqual(accepted.read_bytes(), original)
-            self.assertEqual(json.loads(draft.read_text())['independent_editor']['status'], 'BLOCKED')
+            self.assertEqual(json.loads(draft.read_text(encoding='utf-8'))['independent_editor']['status'], 'BLOCKED')

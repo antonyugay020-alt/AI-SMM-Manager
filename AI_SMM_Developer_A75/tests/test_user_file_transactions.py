@@ -65,7 +65,7 @@ class UserFiles(unittest.TestCase):
         self.assertTrue(method('save_text',self.env)(self.view))
         rows=self.db.execute('select path from project_files').fetchall()
         self.assertEqual(len(rows),1)
-        self.assertEqual(Path(rows[0][0]).read_text(),'changed text')
+        self.assertEqual(Path(rows[0][0]).read_text(encoding='utf-8'),'changed text')
 
     def test_ready_publication_fallback_collision_never_overwrites(self):
         ready=self.root/'ready';ready.mkdir()
@@ -101,9 +101,9 @@ class UserFiles(unittest.TestCase):
         from unittest.mock import patch
         filename='12345678123412341234123412341234.txt'
         existing=self.root/'texts'/filename
-        existing.parent.mkdir(exist_ok=True);existing.write_text('private')
+        existing.parent.mkdir(exist_ok=True);existing.write_text('private', encoding='utf-8')
         with patch('application_core.uuid4',return_value=UUID('12345678123412341234123412341234')):
             self.assertFalse(method('save_text',self.env)(self.view))
-        self.assertEqual(existing.read_text(),'private')
+        self.assertEqual(existing.read_text(encoding='utf-8'),'private')
 
 if __name__=='__main__':unittest.main()

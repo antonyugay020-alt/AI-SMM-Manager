@@ -83,7 +83,7 @@ class ActionContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):understand_dialogue('Unchanged task',state(),model='fixture')
         self.assertEqual(transport.call_count,2)
     def test_received_first_model_response_is_accepted_without_second_call(self):
-        data=json.loads((Path(__file__).parent/'r87_received_action.json').read_text())
+        data=json.loads((Path(__file__).parent/'r87_received_action.json').read_text(encoding='utf-8'))
         raw=json.loads(data['responses'][0]['message']['content'])
         self.assertEqual(raw['operation'],'create_bundle');self.assertEqual(raw['artifact_kind'],'strategy')
         with patch('ollama_resilience.request_chat',return_value=data['responses'][0]) as transport:
@@ -92,7 +92,7 @@ class ActionContractTests(unittest.TestCase):
         self.assertEqual(plan.action['schedule'],{'weeks':13,'per_week':3,'total':39})
         self.assertEqual(plan.utterance,data['utterance']);self.assertTrue(plan.normalizations)
     def test_received_second_wrong_operation_is_excluded_by_resource_contract(self):
-        data=json.loads((Path(__file__).parent/'r87_received_action.json').read_text());c=DialogueContract(data['utterance'],data['snapshot'])
+        data=json.loads((Path(__file__).parent/'r87_received_action.json').read_text(encoding='utf-8'));c=DialogueContract(data['utterance'],data['snapshot'])
         self.assertNotIn('revise_saved',c.schema()['properties']['operation']['enum'])
         self.assertNotIn('revise_saved',c.context()['available_tools'])
         with self.assertRaises(ValueError):c.validate(json.loads(data['responses'][1]['message']['content']))
