@@ -55,7 +55,7 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || 'claude-sonnet-4-5' }}
+          ANTHROPIC_MODEL: claude-sonnet-5-5
         run: python ci/independent_review.py --provider anthropic --diff review_input.diff --output ci_evidence/review_anthropic.json
       - name: Verify full coverage; optional independent provider only after transient outage
         env:
