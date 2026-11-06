@@ -3480,7 +3480,7 @@ class Studio(QMainWindow):
         self.append_chat('Ошибка выделения',error)
 
     def show_engines(self):
-        dialog=QDialog(self); dialog.setWindowTitle('AI-движки · Stage 28'); dialog.resize(540,350)
+        dialog=QDialog(self); dialog.setWindowTitle('AI-движки · Stage 28'); dialog.resize(620,700)
         layout=QVBoxLayout(dialog)
         layout.addWidget(QLabel('AI-агент использует доступные инструменты. Облачные операции — только с разрешения.'))
         layout.addWidget(QLabel('Состояние: '+', '.join(k+': '+('доступно' if v else 'не подключено') for k,v in available_tools().items())))
@@ -3526,7 +3526,7 @@ class Studio(QMainWindow):
         endpoint=QLineEdit(getattr(self,'hf_api_name',''));endpoint.setPlaceholderText('/edit');layout.addWidget(endpoint)
         layout.addWidget(QLabel('HF Space: только API с аргументами (изображение, инструкция).\nБесплатность и доступность зависят от владельца Space.'))
         layout.addWidget(QLabel('Локальный редактор: Qwen Image Edit 2509 (веса — десятки ГБ, CUDA и много RAM).'))
-        layout.addWidget(QLabel('Модель загружается при первом запуске после согласия; на 12 ГБ VRAM возможен OOM.'))
+        layout.addWidget(QLabel('Модель загружается после согласия; на целевых 8 ГБ VRAM возможен OOM.'))
         cuda_button=QPushButton('Проверить CUDA / PyTorch')
         cuda_button.clicked.connect(self.check_cuda)
         layout.addWidget(cuda_button)
