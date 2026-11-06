@@ -3,6 +3,9 @@ import importlib.util
 import io
 import json
 import os
+import sys
+import tempfile
+import urllib.error
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -77,6 +80,56 @@ class KieReviewerContractTests(unittest.TestCase):
                                       return_value=io.BytesIO(json.dumps(body).encode())):
                         with self.assertRaises(ValueError):
                             review.request_review("kie", "diff")
+
+
+    def test_transient_gateway_failure_is_retried_once(self):
+        valid = io.BytesIO(json.dumps({
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": json.dumps(APPROVAL)}],
+        }).encode())
+        error = urllib.error.HTTPError(
+            "https://api.kie.ai/claude/v1/messages", 502, "gateway", {}, None
+        )
+        with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only"}):
+            with patch.object(review.urllib.request, "urlopen", side_effect=[error, valid]) as network:
+                with patch.object(review.time, "sleep") as pause:
+                    self.assertEqual(review.request_review("kie", "diff"), APPROVAL)
+        self.assertEqual(network.call_count, 2)
+        pause.assert_called_once_with(2)
+
+    def test_authentication_error_never_retried(self):
+        error = urllib.error.HTTPError(
+            "https://api.kie.ai/claude/v1/messages", 401, "unauthorized", {}, None
+        )
+        with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only"}):
+            with patch.object(review.urllib.request, "urlopen", side_effect=error) as network:
+                with patch.object(review.time, "sleep") as pause:
+                    with self.assertRaisesRegex(RuntimeError, "provider HTTP status 401"):
+                        review.request_review("kie", "diff")
+        network.assert_called_once()
+        pause.assert_not_called()
+
+    def test_partial_audit_never_passes_and_retains_first_verdict(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "review.json"
+            diff_file = Path(folder) / "review.diff"
+            diff_file.write_text(
+                "diff --git a/a.py b/a.py\n" + "+a=1\n" * 3800,
+                encoding="utf-8"
+            )
+            with patch.object(sys, "argv", [
+                "independent_review.py", "--provider", "kie",
+                "--diff", str(diff_file), "--output", str(output)
+            ]):
+                with patch.object(review, "request_review",
+                                  side_effect=[APPROVAL, RuntimeError("provider HTTP status 502")]) as provider:
+                    self.assertEqual(review.main(), 2)
+            result = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "BLOCKED")
+            self.assertEqual(result["segments_reviewed"], 1)
+            self.assertGreater(result["segments_expected"], 1)
+            self.assertEqual(result["reviews"][0]["verdict"], APPROVAL)
+            self.assertEqual(provider.call_count, 2)
 
 
 if __name__ == "__main__":
