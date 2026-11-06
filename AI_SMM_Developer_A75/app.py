@@ -397,11 +397,11 @@ class VideoTrimWorker(QThread):
     failed=Signal(str)
     def __init__(self, source, output, start, end):
         super().__init__()
-        self.source,self.output,self.start,self.end=source,output,start,end
+        self.source,self.output,self.clip_start,self.clip_end=source,output,start,end
     def run(self):
         try:
             if not shutil.which('ffmpeg'):raise RuntimeError('FFmpeg не найден. Установите FFmpeg и добавьте в PATH.')
-            if not (isinstance(self.start,(int,float)) and isinstance(self.end,(int,float)) and 0<=self.start<self.end):
+            if not (isinstance(self.clip_start,(int,float)) and isinstance(self.clip_end,(int,float)) and 0<=self.clip_start<self.clip_end):
                 raise ValueError('Нужны корректные начало и конец фрагмента в секундах.')
             self.output.parent.mkdir(parents=True,exist_ok=True)
             flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
@@ -410,8 +410,8 @@ class VideoTrimWorker(QThread):
             encoder_check=subprocess.run(['ffmpeg','-hide_banner','-encoders'],capture_output=True,text=True,
                 timeout=15,creationflags=flags, encoding='utf-8', errors='replace')
             nvenc='h264_nvenc' in encoder_check.stdout
-            common=['ffmpeg','-hide_banner','-nostdin','-y','-ss',str(self.start),'-i',str(self.source),
-                '-t',str(self.end-self.start),'-map','0:v:0','-map','0:a?']
+            common=['ffmpeg','-hide_banner','-nostdin','-y','-ss',str(self.clip_start),'-i',str(self.source),
+                '-t',str(self.clip_end-self.clip_start),'-map','0:v:0','-map','0:a?']
             gpu_args=['-c:v','h264_nvenc','-preset','p4','-cq','20','-b:v','0','-c:a','aac',str(self.output)]
             cpu_args=['-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac',str(self.output)]
             started=time.monotonic()
