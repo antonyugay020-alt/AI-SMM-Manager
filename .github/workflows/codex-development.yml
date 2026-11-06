@@ -1,6 +1,10 @@
 name: AI SMM / Codex architecture branch
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/CODEX_RUN_REQUEST.md'
   workflow_dispatch:
     inputs:
       task:
@@ -41,7 +45,7 @@ jobs:
       - name: Codex integrated architecture work
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SMM_CODEX_TASK: ${{ inputs.task }}
+          SMM_CODEX_TASK: ${{ inputs.task || 'Implement the complete P0 systemic architecture repair specified in .github/CODEX_RUN_REQUEST.md. Fix shared root causes, not isolated test patches. Preserve release guards. No release before Windows E2E.' }}
         run: python ci/codex_cycle.py
       - name: Reject changes to protected quality authority
         run: python ci/protect_qa.py
