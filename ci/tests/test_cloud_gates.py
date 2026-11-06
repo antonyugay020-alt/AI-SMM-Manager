@@ -5,7 +5,7 @@ import pytest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from verify_tree import verify, files_snapshot, ordered_snapshot_paths, ROOT
 from run_regression import shard_modules
-from independent_review import parse_verdict
+from independent_review import parse_verdict, split_review_diff
 from aggregate_regression import assess
 from protect_qa import PROTECTED_PREFIXES
 
@@ -48,6 +48,23 @@ def test_four_shards_cover_each_test_once():
 def test_review_rejects_invalid_or_inconsistent_payloads(raw):
     with pytest.raises((ValueError,TypeError)):
         parse_verdict(raw)
+
+
+def test_review_partition_preserves_entire_large_diff():
+    change1='diff --git a/a.py b/a.py\n'+('+'+'hello\n')*400
+    change2='diff --git a/b.py b/b.py\n'+('+'+'world\n')*400
+    original=change1+change2
+    chunks=split_review_diff(original,max_chars=1900,max_parts=8)
+    assert len(chunks)>2
+    assert all(len(item)<=1900 for item in chunks)
+    assert ''.join(chunks)==original
+    assert original.count('diff --git') == 2
+
+
+def test_review_partition_fails_closed_on_missing_or_excessive_data():
+    with pytest.raises(ValueError):split_review_diff('')
+    with pytest.raises(ValueError):split_review_diff('diff --git a/a b/a\n'+'+'+'A'*20000,
+                                                  max_chars=1000,max_parts=3)
 
 
 def test_review_accepts_only_valid_explicit_approval():
