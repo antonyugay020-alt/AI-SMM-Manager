@@ -36,7 +36,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
-          ALT_REVIEW_API_KEY: ${{ secrets.ALT_REVIEW_API_KEY }}
+          ALT_REVIEW_API_KEY: ${{ secrets.ALT_REVIEW_API_KEY || secrets.KIE_AI_API_KEY }}
           ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
           ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
         run: python ci/independent_review.py --provider ${{ matrix.provider }} --diff review_input.diff --output ci_evidence/review_${{ matrix.provider }}.json
