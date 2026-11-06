@@ -74,6 +74,31 @@ class RuntimeRestartAtomicityTests(unittest.TestCase):
         self.db.execute('DROP TRIGGER reject_restart');self.db.commit()
         self.assertEqual(self.core.recover_inflight(),{'execution_attempts':1,'batch_items':1})
 
+    def test_reopened_database_rolls_back_both_worker_kinds_on_batch_failure(self):
+        a = self._running('a')
+        self.db.close()
+        self.db = open_application_database(self.database, self.root)
+        self.core = ApplicationRuntime(self.db, lambda pid: self.root / pid)
+        self.db.execute("""CREATE TRIGGER reject_restart_after_reopen
+            BEFORE UPDATE OF status ON batch_item_receipts
+            WHEN NEW.status='failed'
+            BEGIN SELECT RAISE(ABORT,'injected batch recovery failure'); END""")
+        self.db.commit()
+        with self.assertRaises(sqlite3.DatabaseError):
+            self.core.recover_inflight()
+        self.assertFalse(self.db.in_transaction)
+        # No execution attempt may be fenced independently by schema opening
+        # if the accompanying batch recovery cannot commit.
+        self.core.executions.authorize_result(a[1], active_project_id='a')
+        with own(self.db):
+            self.core.batches.authorize_in_transaction(a[3])
+        self.db.execute('DROP TRIGGER reject_restart_after_reopen')
+        self.db.commit()
+        self.assertEqual(self.core.recover_inflight(),
+                         {'execution_attempts':1, 'batch_items':1})
+        with self.assertRaises(ValueError):
+            self.core.executions.authorize_result(a[1], active_project_id='a')
+
     def test_external_sqlite_transaction_not_committed(self):
         self._running('a')
         self.db.execute("UPDATE projects SET name='other' WHERE id='a'")
@@ -86,10 +111,9 @@ class RuntimeRestartAtomicityTests(unittest.TestCase):
         self.db.close()
         self.db=open_application_database(self.database,self.root)
         self.core=ApplicationRuntime(self.db,lambda pid:self.root/pid)
-        # Opening the database fences stale process attempts as part of the
-        # schema migration, before any new Qt/runtime worker can own them.
-        # Explicit recovery must therefore be idempotent for execution attempts.
-        self.assertEqual(self.core.recover_inflight(),{'execution_attempts':0,'batch_items':1})
+        # Current-schema bootstrap must leave both worker kinds for the same
+        # atomic application recovery transaction.
+        self.assertEqual(self.core.recover_inflight(),{'execution_attempts':1,'batch_items':1})
         with self.assertRaises(ValueError):
             self.core.executions.authorize_result(a[1],active_project_id='a')
         self.assertEqual(self.db.execute('SELECT state FROM execution_attempts WHERE attempt_id=?',(a[1].attempt.attempt_id,)).fetchone(),('interrupted',))

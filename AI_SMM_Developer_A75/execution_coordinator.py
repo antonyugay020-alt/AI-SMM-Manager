@@ -56,6 +56,26 @@ class ExecutionCoordinator:
         self._ensure_base()
         self._ensure_constraints()
 
+    def migrate_legacy_on_bootstrap(self):
+        """Install constraints safely without preempting normal app recovery.
+
+        Existing current-schema workers are fenced later by the application's
+        cross-service recovery transaction (execution + batch together). Only
+        a pre-constraint legacy schema needs immediate global fencing before
+        the missing UNIQUE indexes can be created.
+        """
+        from sqlite_transaction_core import compose
+        with compose(self.db, 'execution_coordinator_migration'):
+            self._ensure_base()
+            names = {row[0] for row in self.db.execute(
+                """SELECT name FROM sqlite_master WHERE type='index'
+                   AND name IN ('execution_one_running_task',
+                                'execution_one_running_project')""")}
+            if names == {'execution_one_running_task', 'execution_one_running_project'}:
+                self._ensure_constraints()
+                return 0
+            return self.recover()
+
     def _transaction(self, action):
         from sqlite_transaction_core import compose
         with compose(self.db, 'execution_coordinator'):

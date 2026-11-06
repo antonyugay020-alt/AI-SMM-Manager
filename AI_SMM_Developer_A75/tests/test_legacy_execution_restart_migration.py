@@ -116,6 +116,23 @@ class LegacyExecutionMigrationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 engine.verify(attempt)
 
+    def test_current_schema_defers_worker_fencing_to_application_recovery(self):
+        db = open_application_database(self.path, self.root)
+        db.execute("INSERT INTO projects(id,name,created_at) VALUES('alpha','Alpha','now')")
+        task = TaskLifecycle(db).activate('alpha', 'current', 'question')
+        old = ExecutionCoordinator(db).begin('alpha', task)
+        db.commit()
+        db.close()
+        reopened = open_application_database(self.path, self.root)
+        self.addCleanup(reopened.close)
+        engine = ExecutionCoordinator(reopened)
+        # Existing schema must not steal the app-level cross-service restart
+        # boundary: execution and batch workers are fenced together later.
+        engine.verify(old)
+        self.assertEqual(engine.recover(), 1)
+        with self.assertRaises(ValueError):
+            engine.verify(old)
+
     def test_bootstrap_rollback_if_worker_fence_fails(self):
         attempts, (paused, active, other) = self._legacy_database()
         db = sqlite3.connect(self.path)
