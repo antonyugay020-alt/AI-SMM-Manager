@@ -18,11 +18,17 @@ REQUIRED = (
 )
 
 
-def files_snapshot():
-    """Fingerprint current code and test assets, never generated reports or credentials."""
+def files_snapshot(*, normalize_line_endings=True):
+    """Portable source identity, with an optional exact-byte integrity snapshot.
+
+    pathlib.Path ordering is platform-dependent: Windows compares case-insensitively,
+    while POSIX sorts by code point. Always sort POSIX relative path *strings*.
+    Checkout line endings may differ by OS; normalize only for the portable digest.
+    Exact local bytes are separately checked before and after each regression shard.
+    """
     files = []
     for base in (PROD, DEV):
-        for path in sorted(base.rglob('*')):
+        for path in base.rglob('*'):
             if not path.is_file() or any(part in {'.git', '__pycache__', '.pytest_cache', '.venv'} for part in path.parts):
                 continue
             if path.suffix.lower() not in {'.py', '.json', '.txt', '.md', '.cmd', '.ini'}:
@@ -31,9 +37,12 @@ def files_snapshot():
     files.extend([ROOT / 'AI_SMM_10_FULL_WINDOWS_QA.py', ROOT / 'RUN_10_FULL_WINDOWS_QA.cmd'])
     digest = hashlib.sha256()
     hashes = {}
-    for path in sorted(files):
+    for path in sorted(files, key=lambda item: item.relative_to(ROOT).as_posix()):
         rel = path.relative_to(ROOT).as_posix()
-        content = hashlib.sha256(path.read_bytes()).hexdigest()
+        data = path.read_bytes()
+        if normalize_line_endings:
+            data = data.replace(b'\r\n', b'\n')
+        content = hashlib.sha256(data).hexdigest()
         hashes[rel] = content
         digest.update(rel.encode('utf-8') + b'\0' + content.encode('ascii') + b'\n')
     return digest.hexdigest(), hashes
@@ -59,9 +68,11 @@ def verify():
             for path in base.glob(pattern):
                 if path.is_file(): errors.append('sensitive runtime artifact present: ' + path.relative_to(ROOT).as_posix())
     fingerprint, file_hashes = files_snapshot()
+    raw_fingerprint, _ = files_snapshot(normalize_line_endings=False)
     result = {
         'status': 'PASS' if not errors else 'BLOCKED',
         'fingerprint_sha256': fingerprint,
+        'raw_byte_fingerprint_sha256': raw_fingerprint,
         'source_python_modules': len(prod),
         'developer_test_modules': len(modules),
         'file_hashes_count': len(file_hashes),

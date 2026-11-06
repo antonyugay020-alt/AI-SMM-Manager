@@ -67,7 +67,8 @@ def execute(shards: int, index: int, timeout: int, out: Path):
         if result.returncode != 0 or counts['errors'] or counts['failures'] or counts['tests'] < 1:
             raise RuntimeError(f'pytest status {result.returncode}; counts={counts}')
         after=verify()
-        if after['fingerprint_sha256'] != before['fingerprint_sha256']:
+        if (after['fingerprint_sha256'] != before['fingerprint_sha256'] or
+                after['raw_byte_fingerprint_sha256'] != before['raw_byte_fingerprint_sha256']):
             raise RuntimeError('source/test snapshot changed during regression')
         report['status']='PASS'
     except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired,ET.ParseError) as exc:

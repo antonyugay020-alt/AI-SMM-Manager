@@ -60,7 +60,9 @@ jobs:
         with:
           python-version: '3.14'
       - name: Verify exact reviewer contract, cache identity, and failover safety
-        run: python -m unittest discover -s ci -p 'test_*review*.py' -v
+        run: |
+          python -m unittest discover -s ci -p 'test_*review*.py' -v
+          python -m unittest discover -s ci -p 'test_*fingerprint*.py' -v
 
   regression-gate:
     name: Regression gate / both operating systems
