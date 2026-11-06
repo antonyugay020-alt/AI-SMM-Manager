@@ -60,6 +60,16 @@ def verify():
     for name in sorted(prod.keys() & dev.keys()):
         if prod[name].read_bytes() != dev[name].read_bytes():
             errors.append('production/developer module drift: ' + name)
+    # This repository carries a third, importable copy of its runtime under
+    # Developer/tests for cross-platform QA. Treat it as a production mirror,
+    # not as a second implementation; catch drift before thousands of tests.
+    mirrors = {p.name: p for p in TESTS.glob('*.py') if p.name in dev}
+    missing_mirrors = sorted(dev.keys() - mirrors.keys())
+    if missing_mirrors:
+        errors.append('missing test runtime mirrors: ' + repr(missing_mirrors))
+    for name in sorted(dev.keys() & mirrors.keys()):
+        if dev[name].read_bytes() != mirrors[name].read_bytes():
+            errors.append('developer/test runtime drift: ' + name)
     modules = sorted(TESTS.glob('test_*.py'))
     if len(modules) < 250:
         errors.append(f'test corpus truncated: only {len(modules)} modules')
