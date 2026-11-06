@@ -49,8 +49,8 @@ class IndependentReviewProtocolTests(unittest.TestCase):
     def test_review_budget_preserves_large_multi_file_diff(self):
         # Tests the same 20k/24-segment bounds used by paid audit workflow.
         files = [
-            f"diff --git a/file_{index}.py b/file_{index}.py\\n" +
-            ("+line=1\\n" * 250)
+            f"diff --git a/file_{index}.py b/file_{index}.py\n" +
+            ("+line=1\n" * 250)
             for index in range(75)
         ]
         original = "".join(files)

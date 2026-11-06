@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [anthropic, compatible]
+        provider: [kie]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -27,6 +27,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+      - name: Verify independent reviewer transport and fail-closed contract
+        run: python -m unittest discover -s ci -p test_independent_review_kie.py -v
+      - name: Probe Kie Claude with small bounded request before full audit
+        env:
+          KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
+        run: python ci/kie_review_smoke.py
       - name: Export PR diff as data, without executing PR code
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,11 +40,7 @@ jobs:
         run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
       - name: Independent model audit
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
-          ALT_REVIEW_API_KEY: ${{ secrets.ALT_REVIEW_API_KEY }}
-          ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
-          ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
+          KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
         run: python ci/independent_review.py --provider ${{ matrix.provider }} --diff review_input.diff --output ci_evidence/review_${{ matrix.provider }}.json
       - if: always()
         uses: actions/upload-artifact@v4
