@@ -16,13 +16,13 @@ class RepairIdentityMigration(unittest.TestCase):
             first='same-prefix-1234-AAA'
             second='same-prefix-1234-BBB'
             legacy=p/('publication_repair_'+first[:16]+'.json')
-            legacy.write_text(json.dumps({'signature':first,'drafts':{'first':{'post':{'caption':'prior'}}}}))
+            legacy.write_text(json.dumps({'signature':first,'drafts':{'first':{'post':{'caption':'prior'}}}}), encoding='utf-8')
             assert first[:16]==second[:16]
             modern=p/('publication_repair_'+hashlib.sha256(second.encode()).hexdigest()+'.json')
-            modern.write_text(json.dumps({'signature':second,'drafts':{'second':{'post':{'caption':'current'}}}}))
+            modern.write_text(json.dumps({'signature':second,'drafts':{'second':{'post':{'caption':'current'}}}}), encoding='utf-8')
             old=legacy.read_bytes()
             self.assertNotEqual(legacy,modern)
-            self.assertEqual(json.loads(modern.read_text())['signature'],second)
+            self.assertEqual(json.loads(modern.read_text(encoding='utf-8'))['signature'],second)
             self.assertEqual(legacy.read_bytes(),old)
 
 if __name__=='__main__': unittest.main()

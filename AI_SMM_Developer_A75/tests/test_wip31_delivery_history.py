@@ -18,10 +18,10 @@ class HistoryTest(unittest.TestCase):
     rejected=run_document_task('Create two publications',state,execute=executor,strategy_reviewer=lambda *a,**k:{'pass':True,'issues':[]},final_reviewer=reviewers[0])
     accepted=run_document_task('Create two publications',state,execute=executor,strategy_reviewer=lambda *a,**k:{'pass':True,'issues':[]},final_reviewer=reviewers[1])
    drafts=pathlib.Path(tmp)/'drafts'
-   current=json.loads((drafts/f'content_delivery_{signature}.json').read_text())
+   current=json.loads((drafts/f'content_delivery_{signature}.json').read_text(encoding='utf-8'))
    history=list((drafts/'content_delivery_history'/signature).glob('*.json'))
    self.assertEqual(len(history),1)
-   self.assertEqual(json.loads(history[0].read_text()),rejected['content_delivery'])
+   self.assertEqual(json.loads(history[0].read_text(encoding='utf-8')),rejected['content_delivery'])
    self.assertEqual(current,accepted['content_delivery'])
    self.assertEqual(current['independent_editor']['status'],'PASS')
 if __name__=='__main__':unittest.main(verbosity=2)

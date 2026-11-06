@@ -408,7 +408,7 @@ class VideoTrimWorker(QThread):
             # NVENC is a separate hardware encoder; its availability is tested by FFmpeg.
             # If unavailable, fall back to the existing high-quality CPU pipeline.
             encoder_check=subprocess.run(['ffmpeg','-hide_banner','-encoders'],capture_output=True,text=True,
-                timeout=15,creationflags=flags)
+                timeout=15,creationflags=flags, encoding='utf-8', errors='replace')
             nvenc='h264_nvenc' in encoder_check.stdout
             common=['ffmpeg','-hide_banner','-nostdin','-y','-ss',str(self.start),'-i',str(self.source),
                 '-t',str(self.end-self.start),'-map','0:v:0','-map','0:a?']
@@ -416,10 +416,10 @@ class VideoTrimWorker(QThread):
             cpu_args=['-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac',str(self.output)]
             started=time.monotonic()
             proc=subprocess.run(common+(gpu_args if nvenc else cpu_args),capture_output=True,text=True,
-                timeout=3600,creationflags=flags)
+                timeout=3600,creationflags=flags, encoding='utf-8', errors='replace')
             if proc.returncode and nvenc:
                 # Failed GPU attempt may have left an incomplete file. Overwrite on CPU retry.
-                proc=subprocess.run(common+cpu_args,capture_output=True,text=True,timeout=3600,creationflags=flags)
+                proc=subprocess.run(common+cpu_args,capture_output=True,text=True,timeout=3600,creationflags=flags, encoding='utf-8', errors='replace')
             if proc.returncode:raise RuntimeError(proc.stderr[-1500:])
             record_performance('video_trim',time.monotonic()-started,{'gpu_encoder_attempted':nvenc})
             self.done.emit(str(self.output))
@@ -920,7 +920,7 @@ class InstallSegmentationWorker(QThread):
             self.progress.emit('Скачиваю rembg и ONNX Runtime. Подождите…')
             flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
             proc=subprocess.run([sys.executable,'-m','pip','install','rembg[cpu]>=2.0.60,<3'],
-                capture_output=True,text=True,timeout=900,creationflags=flags)
+                capture_output=True,text=True,timeout=900,creationflags=flags, encoding='utf-8', errors='replace')
             if proc.returncode:
                 raise RuntimeError((proc.stderr or proc.stdout)[-1800:])
             self.progress.emit('Библиотеки установлены. Готовлю модель…')
@@ -938,7 +938,7 @@ class InstallOpenCVWorker(QThread):
                 [sys.executable, '-m', 'pip', 'install',
                  'opencv-python-headless>=4.8,<5', 'numpy>=1.26,<3'],
                 capture_output=True, text=True, timeout=240,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), encoding='utf-8', errors='replace')
             if proc.returncode:
                 raise RuntimeError((proc.stderr or proc.stdout)[-1800:])
             self.done.emit()
@@ -4851,6 +4851,11 @@ class Studio(QMainWindow):
             event.ignore();return
         if self.report_worker is not None and self.report_worker.isRunning():
             self.statusBar().showMessage('Собирается отчёт. Дождитесь завершения перед закрытием.',6000)
+            event.ignore();return
+        try:
+            self.core.close()
+        except (RuntimeError, sqlite3.Error) as exc:
+            self.statusBar().showMessage('Не удалось завершить хранение: '+str(exc),6000)
             event.ignore();return
         super().closeEvent(event)
 

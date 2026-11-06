@@ -228,12 +228,14 @@ class BatchRuntime:
         if not checked.is_file() or original is None or _fingerprint(checked)!=tuple(original):
             raise ValueError('Batch original changed before result publication')
 
-    def accept_in_transaction(self,claim,result_path,*,timestamp=None):
+    def accept_in_transaction(self,claim,result_path,*,timestamp=None,expected_sha256=None):
         self.authorize_in_transaction(claim)
         output=require_managed_file(Path(self.workspace(claim.project_id)),result_path,('processed',))
         if not output.is_file():raise FileNotFoundError('Batch result was not saved')
         result_sha,result_size=_fingerprint(output)
         if result_size<=0:raise ValueError('Empty batch result cannot be accepted')
+        if expected_sha256 is not None and result_sha!=expected_sha256:
+            raise ValueError('Media changed during publication')
         changed=self.db.execute('''UPDATE batch_item_receipts SET status='completed',
             result_path=?,result_sha256=?,result_size=?,updated_at=? WHERE batch_id=? AND project_id=?
             AND source_path=? AND status='running' AND attempt_token=?''',

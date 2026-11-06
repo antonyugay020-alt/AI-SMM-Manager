@@ -3,6 +3,7 @@
 No GUI, model, or external network required. A killed child must not make a
 committed task lose its receipt or remove an unrelated pending checkpoint.
 """
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -36,7 +37,7 @@ class ProcessKillRecovery(unittest.TestCase):
         self.sha=hashlib.sha256(self.content.encode()).hexdigest()
         self.request_sha=hashlib.sha256(self.request.encode()).hexdigest()
         self.dbfile=self.root/'studio.sqlite3'
-        with sqlite3.connect(self.dbfile,factory=ProjectConnection) as db:
+        with closing(sqlite3.connect(self.dbfile,factory=ProjectConnection)) as db, db:
             db.execute('CREATE TABLE manager_documents(id TEXT,project_id TEXT,content TEXT)')
             db.execute('INSERT INTO manager_documents VALUES(?,?,?)',(self.artifact,self.pid,self.content))
             install(db)
@@ -71,13 +72,13 @@ with sqlite3.connect(dbpath,factory=ProjectConnection) as db:
  os._exit(42)
 ''',42)
         self.assertFalse(self.receipt.exists())
-        with sqlite3.connect(self.dbfile,factory=ProjectConnection) as db:
+        with closing(sqlite3.connect(self.dbfile,factory=ProjectConnection)) as db, db:
             self.assertEqual(drain(db,lambda _:self.workspace,export_document=lambda *_:None)['completed'],3)
-        self.assertTrue(json.loads(self.receipt.read_text())['saved_and_read_back'])
+        self.assertTrue(json.loads(self.receipt.read_text(encoding='utf-8'))['saved_and_read_back'])
         self.assertFalse(self.checkpoint.exists())
 
     def test_killed_after_receipt_write_before_outbox_ack(self):
-        with sqlite3.connect(self.dbfile,factory=ProjectConnection) as db:
+        with closing(sqlite3.connect(self.dbfile,factory=ProjectConnection)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             queue_document_completion(db,project_id=self.pid,artifact_id=self.artifact,
                 content=self.content,request=self.request,receipt_path=self.receipt,
@@ -99,7 +100,7 @@ with sqlite3.connect(dbpath,factory=ProjectConnection) as db:
 ''',43)
         self.assertTrue(self.receipt.exists())
         self.assertTrue(self.checkpoint.exists())
-        with sqlite3.connect(self.dbfile,factory=ProjectConnection) as db:
+        with closing(sqlite3.connect(self.dbfile,factory=ProjectConnection)) as db, db:
             result=drain(db,lambda _:self.workspace,export_document=lambda *_:None)
         self.assertEqual(result,{'completed':2,'failed':0,'pending':0})
         self.assertFalse(self.checkpoint.exists())

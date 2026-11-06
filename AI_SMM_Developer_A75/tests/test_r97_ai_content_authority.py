@@ -15,7 +15,7 @@ from content_quality_engine import critical_issues
 from task_artifacts import verify_saved_artifact
 import independent_acceptance_editor as editor
 from substance_fixture import assessed_reply
-F=json.loads(Path(__file__).with_name('r97_received_budget.json').read_text())
+F=json.loads(Path(__file__).with_name('r97_received_budget.json').read_text(encoding='utf-8'))
 CTX={'semantic_authorized':True,'semantic_execution_kind':'bundle','semantic_schedule':F['schedule']}
 def post(i='1/Пн'):return {'id':i,**{k:'Short / 简短 / произвольный текст' for k in POST_FIELDS}}
 def slot(i=1):return {'week':i,'day':'Пн','topic':post()['topic']}

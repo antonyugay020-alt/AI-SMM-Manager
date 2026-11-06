@@ -24,7 +24,7 @@ class CloudOwnership(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
+        self.db=sqlite3.connect(':memory:');self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
         self.db.execute('CREATE TABLE project_files(id TEXT,project_id TEXT,kind TEXT,display_name TEXT,path TEXT,created_at TEXT)')
         self.db.executemany('INSERT INTO projects VALUES(?)',[('first',),('second',)])
@@ -71,7 +71,7 @@ class DocumentExportTruth(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
+        self.db=sqlite3.connect(':memory:');self.addCleanup(lambda: self.db.close())
         from application_bootstrap import install_schema
         install_schema(self.db)
         self.db.execute('INSERT INTO projects(id,name,created_at) VALUES(?,?,?)', ('project','Sample','before'))
@@ -107,7 +107,7 @@ class DocumentExportTruth(unittest.TestCase):
         def export(*args,**kwargs):
             txt=self.root/'strategies'/'new_doc.txt';pdf=self.root/'pdf'/'new_doc.pdf'
             txt.parent.mkdir(parents=True,exist_ok=True);pdf.parent.mkdir(parents=True,exist_ok=True)
-            txt.write_text('new text');pdf.write_bytes(b'%PDF-1.4 valid mock PDF document')
+            txt.write_text('new text', encoding='utf-8');pdf.write_bytes(b'%PDF-1.4 valid mock PDF document')
         self.assertTrue(self.make_save(export)(self.view))
         self.assertIn('сохранены',self.messages[-1])
         self.assertEqual(self.db.execute('SELECT content FROM manager_documents').fetchone()[0],'new text')

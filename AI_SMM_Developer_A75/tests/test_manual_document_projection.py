@@ -11,7 +11,7 @@ class DocumentProjectionTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         self.db=sqlite3.connect(self.root/'data.sqlite')
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE manager_documents(id TEXT PRIMARY KEY, project_id TEXT,kind TEXT,title TEXT,content TEXT,created_at TEXT,updated_at TEXT)')
         self.id='a'*32
         self.pid='1'*32
@@ -45,7 +45,7 @@ class DocumentProjectionTests(unittest.TestCase):
         self.assertTrue(result.committed)
         self.assertTrue(result.exported)
         self.assertEqual(self.db.execute('SELECT content FROM manager_documents').fetchone()[0],'Changed')
-        self.assertEqual(_paths(self.workspace(self.pid),self.id,'strategy','Old')[0].read_text(),'Changed')
+        self.assertEqual(_paths(self.workspace(self.pid),self.id,'strategy','Old')[0].read_text(encoding='utf-8'),'Changed')
 
     def test_export_failure_keeps_user_edit_for_recovery(self):
         self.fail_export=True
@@ -67,7 +67,7 @@ class DocumentProjectionTests(unittest.TestCase):
         result=self.edit(kind='tasks',title='New',content='second')
         self.assertTrue(result.exported)
         self.assertTrue(all(not path.exists() for path in old[:2]))
-        self.assertEqual(_paths(self.workspace(self.pid),self.id,'tasks','New')[0].read_text(),'second')
+        self.assertEqual(_paths(self.workspace(self.pid),self.id,'tasks','New')[0].read_text(encoding='utf-8'),'second')
 
     def test_competing_unowned_export_is_rejected_before_database_mutation(self):
         target=_paths(self.workspace(self.pid),self.id,'tasks','New')[0]
@@ -98,7 +98,7 @@ class DocumentProjectionTests(unittest.TestCase):
         self.fail_export=False
         result=drain(self.db,self.workspace,self.renderer)
         self.assertEqual(result['completed'],1)
-        self.assertEqual(_paths(self.workspace(self.pid),self.id,'strategy','New')[0].read_text(),'v2')
+        self.assertEqual(_paths(self.workspace(self.pid),self.id,'strategy','New')[0].read_text(encoding='utf-8'),'v2')
 
     def test_foreign_sql_transaction_never_mutated(self):
         self.db.execute('CREATE TABLE unrelated(id TEXT)')

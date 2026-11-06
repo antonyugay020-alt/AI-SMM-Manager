@@ -34,7 +34,7 @@ class EndToEndProjectBoundaryTests(unittest.TestCase):
                 receipt=core.save_text(b,'Durable Beta result','now')
                 self.assertTrue(receipt.committed)
                 self.assertTrue(receipt.exported)
-                self.assertEqual(receipt.path.read_text(), 'Durable Beta result')
+                self.assertEqual(receipt.path.read_text(encoding='utf-8'), 'Durable Beta result')
                 core.recover_inflight()
                 self.assertEqual(db.execute('SELECT status FROM ai_task_registry WHERE task_id=?',
                                             (task,)).fetchone(),('active',))
@@ -60,7 +60,7 @@ class EndToEndProjectBoundaryTests(unittest.TestCase):
                 self.assertEqual(core.data.workspace(b).project_id,b)
                 self.assertEqual(core.data.workspace(b).messages[0][1],'Beta private request')
                 self.assertTrue(receipt.path.is_file())
-                self.assertEqual(receipt.path.read_text(),'Durable Beta result')
+                self.assertEqual(receipt.path.read_text(encoding='utf-8'),'Durable Beta result')
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM ai_pending_tasks WHERE project_id=?',
                                             (a,)).fetchone()[0],0)
                 self.assertEqual(list(db.execute('PRAGMA foreign_key_check')),[])

@@ -48,9 +48,10 @@ def own(db):
         yield
         if not db.in_transaction:
             raise RuntimeError('Transaction ended before the application boundary')
+        # Commit can fail (deferred constraints, I/O, busy). It is part of
+        # this boundary and must leave no transaction for the next operation.
+        db.commit()
     except BaseException:
         if db.in_transaction:
             db.rollback()
         raise
-    else:
-        db.commit()
