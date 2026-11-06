@@ -18,6 +18,16 @@ REQUIRED = (
 )
 
 
+def ordered_snapshot_paths(paths):
+    """Order by exact repository-relative POSIX name, never OS Path ordering.
+
+    PureWindowsPath compares case-insensitively and PurePosixPath compares
+    case-sensitively. Raw Path sorting created divergent SHA-256 on identical
+    Git source snapshots. This key preserves exact bytes and detects drift.
+    """
+    return sorted(paths, key=lambda p: p.relative_to(ROOT).as_posix())
+
+
 def files_snapshot():
     """Fingerprint current code and test assets, never generated reports or credentials."""
     files = []
@@ -31,7 +41,7 @@ def files_snapshot():
     files.extend([ROOT / 'AI_SMM_10_FULL_WINDOWS_QA.py', ROOT / 'RUN_10_FULL_WINDOWS_QA.cmd'])
     digest = hashlib.sha256()
     hashes = {}
-    for path in sorted(files):
+    for path in ordered_snapshot_paths(files):
         rel = path.relative_to(ROOT).as_posix()
         content = hashlib.sha256(path.read_bytes()).hexdigest()
         hashes[rel] = content
