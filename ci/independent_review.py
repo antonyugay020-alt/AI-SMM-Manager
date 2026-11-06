@@ -152,8 +152,19 @@ def request_review(provider: str, diff: str):
         if not isinstance(segments,list):raise ValueError('invalid content blocks')
         answer='\n'.join(x['text'] for x in segments if isinstance(x,dict) and x.get('type')=='text' and isinstance(x.get('text'),str))
     else:
+        if not isinstance(body,dict):raise ValueError('invalid compatible response')
         choices=body.get('choices',[])
-        answer=choices[0]['message']['content'] if choices else ''
+        if not isinstance(choices,list) or len(choices)!=1 or not isinstance(choices[0],dict):
+            raise ValueError('invalid compatible choices')
+        choice=choices[0]
+        # Gemini may produce a 200 response with empty content when its
+        # reasoning/answer budget is exhausted. This is never an approval.
+        if choice.get('finish_reason') not in ('stop','STOP',None):
+            raise ValueError('compatible answer incomplete')
+        message=choice.get('message')
+        if not isinstance(message,dict) or message.get('refusal') or message.get('tool_calls'):
+            raise ValueError('compatible response has refusal or tool use')
+        answer=message.get('content')
     if not isinstance(answer,str) or not answer.strip():raise ValueError('empty reviewer answer')
     return parse_verdict(answer)
 
