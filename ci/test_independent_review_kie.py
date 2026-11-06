@@ -114,7 +114,7 @@ class KieReviewerContractTests(unittest.TestCase):
             output = Path(folder) / "review.json"
             diff_file = Path(folder) / "review.diff"
             diff_file.write_text(
-                "diff --git a/a.py b/a.py\n" + "+a=1\n" * 3800,
+                "diff --git a/a.py b/a.py\n" + "+a=1\n" * 4500,
                 encoding="utf-8"
             )
             with patch.object(sys, "argv", [
