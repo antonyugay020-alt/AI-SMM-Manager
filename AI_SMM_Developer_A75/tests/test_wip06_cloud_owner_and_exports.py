@@ -46,7 +46,15 @@ class CloudOwnership(unittest.TestCase):
         f=self.p1/'output.png';Image.new('RGB',(8,8)).save(f)
         self.cloud_done(self.view,str(f),project_id='first')
         rows=self.db.execute('SELECT project_id,path FROM project_files').fetchall()
-        self.assertEqual(rows,[('first',str(f))])
+        # The registry stores the canonical filesystem identity, not an
+        # arbitrary spelling of the input path. Windows can resolve the same
+        # temp directory via RUNNER~1 or its long Unicode name.
+        assert len(rows) == 1
+        self.assertEqual(rows[0][0], 'first')
+        stored = Path(rows[0][1])
+        self.assertTrue(stored.is_file())
+        self.assertTrue(stored.samefile(f))
+        self.assertTrue(stored.resolve(strict=True).is_relative_to(self.p1.resolve(strict=True)))
     def test_other_project_file_is_rejected(self):
         from PIL import Image
         f=self.p2/'other.png';Image.new('RGB',(8,8)).save(f)
