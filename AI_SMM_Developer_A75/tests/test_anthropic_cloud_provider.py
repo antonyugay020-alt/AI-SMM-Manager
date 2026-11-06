@@ -63,6 +63,7 @@ class AnthropicCloudProviderTests(unittest.TestCase):
         self.assertEqual(timeout, 180)
         body = json.loads(req.data)
         self.assertEqual(body["model"], "claude-sonnet-5-5")
+        self.assertNotIn("temperature", body)
         self.assertEqual(body["system"], "Stay on topic")
         self.assertEqual(body["messages"], dialogue[1:])
         self.assertNotIn("fake-test-only", json.dumps(body))
