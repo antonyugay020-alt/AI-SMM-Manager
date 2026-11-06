@@ -113,8 +113,10 @@ def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_
         raise ValueError('Anthropic: expected conversation ending with user prompt')
     if response_format == 'json_object':
         system.append('Output exactly one valid JSON object without Markdown.')
-    body = {'model': model_id, 'max_tokens': 4096, 'messages': chat,
-            'temperature': temperature}
+    # Newer Claude variants may reject sampling parameters while native
+    # reasoning settings are selected by the model. The independently verified
+    # direct Anthropic reviewer uses this same minimal Messages payload.
+    body = {'model': model_id, 'max_tokens': 4096, 'messages': chat}
     if system:
         body['system'] = '\n\n'.join(system)
     req = urllib.request.Request(
