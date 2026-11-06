@@ -92,7 +92,7 @@ class RuntimeRestartAtomicityTests(unittest.TestCase):
         self.assertEqual(self.core.recover_inflight(),{'execution_attempts':0,'batch_items':1})
         with self.assertRaises(ValueError):
             self.core.executions.authorize_result(a[1],active_project_id='a')
-        self.assertEqual(self.db.execute('SELECT state FROM execution_attempts WHERE attempt_id=?',(a[1].attempt_id,)).fetchone(),('interrupted',))
+        self.assertEqual(self.db.execute('SELECT state FROM execution_attempts WHERE attempt_id=?',(a[1].attempt.attempt_id,)).fetchone(),('interrupted',))
         self.assertEqual(self.core.batches.pending('a').paths,(a[3].source_path,))
         self.assertEqual(self.db.execute('SELECT status FROM ai_task_registry WHERE task_id=?',(a[0],)).fetchone(),('active',))
 
