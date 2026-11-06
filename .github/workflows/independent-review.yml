@@ -58,7 +58,7 @@ jobs:
         run: python ci/independent_review.py --provider kie --diff review_input.diff --output ci_evidence/review_kie.json
       - name: Verify full coverage; optional independent provider only after transient outage
         env:
-          ALT_REVIEW_API_KEY: ${{ secrets.ALT_REVIEW_API_KEY }}
+          ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
           ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
         run: python ci/review_provider_gate.py --diff review_input.diff --primary ci_evidence/review_kie.json --backup ci_evidence/review_compatible.json --output ci_evidence/review_gate.json
