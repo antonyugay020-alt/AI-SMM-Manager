@@ -1,6 +1,6 @@
 name: AI SMM / Gemini direct connection (one-time)
 
-# Diagnostic check: redact and retain Google's explanatory error message after HTTP 404.
+# Verify the Google-recommended replacement model after deprecated 2.5 returned 404.
 # Later ordinary code pushes must not spend Gemini API credits.
 on:
   push:
@@ -29,7 +29,8 @@ jobs:
         env:
           ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
-          ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
+          # The originally configured gemini-2.5-pro is no longer available to new users.
+          ALT_REVIEW_MODEL: gemini-3.1-pro-preview
         run: python ci/gemini_review_smoke.py
       - name: Save sanitized provider status, including failure
         if: always()
