@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 
-from independent_review import parse_verdict, split_review_diff
+from independent_review import parse_verdict, review_chunks
 
 TRANSIENT = re.compile(r"^provider HTTP status (?:500|502|503|504)$")
 
@@ -83,13 +83,14 @@ def run_gate(diff_path, primary_path, backup_path, output_path, env=None, runner
     env = os.environ if env is None else env
     runner = subprocess.run if runner is None else runner
     diff = diff_path.read_text(encoding="utf-8")
-    chunks = split_review_diff(diff, max_chars=20_000, max_parts=24)
+    primary_provider = env.get("PRIMARY_REVIEW_PROVIDER", "kie")
+    chunks = review_chunks(primary_provider, diff)
+    backup_chunks = review_chunks("compatible", diff)
     digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
     primary = load(primary_path)
     result = {"status": "BLOCKED", "diff_sha256": digest,
               "reason": "primary independent review incomplete",
               "reviewer": None, "segments_expected": len(chunks)}
-    primary_provider = env.get("PRIMARY_REVIEW_PROVIDER", "kie")
     if primary_provider not in ("kie", "anthropic"):
         result["reason"] = "invalid primary reviewer configuration"
     elif verified_complete(primary, primary_provider, chunks, digest):
@@ -103,7 +104,7 @@ def run_gate(diff_path, primary_path, backup_path, output_path, env=None, runner
             try:
                 runner(command, env=env, check=False, timeout=600)
                 alternate = load(backup_path)
-                if verified_complete(alternate, "compatible", chunks, digest):
+                if verified_complete(alternate, "compatible", backup_chunks, digest):
                     result.update(status="PASS", reason=None, reviewer="compatible")
                 else:
                     result["reason"] = "backup independent review incomplete"
