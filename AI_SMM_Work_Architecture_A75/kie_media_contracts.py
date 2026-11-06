@@ -112,6 +112,83 @@ def kling_omni_transformation(prompt, video_url, metadata: VideoMetadata,
     return {"model":"kling-3.0-omni/transformation","input":body}
 
 
+
+def kling_omni_reference_to_video(prompt, image_urls=(), *, video_url=None,
+                                  metadata=None, duration=5, resolution="720p",
+                                  aspect_ratio=None, audio=None,
+                                  customize_multi_shots=False,
+                                  prefer_multi_shots=False, multi_prompt=()):
+    """Create documented Reference-to-Video payload, with no task submission.
+
+    Image-only reference creates video from stills. Video-only and video+image
+    reference follow separate API branches, with no invented I2V capability in
+    the Transformation model.
+    """
+    images = _images(image_urls, 7 if video_url is None else 4)
+    has_video = video_url is not None
+    if not has_video and not images:
+        raise ValueError("reference-to-video needs images or source video")
+    if has_video:
+        if not isinstance(metadata, VideoMetadata):
+            raise ValueError("reference-video metadata required")
+        metadata.validate()
+    elif metadata is not None:
+        raise ValueError("video metadata supplied without video")
+    if type(duration) is not int or duration < 3 or duration > 15:
+        raise ValueError("reference video duration must be 3-15 seconds")
+    if resolution not in ("720p", "1080p", "4k"):
+        raise ValueError("unsupported reference video resolution")
+    if audio is None:
+        audio = not has_video
+    if type(audio) is not bool or (has_video and audio):
+        raise ValueError("source video mode cannot synthesize audio")
+    if aspect_ratio is None:
+        aspect_ratio = "auto" if has_video and not images else "16:9"
+    if aspect_ratio not in (frozenset(("auto",)) if has_video and not images else VIDEO_RATIOS):
+        raise ValueError("reference video aspect ratio incompatible with sources")
+    if type(customize_multi_shots) is not bool or type(prefer_multi_shots) is not bool:
+        raise ValueError("invalid multi-shot switches")
+    if customize_multi_shots and prefer_multi_shots:
+        raise ValueError("custom and automatic shot planning conflict")
+    if customize_multi_shots and has_video:
+        raise ValueError("custom shots require image-only input")
+    if not isinstance(multi_prompt, (list, tuple)):
+        raise ValueError("invalid shot list")
+    if customize_multi_shots:
+        if not 1 <= len(multi_prompt) <= 6:
+            raise ValueError("custom shot count out of range")
+        shots = []
+        for shot in multi_prompt:
+            if not isinstance(shot, dict) or set(shot) != {"prompt", "duration"}:
+                raise ValueError("invalid custom shot")
+            seconds = shot["duration"]
+            if type(seconds) is not int or not 1 <= seconds <= 12:
+                raise ValueError("invalid custom shot duration")
+            shots.append({"prompt": _prompt(shot["prompt"], 512), "duration": seconds})
+        if sum(shot["duration"] for shot in shots) > 15:
+            raise ValueError("custom shot sum exceeds 15 seconds")
+        if sum(shot["duration"] for shot in shots) != duration:
+            raise ValueError("shot durations must sum to output duration")
+    elif multi_prompt:
+        raise ValueError("custom shots require customize_multi_shots")
+    body = {"prompt": _prompt(prompt, 3072), "resolution": resolution,
+            "aspect_ratio": aspect_ratio, "audio": audio}
+    if has_video:
+        body["video_urls"] = [_url(video_url)]
+    if images or not has_video:
+        body["image_urls"] = images
+    if not has_video:
+        if customize_multi_shots:
+            body["customize_multi_shots"] = True
+            body["multi_prompt"] = shots
+        elif prefer_multi_shots:
+            body["prefer_multi_shots"] = True
+        body["duration"] = duration
+    elif images:
+        body["duration"] = duration
+    return {"model": "kling-3.0-omni/reference-to-video", "input": body}
+
+
 def extract_task_id(response):
     """Kie can return HTTP 200 even when its JSON envelope code is not 200."""
     if not isinstance(response,dict) or response.get("code")!=200:
