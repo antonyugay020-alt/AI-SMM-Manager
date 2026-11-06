@@ -27,3 +27,6 @@ Cost/effort: prioritize architecture, reliable bounded model calls and reproduci
 
 ## Execution note (2026-11-06)
 The initial cloud Codex invocation was blocked by an unsupported `--full-auto` flag (the API key was present). This run must use the repaired `codex exec --sandbox workspace-write` invocation. Do not treat that launcher failure as a defect in project source; focus on the complete P0 architecture task above.
+
+## Cloud execution preflight (2026-11-06, third invocation)
+The second workflow reached Codex but API responses returned HTTP 401 (no Authorization header). The cloud launcher now performs ephemeral Codex CLI API-key authentication from GitHub Secret via stdin before execution. If auth fails, stop and report; never print credentials. Continue the full architectural workstream unchanged.
