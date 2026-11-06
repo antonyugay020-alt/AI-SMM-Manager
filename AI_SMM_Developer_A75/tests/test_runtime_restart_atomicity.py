@@ -86,7 +86,13 @@ class RuntimeRestartAtomicityTests(unittest.TestCase):
         self.db.close()
         self.db=open_application_database(self.database,self.root)
         self.core=ApplicationRuntime(self.db,lambda pid:self.root/pid)
-        self.assertEqual(self.core.recover_inflight(),{'execution_attempts':1,'batch_items':1})
+        # Opening the database fences stale process attempts as part of the
+        # schema migration, before any new Qt/runtime worker can own them.
+        # Explicit recovery must therefore be idempotent for execution attempts.
+        self.assertEqual(self.core.recover_inflight(),{'execution_attempts':0,'batch_items':1})
+        with self.assertRaises(ValueError):
+            self.core.executions.authorize_result(a[1],active_project_id='a')
+        self.assertEqual(self.db.execute('SELECT state FROM execution_attempts WHERE attempt_id=?',(a[1].attempt_id,)).fetchone(),('interrupted',))
         self.assertEqual(self.core.batches.pending('a').paths,(a[3].source_path,))
         self.assertEqual(self.db.execute('SELECT status FROM ai_task_registry WHERE task_id=?',(a[0],)).fetchone(),('active',))
 
