@@ -28,12 +28,32 @@ def main():
     output.mkdir(exist_ok=True)
     log=output/'codex_output.log'
     status={'status':'BLOCKED','agent':'codex','phase':'coding','exit_code':None}
-    # Do not log the prompt, API keys or environment variables.
+    # Authenticate the ephemeral runner explicitly. Codex exec may not infer a
+    # usable session from OPENAI_API_KEY alone; never put the key in argv or logs.
+    # The runner is disposable and should not persist ~/.codex between jobs.
+    try:
+        login=subprocess.run(
+            ['codex','login','--with-api-key'],
+            input=os.environ['OPENAI_API_KEY']+'\\n',
+            text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=60, check=False)
+        if login.returncode != 0:
+            status['reason']='Codex API-key login failed; inspect GitHub secret validity and API account access'
+            (output/'codex.json').write_text(json.dumps(status,indent=2)+'\\n',encoding='utf-8')
+            print('BLOCKED: Codex could not authenticate; no secret content logged',file=sys.stderr)
+            return 2
+    except (OSError,subprocess.TimeoutExpired) as exc:
+        status['reason']='Codex API-key login unavailable: '+type(exc).__name__
+        (output/'codex.json').write_text(json.dumps(status,indent=2)+'\\n',encoding='utf-8')
+        print('BLOCKED: Codex authentication did not complete',file=sys.stderr)
+        return 2
+    # Read credentials from this runner's Codex auth store, not from an
+    # environment-only mode that may send requests without a bearer header.
     command=['codex','exec','--sandbox','workspace-write',PROMPT+task]
     try:
         with log.open('w',encoding='utf-8') as stream:
             result=subprocess.run(command,cwd=ROOT,stdout=stream,stderr=subprocess.STDOUT,
-                                  timeout=5400,check=False)
+                                  timeout=5400,check=False,env={k:v for k,v in os.environ.items() if k!='OPENAI_API_KEY'})
         status['exit_code']=result.returncode
         if result.returncode != 0:raise RuntimeError('Codex exited with an error')
         status['status']='PASS'
