@@ -84,6 +84,9 @@ def configured_cloud_models(env=None):
 
 def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
                   response_format=None):
+    if provider == 'openai':
+        from paid_provider_boundary import require_priced_paid_call
+        require_priced_paid_call('openai', 'text_chat')
     if provider == 'gemini':
         system = '\n'.join(str(m.get('content') or '') for m in messages
                            if isinstance(m, dict) and m.get('role') == 'system')
@@ -164,6 +167,17 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         raise ValueError('Неизвестный формат облачной модели')
     provider, model_id = parsed
     env = os.environ if environ is None else environ
+    if provider == 'openai':
+        from paid_provider_boundary import require_priced_paid_call
+        require_priced_paid_call('openai', 'text_chat')
+    elif provider in ('groq', 'gemini'):
+        # A free-tier model ID alone is not permission to use an API key.
+        acknowledgement = ('AI_SMM_GROQ_FREE_TIER_ACK' if provider == 'groq'
+                           else 'AI_SMM_GEMINI_FREE_TIER_ACK')
+        if str(env.get(acknowledgement, '')).strip() != '1':
+            from cost_authorization import PaymentDenied
+            raise PaymentDenied('Free-tier provider acknowledgement required')
+
     key_name = _KEYS[provider]
     if provider == 'openai':
         from cloud_credentials import get_openai_key

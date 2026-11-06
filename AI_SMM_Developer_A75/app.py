@@ -776,6 +776,10 @@ class CloudEditWorker(QThread):
         self.source,self.reference,self.output,self.instruction,self.api_key=source,(reference if (mentions_reference(instruction) if use_reference is None else use_reference) else None),output,instruction,api_key
     def run(self):
         try:
+            # The worker itself enforces the paid-call gate, even if invoked
+            # without the GUI or from a stale queued batch.
+            from paid_provider_boundary import require_priced_paid_call
+            require_priced_paid_call('openai', 'image_edit')
             boundary='AISMM'+uuid4().hex
             chunks=[]
             def field(name, value):
@@ -3480,8 +3484,38 @@ class Studio(QMainWindow):
         layout=QVBoxLayout(dialog)
         layout.addWidget(QLabel('AI-агент использует доступные инструменты. Облачные операции — только с разрешения.'))
         layout.addWidget(QLabel('Состояние: '+', '.join(k+': '+('доступно' if v else 'не подключено') for k,v in available_tools().items())))
+        from durable_cost_gate import DurableCostGate
+        try:
+            cost_gate = DurableCostGate(DB)
+            usage = cost_gate.usage()
+            budget_text = QLabel(
+                f"Месячный лимит: ${usage['cap_usd']:.2f}; "
+                f"учтено и зарезервировано: ${usage['committed_usd']:.2f}; "
+                f"доступно: ${usage['available_usd']:.2f}")
+            layout.addWidget(budget_text)
+            budget_button = QPushButton('Изменить месячный лимит расходов (USD)')
+            def update_budget():
+                current = float(cost_gate.usage()['cap_usd'])
+                amount, accepted = QInputDialog.getDouble(
+                    dialog, 'Месячный лимит AI', 'Новый лимит, USD:',
+                    current, 0.0, 1000000.0, 2)
+                if not accepted:
+                    return
+                try:
+                    cost_gate.set_monthly_cap(f'{amount:.2f}')
+                    fresh = cost_gate.usage()
+                    budget_text.setText(
+                        f"Месячный лимит: ${fresh['cap_usd']:.2f}; "
+                        f"учтено и зарезервировано: ${fresh['committed_usd']:.2f}; "
+                        f"доступно: ${fresh['available_usd']:.2f}")
+                except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+                    QMessageBox.warning(dialog, 'Бюджет AI', str(exc))
+            budget_button.clicked.connect(update_budget)
+            layout.addWidget(budget_button)
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+            layout.addWidget(QLabel('Бюджет недоступен: '+str(exc)))
         layout.addWidget(QLabel('Режим генерации:'))
-        selector=QComboBox();selector.addItems(['Локально: Qwen Image Edit 2509 (тяжёлая модель)','OpenAI API (с подтверждением каждой отправки)','Hugging Face Space (публичный Gradio API)'])
+        selector=QComboBox();selector.addItems(['Локально: Qwen Image Edit 2509 (тяжёлая модель)','OpenAI API (заблокирован до проверки цены и бюджета)','Hugging Face Space (публичный Gradio API)'])
         selector.setCurrentIndex(getattr(self,'engine_mode',0));layout.addWidget(selector)
         layout.addWidget(QLabel('OpenAI API-ключ (только в памяти до закрытия программы):'))
         key=QLineEdit();key.setEchoMode(QLineEdit.Password)
@@ -3720,8 +3754,11 @@ class Studio(QMainWindow):
         if not prompt:
             self.append_chat('Система','Введите команду для всех выбранных фотографий.');return
         mode=getattr(self,'engine_mode',0)
-        if mode==1 and not get_openai_key():
-            self.append_chat('Система','Для облачной обработки сначала укажите API-ключ.');return
+        if mode==1:
+            self.append_chat('Система',
+                'Платная пакетная обработка отключена: нет проверенной верхней цены '
+                'за каждый файл и отдельного разрешения на каждую операцию.')
+            return
         if mode==2:
             self.append_chat('Система','Пакетная обработка через HF Space пока не поддерживается. Используйте одиночное редактирование.')
             return
@@ -3943,6 +3980,15 @@ class Studio(QMainWindow):
     def cloud_generate(self, prompt, confirmed=False, *, use_reference=None):
         if not self.checked_source():
             self.append_chat('Система', 'Выберите допустимый исходник, отличный от эталона.')
+            return
+        # A Yes/No prompt with unknown price is not spending authorization.
+        # Keep this fail-closed until a provider quote and per-call permit exist.
+        from paid_provider_boundary import require_priced_paid_call
+        from cost_authorization import PaymentDenied
+        try:
+            require_priced_paid_call('openai', 'image_edit')
+        except PaymentDenied as exc:
+            self.append_chat('Система', str(exc))
             return
         if not get_openai_key():
             self.append_chat('Система','Для облачной генерации откройте «AI-движки» и введите API-ключ OpenAI.')

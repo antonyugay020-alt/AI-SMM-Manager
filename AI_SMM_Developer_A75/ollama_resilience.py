@@ -257,6 +257,12 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
     model = str(payload.get('model') or '').strip()
     from text_providers import parse_cloud_model
     cloud_model = parse_cloud_model(model)
+    from text_providers import is_ollama_cloud_tag
+    if is_ollama_cloud_tag(model):
+        # Cloud-tagged Ollama models can consume paid remote quotas; a local
+        # endpoint is not proof that inference happens locally or is free.
+        from paid_provider_boundary import require_priced_paid_call
+        require_priced_paid_call('ollama_cloud', 'text_chat')
     req = None
     if cloud_model is None:
         req = urllib.request.Request(endpoint,

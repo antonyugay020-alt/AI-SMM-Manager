@@ -46,7 +46,7 @@ def default_central_model(env=None):
 
 def request_central_dialogue(payload, *, stage, timeout=180, attempts=1, report=None):
     primary = str(payload.get('model') or default_central_model()).strip()
-    mode = os.environ.get('AI_SMM_DIALOGUE_MODE', 'hybrid').strip().lower()
+    mode = os.environ.get('AI_SMM_DIALOGUE_MODE', 'local').strip().lower()
     if mode not in {'hybrid', 'gpt', 'local'}:
         raise ValueError('AI_SMM_DIALOGUE_MODE должен быть hybrid, gpt или local')
     local = str(os.environ.get('AI_SMM_LOCAL_DIALOGUE_MODEL', 'qwen3:8b')).strip()
