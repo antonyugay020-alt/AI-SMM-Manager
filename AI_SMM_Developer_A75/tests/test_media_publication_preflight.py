@@ -7,6 +7,7 @@ from unittest.mock import patch
 from PIL import Image
 import project_result_registry
 import result_publication_runtime
+import batch_runtime
 from application_bootstrap import open_application_database
 from application_core import ApplicationRuntime
 
@@ -66,3 +67,27 @@ class PublicationPreflightTests(unittest.TestCase):
         second=ApplicationRuntime(reopened,lambda p:self.root/p).publish_result(
             'a','image',str(self.output),operation_id='image:a')
         self.assertEqual(first,second)
+
+    def test_batch_create_claim_and_finish_stream_outside_sqlite_transaction(self):
+        original=batch_runtime.capture
+        def checked(*args,**kwargs):
+            self.assertFalse(self.db.in_transaction)
+            return original(*args,**kwargs)
+        with patch.object(batch_runtime,'capture',side_effect=checked), \
+             patch.object(batch_runtime,'_fingerprint',side_effect=AssertionError('batch hash inside transaction')):
+            run=self.core.batches.create('a',[str(self.source)],'edit',0)
+            claim=self.core.batches.claim('a',run.batch_id,str(self.source))
+            self.core.publish_result('a','image',str(self.output),batch_claim=claim)
+            self.core.batches.finish('a',run.batch_id)
+        self.assertEqual(self.db.execute('SELECT status FROM batch_runs').fetchone(),('completed',))
+
+    def test_batch_original_mutation_after_preflight_rolls_back_create(self):
+        original=batch_runtime.capture
+        def mutate(*args,**kwargs):
+            result=original(*args,**kwargs)
+            Image.new('RGB',(16,16)).save(self.source)
+            return result
+        with patch.object(batch_runtime,'capture',side_effect=mutate):
+            with self.assertRaisesRegex(ValueError,'changed'):
+                self.core.batches.create('a',[str(self.source)],'edit',0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM batch_runs').fetchone()[0],0)

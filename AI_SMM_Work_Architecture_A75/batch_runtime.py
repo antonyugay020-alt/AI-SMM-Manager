@@ -14,7 +14,7 @@ import sqlite3
 from hashlib import sha256
 from sqlite_transaction_core import own
 from project_file_boundary import require_managed_file
-from file_evidence import unchanged
+from file_evidence import capture, unchanged
 
 
 def _now():
@@ -125,16 +125,16 @@ class BatchRuntime:
 
     def create(self,pid,paths,prompt,mode,*,batch_id=None,timestamp=None):
         self._free()
-        if not isinstance(prompt,str) or not prompt.strip():
-            raise ValueError('Empty batch instruction')
-        if type(mode) is not int or mode not in (0,1):
-            raise ValueError('Unsupported batch engine mode')
+        if not isinstance(prompt,str) or not prompt.strip():raise ValueError('Empty batch instruction')
+        if type(mode) is not int or mode not in (0,1):raise ValueError('Unsupported batch engine mode')
+        valid=self._validate_sources(pid,paths)
+        evidence={path:capture(path,allow_empty=True) for path in valid}
         with own(self.db):
             self._check(pid)
-            valid=self._validate_sources(pid,paths)
+            if any(not unchanged(evidence[path]) for path in valid):
+                raise ValueError('Batch original changed during creation')
             ident=batch_id or uuid4().hex
-            if not isinstance(ident,str) or not ident.strip():
-                raise ValueError('Invalid batch identity')
+            if not isinstance(ident,str) or not ident.strip():raise ValueError('Invalid batch identity')
             created=timestamp or _now()
             self.db.execute('''INSERT INTO batch_runs
                 (id,project_id,prompt,engine_mode,queue_json,total,status,updated_at)
@@ -143,7 +143,8 @@ class BatchRuntime:
             self.db.executemany('''INSERT INTO batch_item_receipts
                 (batch_id,position,project_id,source_path,status,source_sha256,source_size,updated_at)
                 VALUES(?,?,?,?,'pending',?,?,?)''',
-                [(ident,i,pid,path,*_fingerprint(path),created) for i,path in enumerate(valid)])
+                [(ident,i,pid,path,evidence[path].digest,evidence[path].size,created)
+                 for i,path in enumerate(valid)])
         return BatchReceipt(ident,pid,prompt,mode,valid,len(valid),'running')
 
     def _row(self,pid,batch_id):
@@ -168,13 +169,17 @@ class BatchRuntime:
         return paths
 
     def advance(self,pid,batch_id,*,timestamp=None):
-        '''Atomically select/claim the next durable item, or verify and finish.
-
-        Qt must not infer queue progress from a mutable local list. A claim is
-        returned only for the first uncompleted item; None means every receipt
-        and on-disk output was verified and the batch was durably completed.
-        '''
+        """Claim first pending item or atomically finish verified outputs."""
         self._free()
+        candidate=self.db.execute('''SELECT source_path FROM batch_item_receipts
+            WHERE project_id=? AND batch_id=? AND status!='completed'
+            ORDER BY position LIMIT 1''',(pid,batch_id)).fetchone()
+        source=None;outputs=None
+        if candidate:
+            self._validate_sources(pid,(candidate[0],))
+            source=capture(candidate[0],allow_empty=True)
+        else:
+            outputs=self._preflight_outputs(pid,batch_id)
         with own(self.db):
             state,total=self._row(pid,batch_id)
             if state!='running':raise ValueError('Batch is not running')
@@ -183,13 +188,14 @@ class BatchRuntime:
                 FROM batch_item_receipts WHERE project_id=? AND batch_id=?
                 AND status!='completed' ORDER BY position LIMIT 1''',(pid,batch_id)).fetchone()
             if row is None:
-                self._verify_outputs(pid,batch_id)
+                if outputs is None:raise ValueError('Batch queue changed during preflight')
+                self._verify_outputs(pid,batch_id,outputs)
                 self._refresh_queue(pid,batch_id,status='completed',timestamp=timestamp)
                 return None
             path,status,digest,size=row
             if status=='running':raise ValueError('Batch item already claimed by a worker')
-            self._validate_sources(pid,(path,))
-            if digest is None or size is None or _fingerprint(path)!=(digest,size):
+            if (source is None or str(source.path)!=path or digest is None or size is None or
+                    (source.digest,source.size)!=(digest,size) or not unchanged(source)):
                 raise ValueError('Batch original changed or has no verified fingerprint')
             token=uuid4().hex
             changed=self.db.execute('''UPDATE batch_item_receipts SET status='running',
@@ -200,19 +206,43 @@ class BatchRuntime:
             if changed!=1:raise RuntimeError('Batch item claim was not acquired')
             return BatchClaim(batch_id,pid,path,token)
 
-    def _verify_outputs(self,pid,batch_id):
-        for result_path,digest,size in self.db.execute('''SELECT result_path,result_sha256,result_size
+    def _preflight_outputs(self,pid,batch_id):
+        """Stream each result before SQLite write locking, then fence its identity."""
+        evidence={}
+        for path,digest,size in self.db.execute('''SELECT result_path,result_sha256,result_size
+            FROM batch_item_receipts WHERE project_id=? AND batch_id=?
+            ORDER BY position''',(pid,batch_id)).fetchall():
+            if not path or not digest or size is None:
+                raise ValueError('Batch has a legacy/unverified output receipt')
+            output=require_managed_file(Path(self.workspace(pid)),path,('processed',))
+            if not output.is_file():raise ValueError('Batch output missing or modified since publication')
+            observed=capture(output)
+            if (observed.digest,observed.size)!=(digest,size):
+                raise ValueError('Batch output missing or modified since publication')
+            evidence[str(output)]=observed
+        return evidence
+
+    def _verify_outputs(self,pid,batch_id,evidence):
+        for path,digest,size in self.db.execute('''SELECT result_path,result_sha256,result_size
             FROM batch_item_receipts WHERE project_id=? AND batch_id=?
             ORDER BY position''',(pid,batch_id)):
-            if not result_path or not digest or size is None:
+            if not path or not digest or size is None:
                 raise ValueError('Batch has a legacy/unverified output receipt')
-            output=require_managed_file(Path(self.workspace(pid)),result_path,('processed',))
-            if not output.is_file() or _fingerprint(output)!=(digest,size):
+            output=require_managed_file(Path(self.workspace(pid)),path,('processed',))
+            observed=evidence.get(str(output))
+            if observed is None or (observed.digest,observed.size)!=(digest,size) or not unchanged(observed):
                 raise ValueError('Batch output missing or modified since publication')
 
     def claim(self,pid,batch_id,path,*,timestamp=None):
-        """Claim one remaining item; retry requires a new token."""
+        """Claim a durable item; full source fingerprinting occurs before BEGIN."""
         self._free()
+        candidate=self.db.execute('''SELECT source_path FROM batch_item_receipts
+            WHERE project_id=? AND batch_id=? AND status!='completed'
+            ORDER BY position LIMIT 1''',(pid,batch_id)).fetchone()
+        evidence=None
+        if candidate and candidate[0]==path:
+            self._validate_sources(pid,[path])
+            evidence=capture(path,allow_empty=True)
         with own(self.db):
             state,total=self._row(pid,batch_id)
             if state!='running':raise ValueError('Batch is not running')
@@ -223,10 +253,10 @@ class BatchRuntime:
             if first is None or first[0]!=path:
                 raise ValueError('Cannot claim an unowned or out-of-order source')
             if first[1]=='running':raise ValueError('Batch item already claimed by a worker')
-            self._validate_sources(pid,[path])
             expected=self.db.execute('''SELECT source_sha256,source_size FROM batch_item_receipts
                 WHERE project_id=? AND batch_id=? AND source_path=?''',(pid,batch_id,path)).fetchone()
-            if not expected or expected[0] is None or expected[1] is None or _fingerprint(path)!=tuple(expected):
+            if (evidence is None or not expected or expected[0] is None or expected[1] is None
+                    or (evidence.digest,evidence.size)!=tuple(expected) or not unchanged(evidence)):
                 raise ValueError('Batch original changed or has no verified fingerprint')
             token=uuid4().hex
             changed=self.db.execute('''UPDATE batch_item_receipts SET status='running',
@@ -317,6 +347,9 @@ class BatchRuntime:
 
     def finish(self,pid,batch_id,*,timestamp=None):
         self._free()
+        pending=self.db.execute('''SELECT COUNT(*) FROM batch_item_receipts
+            WHERE project_id=? AND batch_id=? AND status!='completed' ''',(pid,batch_id)).fetchone()[0]
+        outputs=self._preflight_outputs(pid,batch_id) if not pending else None
         with own(self.db):
             state,total=self._row(pid,batch_id)
             if state!='running':raise ValueError('Batch is not running')
@@ -324,7 +357,8 @@ class BatchRuntime:
             remaining=self.db.execute('''SELECT COUNT(*) FROM batch_item_receipts
                 WHERE project_id=? AND batch_id=? AND status!='completed' ''',(pid,batch_id)).fetchone()[0]
             if remaining:raise ValueError('Cannot finish batch without all verified result receipts')
-            self._verify_outputs(pid,batch_id)
+            if outputs is None:raise ValueError('Batch completion changed during preflight')
+            self._verify_outputs(pid,batch_id,outputs)
             self._refresh_queue(pid,batch_id,status='completed',timestamp=timestamp)
 
     def cancel(self,pid,batch_id,*,timestamp=None):
