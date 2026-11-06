@@ -1,0 +1,35 @@
+name: AI SMM / Anthropic direct connection (one-time)
+
+# Manual only: intentionally no paid requests on source pushes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  anthropic-direct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Validate independent reviewer transport (offline)
+        run: python -m unittest discover -s ci -p 'test_*review*.py' -v
+      - name: One bounded direct Anthropic request
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || 'claude-sonnet-4-5' }}
+        run: python ci/anthropic_direct_smoke.py
+      - name: Retain sanitized outcome even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anthropic-direct-smoke
+          path: ci_evidence/anthropic_direct_status.json
+          if-no-files-found: warn
+          retention-days: 7
