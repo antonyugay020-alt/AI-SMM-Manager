@@ -18,7 +18,7 @@ from project_file_boundary import require_managed_folder,require_managed_file
 
 _NAME=re.compile(r'[0-9a-f]{32}\.[a-z0-9]{1,12}\Z')
 _SHA=re.compile(r'[a-f0-9]{64}\Z')
-_KINDS={'asset':'originals','reference':'references','result':'processed'}
+_KINDS={'asset':'originals','reference':'references','result':'processed','video':'processed'}
 
 
 def _now():return datetime.now(timezone.utc).isoformat()
@@ -42,17 +42,17 @@ def _digest(path):
 def install(db):
     db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
         id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
-        CHECK(kind IN ('asset','reference','result')),source_sha256 TEXT NOT NULL,
+        CHECK(kind IN ('asset','reference','result','video')),source_sha256 TEXT NOT NULL,
         source_size INTEGER NOT NULL,filename TEXT NOT NULL,
         state TEXT NOT NULL CHECK(state IN ('pending','done')),
         attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL)''')
     # One schema migration for existing installations; rebuild preserves all receipts.
     sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
-    if "'result'" not in sql:
+    if "'result'" not in sql or "'video'" not in sql:
         db.execute("""CREATE TABLE media_ingest_jobs_v2 (
             id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
-            CHECK(kind IN ('asset','reference','result')), source_sha256 TEXT NOT NULL,
+            CHECK(kind IN ('asset','reference','result','video')), source_sha256 TEXT NOT NULL,
             source_size INTEGER NOT NULL, filename TEXT NOT NULL,
             state TEXT NOT NULL CHECK(state IN ('pending','done')),
             attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
