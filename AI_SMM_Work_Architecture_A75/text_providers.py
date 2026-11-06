@@ -106,7 +106,7 @@ def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_
                 raise ValueError('Anthropic: system messages must precede dialogue')
             system.append(content)
         elif chat and chat[-1]['role'] == role:
-            chat[-1]['content'] += '\\n\\n' + content
+            chat[-1]['content'] += '\n\n' + content
         else:
             chat.append({'role': role, 'content': content})
     if not chat or chat[0]['role'] != 'user' or chat[-1]['role'] != 'user':
@@ -116,7 +116,7 @@ def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_
     body = {'model': model_id, 'max_tokens': 4096, 'messages': chat,
             'temperature': temperature}
     if system:
-        body['system'] = '\\n\\n'.join(system)
+        body['system'] = '\n\n'.join(system)
     req = urllib.request.Request(
         'https://api.anthropic.com/v1/messages',
         data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
@@ -135,7 +135,7 @@ def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_
             not isinstance(block, dict) or block.get('type') != 'text'
             or not isinstance(block.get('text'), str) for block in blocks):
         raise ValueError('Anthropic: unexpected response content')
-    text = '\\n'.join(block['text'] for block in blocks).strip()
+    text = '\n'.join(block['text'] for block in blocks).strip()
     if not text:
         raise ValueError('Anthropic: empty response')
     if response_format == 'json_object':
