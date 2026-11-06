@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [kie]
+        provider: [anthropic]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -43,39 +43,41 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
-      - name: Restore verified partial review evidence
+      - name: Restore verified partial direct Anthropic evidence
         uses: actions/cache/restore@v4
         with:
-          path: ci_evidence/review_kie.json
-          key: kie-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci_evidence/review_anthropic.json
+          key: anthropic-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            kie-review-${{ github.event.pull_request.number }}-
-      - name: Primary independent Claude audit (fail-closed)
+            anthropic-review-${{ github.event.pull_request.number }}-
+      - name: Primary direct Anthropic Claude audit (fail-closed)
         id: primary
         continue-on-error: true
         env:
-          KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
-        run: python ci/independent_review.py --provider kie --diff review_input.diff --output ci_evidence/review_kie.json
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || 'claude-sonnet-4-5' }}
+        run: python ci/independent_review.py --provider anthropic --diff review_input.diff --output ci_evidence/review_anthropic.json
       - name: Verify full coverage; optional independent provider only after transient outage
         env:
+          PRIMARY_REVIEW_PROVIDER: anthropic
           ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
           # Gemini 2.5 Pro returns 404 for newly provisioned accounts.
           # Google's 404 response recommends gemini-3.1-pro-preview.
           ALT_REVIEW_MODEL: gemini-3.1-pro-preview
-        run: python ci/review_provider_gate.py --diff review_input.diff --primary ci_evidence/review_kie.json --backup ci_evidence/review_compatible.json --output ci_evidence/review_gate.json
-      - name: Save reviewed segments for safe continuation
-        if: ${{ always() && hashFiles('ci_evidence/review_kie.json') != '' }}
+        run: python ci/review_provider_gate.py --diff review_input.diff --primary ci_evidence/review_anthropic.json --backup ci_evidence/review_compatible.json --output ci_evidence/review_gate.json
+      - name: Save reviewed direct Anthropic segments for safe continuation
+        if: ${{ always() && hashFiles('ci_evidence/review_anthropic.json') != '' }}
         uses: actions/cache/save@v4
         with:
-          path: ci_evidence/review_kie.json
-          key: kie-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci_evidence/review_anthropic.json
+          key: anthropic-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: independent-review-${{ matrix.provider }}
           path: |
-            ci_evidence/review_kie.json
+            ci_evidence/review_anthropic.json
             ci_evidence/review_compatible.json
             ci_evidence/review_gate.json
           if-no-files-found: warn
