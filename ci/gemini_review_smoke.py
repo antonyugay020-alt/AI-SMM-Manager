@@ -66,6 +66,31 @@ def main():
                         model for model in candidates if "pro" in model
                     ][:20]
                     evidence["model_inventory_status"] = "PASS"
+                    configured = os.environ.get("ALT_REVIEW_API_URL", "").strip()
+                    canonical = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                    evidence["compatible_endpoint_exact"] = configured == canonical
+                    # A native API fallback diagnostic differentiates a malformed
+                    # OpenAI-compatible endpoint from unavailable credentials.
+                    if configured == canonical and requested in candidates:
+                        native = urllib.request.Request(
+                            "https://generativelanguage.googleapis.com/v1beta/models/"
+                            + requested + ":generateContent",
+                            data=json.dumps({"contents": [{"parts": [{
+                                "text": "Reply with only the word OK."
+                            }]}], "generationConfig": {"maxOutputTokens": 32}}
+                            ).encode("utf-8"),
+                            headers={"x-goog-api-key": os.environ["ALT_REVIEW_API_KEY"],
+                                     "Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        try:
+                            with urllib.request.urlopen(native, timeout=40) as response:
+                                response.read(50_000)
+                            evidence["native_endpoint_status"] = "PASS"
+                        except urllib.error.HTTPError as native_error:
+                            evidence["native_endpoint_status"] = "HTTP " + str(native_error.code)
+                        except (OSError, ValueError):
+                            evidence["native_endpoint_status"] = "BLOCKED"
                 except urllib.error.HTTPError as inventory_error:
                     evidence["model_inventory_status"] = "HTTP " + str(inventory_error.code)
                 except (OSError, ValueError, KeyError):
