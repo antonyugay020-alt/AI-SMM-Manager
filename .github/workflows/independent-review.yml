@@ -56,7 +56,7 @@ jobs:
           KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
         run: python ci/independent_review.py --provider ${{ matrix.provider }} --diff review_input.diff --output ci_evidence/review_${{ matrix.provider }}.json
       - name: Save reviewed segments for safe continuation
-        if: always()
+        if: ${{ always() && hashFiles('ci_evidence/review_kie.json') != '' }}
         uses: actions/cache/save@v4
         with:
           path: ci_evidence/review_kie.json
