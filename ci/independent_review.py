@@ -122,7 +122,10 @@ def request_review(provider: str, diff: str):
         if not key or not model or not url:raise RuntimeError('ALT_REVIEW_API_* / ALT_REVIEW_MODEL missing')
         if not url.startswith('https://'):raise RuntimeError('review API must use HTTPS')
         headers={'Authorization':'Bearer '+key}
-        payload={'model':model,'temperature':0,'messages':[
+        payload={'model':model,'temperature':0,
+                 'response_format':{'type':'json_object'},
+                 'max_tokens':8192,
+                 'messages':[
             {'role':'system','content':REVIEW_SYSTEM},{'role':'user','content':diff}]}
     else:raise ValueError('unknown provider')
     request=urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'),method='POST',headers={
