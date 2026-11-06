@@ -33,8 +33,12 @@ class LiveTransport(QThread):
                                  "model": response["model"], "scope": "Qt transport only"})
         except Exception as exc:
             # Emit the class only, NEVER raw exception text/HTTP body/API key.
-            self.completed.emit({"status": "BLOCKED", "error_type": type(exc).__name__,
-                                 "scope": "Qt transport only"})
+            from provider_errors import ProviderHTTPError
+            failure = {"status": "BLOCKED", "error_type": type(exc).__name__,
+                       "scope": "Qt transport only"}
+            if isinstance(exc, ProviderHTTPError):
+                failure["http_status"] = exc.status_code
+            self.completed.emit(failure)
 
 def main():
     app = QCoreApplication([])
