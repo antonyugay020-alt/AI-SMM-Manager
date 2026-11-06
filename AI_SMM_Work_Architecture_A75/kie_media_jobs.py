@@ -127,6 +127,35 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False):
     return provider_id
 
 
+
+def _validate_media_bytes(path, *, is_video):
+    """Verify bytes before they cross the project publication boundary."""
+    if path.stat().st_size > (500 if is_video else 60)*1024*1024:
+        raise ValueError("downloaded Kie media exceeds maximum size")
+    if not is_video:
+        from PIL import Image
+        expected="PNG" if path.suffix.lower()==".png" else "JPEG"
+        with Image.open(path) as image:
+            if image.format!=expected:
+                raise ValueError("downloaded photo MIME does not match output")
+            image.verify()
+    else:
+        import subprocess
+        try:
+            probe=subprocess.run(
+                ["ffprobe","-v","error","-show_entries",
+                 "stream=codec_type:format=duration","-of","json",str(path)],
+                timeout=15, capture_output=True, check=True)
+            metadata=json.loads(probe.stdout)
+        except (OSError,subprocess.SubprocessError,ValueError) as exc:
+            raise ValueError("downloaded video failed ffprobe verification") from exc
+        if not any(item.get("codec_type")=="video"
+                   for item in metadata.get("streams",[]) if isinstance(item,dict)):
+            raise ValueError("downloaded media has no video stream")
+        if float(metadata.get("format",{}).get("duration",0))<=0:
+            raise ValueError("downloaded video duration invalid")
+
+
 def complete(db, project_id, job_id, query_task, fetch_verified_file,
              workspace):
     """Query task via injected documented adapter; publish verified owned bytes.
@@ -169,12 +198,33 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         raise ValueError("Kie task returned no single verified result URL")
     from kie_media_contracts import _url
     _url(urls[0])
-    from media_ingest_core import ingest
+    from media_ingest_core import ingest, replay
     from project_file_boundary import require_managed_folder
+    # Crash-safe reconciliation: a prior run may have durably published the
+    # result and crashed before marking the remote task completed.
+    existing=db.execute("""SELECT kind,path FROM project_files WHERE id=?
+        AND project_id=?""",(job_id,project_id)).fetchone()
+    if existing is not None:
+        expected_kind="video" if model.startswith("kling-") else "result"
+        if existing[0]!=expected_kind:
+            raise ValueError("existing media receipt has wrong content kind")
+        replay(db,workspace,project_id=project_id)
+        resolved=Path(existing[1])
+        root=Path(workspace(project_id))
+        if (resolved.parent!=root/"processed" or resolved.is_symlink()
+                or not resolved.is_file()):
+            raise ValueError("existing media receipt has unsafe location")
+        db.execute("""UPDATE kie_media_tasks SET state='completed',
+            output_path=?,updated_at=? WHERE id=? AND project_id=?
+            AND state='submitted'""",(str(resolved),utcnow(),job_id,project_id))
+        db.commit()
+        return str(resolved)
     root=Path(workspace(project_id))
     spool=require_managed_folder(root,".kie_downloads")
     spool.mkdir(parents=True,exist_ok=True)
-    ext=".mp4" if model.startswith("kling-") else ".png"
+    fmt=json.loads(row[1])["input"].get("output_format","png")
+    ext=".mp4" if model.startswith("kling-") else (
+        ".jpg" if fmt in ("jpg","jpeg") else ".png")
     staged=spool/(job_id+ext)
     if staged.exists() or staged.is_symlink():
         raise ValueError("stale media staging file requires reconciliation")
@@ -182,8 +232,10 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         fetch_verified_file(urls[0],staged)
         if not staged.is_file() or staged.is_symlink() or staged.stat().st_size==0:
             raise ValueError("downloaded Kie result missing or invalid")
+        _validate_media_bytes(staged, is_video=model.startswith("kling-"))
+        kind="video" if model.startswith("kling-") else "result"
         receipt=ingest(db,workspace,staged,project_id=project_id,
-                       kind="result",original_name="kie-"+job_id+ext,
+                       kind=kind,original_name="kie-"+job_id+ext,
                        item_id=job_id)
         if not receipt.published:
             raise RuntimeError("media result committed but publication pending")
