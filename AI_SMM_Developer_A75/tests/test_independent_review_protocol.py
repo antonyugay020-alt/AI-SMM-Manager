@@ -77,6 +77,14 @@ class IndependentReviewProtocolTests(unittest.TestCase):
                 '{"verdict":"APPROVE","critical_findings":[],"notes":"ok"}'
             )
 
+    def test_critical_finding_requires_explanation(self):
+        with self.assertRaisesRegex(ValueError, "malformed finding"):
+            REVIEW.parse_verdict(
+                '{"verdict":"REJECT","critical_findings":'
+                '[{"file":"example.py","reason":"   "}],'
+                '"confidence":"high","notes":"finding cannot be empty"}'
+            )
+
     def test_unknown_review_status_is_rejected(self):
         with self.assertRaises(ValueError):
             REVIEW.parse_verdict(
