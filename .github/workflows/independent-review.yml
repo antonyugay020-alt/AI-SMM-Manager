@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: write  # Required only to persist PR-scoped cache after a failed audit
+
+# Prevent concurrent paid calls for successive updates to the same PR.
+# Cancel superseded reviews before they spend credits or publish stale results.
+concurrency:
+  group: independent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   independent-review:
@@ -28,24 +35,46 @@ jobs:
         with:
           python-version: '3.14'
       - name: Verify independent reviewer transport and fail-closed contract
-        run: python -m unittest discover -s ci -p test_independent_review_kie.py -v
-      - name: Probe Kie Claude with small bounded request before full audit
-        env:
-          KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
-        run: python ci/kie_review_smoke.py
+        run: python -m unittest discover -s ci -p 'test_*review*.py' -v
+      # No billable preflight: the first missing PR segment is itself the live probe.
+      # The offline contract tests above verify transport formatting without credits.
       - name: Export PR diff as data, without executing PR code
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
-      - name: Independent model audit
+      - name: Restore verified partial review evidence
+        uses: actions/cache/restore@v4
+        with:
+          path: ci_evidence/review_kie.json
+          key: kie-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            kie-review-${{ github.event.pull_request.number }}-
+      - name: Primary independent Claude audit (fail-closed)
+        id: primary
+        continue-on-error: true
         env:
           KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
-        run: python ci/independent_review.py --provider ${{ matrix.provider }} --diff review_input.diff --output ci_evidence/review_${{ matrix.provider }}.json
+        run: python ci/independent_review.py --provider kie --diff review_input.diff --output ci_evidence/review_kie.json
+      - name: Verify full coverage; optional independent provider only after transient outage
+        env:
+          ALT_REVIEW_API_KEY: ${{ secrets.ALT_REVIEW_API_KEY }}
+          ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
+          ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
+        run: python ci/review_provider_gate.py --diff review_input.diff --primary ci_evidence/review_kie.json --backup ci_evidence/review_compatible.json --output ci_evidence/review_gate.json
+      - name: Save reviewed segments for safe continuation
+        if: ${{ always() && hashFiles('ci_evidence/review_kie.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ci_evidence/review_kie.json
+          key: kie-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: independent-review-${{ matrix.provider }}
-          path: ci_evidence/review_${{ matrix.provider }}.json
+          path: |
+            ci_evidence/review_kie.json
+            ci_evidence/review_compatible.json
+            ci_evidence/review_gate.json
           if-no-files-found: warn
           retention-days: 30
