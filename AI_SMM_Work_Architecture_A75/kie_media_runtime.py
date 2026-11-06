@@ -65,12 +65,34 @@ class KieMediaGateway:
         self.query_task=query_task
         self.fetch_verified_file=fetch_verified_file
 
-    def _upload_image_refs(self, paths, *, limit, kling=False):
-        urls=[]
-        for path in paths:
-            image=verified_image(path,limit_mb=limit,kling=kling)
-            urls.append(_url(self.upload_file(image)))
-        return urls
+    def _authorized(self, project_id, filename):
+        """Only source assets already registered to the launch project may leave it."""
+        from project_file_boundary import reject_path_link, require_managed_file
+        if not isinstance(project_id,str) or not project_id:
+            raise ValueError("project owner required")
+        db=self.db
+        if not db.execute("SELECT 1 FROM projects WHERE id=?",(project_id,)).fetchone():
+            raise ValueError("project owner not found")
+        root=Path(self.workspace(project_id))
+        source=Path(filename)
+        reject_path_link(source)
+        source=source.resolve(strict=True)
+        if not source.is_file():
+            raise ValueError("uploaded source is not a regular file")
+        require_managed_file(root,source,("originals","references","processed"))
+        authorized=db.execute("""SELECT 1 FROM assets
+              WHERE project_id=? AND stored_path=?
+              UNION ALL SELECT 1 FROM project_files
+              WHERE project_id=? AND path=? LIMIT 1""",
+              (project_id,str(source),project_id,str(source))).fetchone()
+        if authorized is None:
+            raise ValueError("media source is not registered to project")
+        return source
+
+    def _upload_image_refs(self, project_id, paths, *, limit, kling=False):
+        validated=[verified_image(self._authorized(project_id,p),limit_mb=limit,
+                                  kling=kling) for p in paths]
+        return [_url(self.upload_file(image)) for image in validated]
 
     def prepare_image(self, project_id, *, prompt, sources, pro=True,
                       aspect_ratio="1:1",resolution="1K",output_format=None):
@@ -78,7 +100,7 @@ class KieMediaGateway:
         sources=list(sources)
         if not sources or len(sources)>(8 if pro else 10):
             raise ValueError("image editing needs 1-8/10 reference sources")
-        urls=self._upload_image_refs(sources,limit=30 if pro else 10)
+        urls=self._upload_image_refs(project_id,sources,limit=30 if pro else 10)
         if pro:
             payload=nano_banana_pro(prompt, urls,aspect_ratio,resolution,
                                     output_format or "png")
@@ -95,11 +117,11 @@ class KieMediaGateway:
         images=list(source_images)
         if len(images)>(7 if source_video is None else 4):
             raise ValueError("too many Kling reference images")
-        urls=self._upload_image_refs(images,limit=50,kling=True)
+        urls=self._upload_image_refs(project_id,images,limit=50,kling=True)
         video_url=None
         metadata=None
         if source_video is not None:
-            local,metadata=verified_video(source_video)
+            local,metadata=verified_video(self._authorized(project_id,source_video))
             video_url=_url(self.upload_file(local))
         if reference_mode:
             payload=kling_omni_reference_to_video(
