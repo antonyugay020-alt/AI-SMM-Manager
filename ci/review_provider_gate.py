@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 
-from independent_review import parse_verdict, review_chunks
+from independent_review import parse_verdict, review_chunks, split_review_diff
 
 TRANSIENT = re.compile(r"^provider HTTP status (?:500|502|503|504)$")
 
