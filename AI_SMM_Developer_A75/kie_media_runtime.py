@@ -57,13 +57,14 @@ def verified_video(path):
 
 class KieMediaGateway:
     def __init__(self, db, workspace, *, upload_file, create_task,
-                 query_task, fetch_verified_file):
+                 query_task, fetch_verified_file=None):
+        from kie_media_download import download_result
         self.db=db
         self.workspace=workspace
         self.upload_file=upload_file
         self.create_task=create_task
         self.query_task=query_task
-        self.fetch_verified_file=fetch_verified_file
+        self.fetch_verified_file=fetch_verified_file or download_result
 
     def _authorized(self, project_id, filename):
         """Only source assets already registered to the launch project may leave it."""
