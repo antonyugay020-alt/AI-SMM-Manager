@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# Run the complete matrix on the newest source snapshot only. Historical
+# runs remain in GitHub, but superseded commits cannot consume Windows runners.
+concurrency:
+  group: ai-smm-cross-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   regression:
     name: ${{ matrix.os }} / shard ${{ matrix.shard }}
