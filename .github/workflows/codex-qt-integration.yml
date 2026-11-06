@@ -28,8 +28,13 @@ jobs:
           node-version: 'lts/*'
       - name: Work directly on the existing draft integration branch
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The private feature branch requires authentication. Only this
+          # checkout step receives GH_TOKEN; the Codex subprocess does not.
+          gh auth setup-git
           git fetch origin codex/architecture-42191626323
           git switch --track origin/codex/architecture-42191626323
           python ci/verify_tree.py
