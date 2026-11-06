@@ -1,0 +1,4 @@
+"""Work A75 semantic contextual dialogue, typed actions and clarifications; NOT RELEASE."""
+CANDIDATE_ID = "AI_SMM_WORK_A75_REVIEW_LIFECYCLE_WIP14_NOT_RELEASE"
+EXPECTED_FOLDER = "AI_SMM_Work_Architecture_A75"
+SOURCE_STAGE = "Stage 75 / Work A75 R97: post-execution ownership, atomic result acceptance, post-commit notices, task-specific document reuse; role-separated source ledger, immutable execution parameters, atomic pending cancellation, correct rename/export argument order; resource-bound AI actions, canonical fixed output types, explicit system contract feedback; contextual AI dialogue for every GUI message; typed actions/clarification/resource ownership; independent text review and factual persistence; one-file report with actual trace coverage; live models and Windows R97 NOT VERIFIED; NOT RELEASE; Stage76 absent"

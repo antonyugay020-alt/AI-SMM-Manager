@@ -1,0 +1,3 @@
+# Set real GitHub code owners after the private repository is created.
+# Protect .github/workflows, ci, release_guard.py and windows_acceptance.py
+# with branch rules, restricted writes and required approvals.

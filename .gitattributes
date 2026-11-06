@@ -1,0 +1,10 @@
+# Stable bytes and source fingerprints across Linux/Windows GitHub runners.
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.ini text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf

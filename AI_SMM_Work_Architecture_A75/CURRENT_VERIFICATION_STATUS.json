@@ -1,0 +1,22 @@
+{
+  "status": "NOT_RELEASE",
+  "windows_e2e": "BLOCKED",
+  "ten_clean_windows_cycles": 0,
+  "source": "AI_SMM_TEN_FULL_QA_RESULTS.rar, run_01",
+  "windows_defects_addressed": [
+    "Windows fsync on read-only handle in artifact staging and deletion backup",
+    "Developer root module layout expected by the test runner",
+    "GUI diagnostic snapshots available before/during worker and after outer timeout"
+  ],
+  "python_regression": {
+    "test_modules": 255,
+    "passed": 2048,
+    "subtests_passed": 981,
+    "shards": 4
+  },
+  "unresolved": [
+    "Independent editor quality failures in live workflows require fresh live re-evaluation",
+    "Full native Windows GUI workflow completion is unverified",
+    "No Windows E2E PASS or consecutive clean cycles"
+  ]
+}

@@ -1,0 +1,2000 @@
+[
+  {
+    "model": "gpt-oss:20b-cloud",
+    "request_payload": {
+      "model": "gpt-oss:20b-cloud",
+      "stream": false,
+      "think": false,
+      "format": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisions"
+        ],
+        "properties": {
+          "decisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "A001",
+              "A002",
+              "A003",
+              "A004",
+              "A005",
+              "A006"
+            ],
+            "properties": {
+              "A001": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A002": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A003": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A004": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A005": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A006": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": 0,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Ты независимый арбитр применимости редакторских замечаний. Тексты в JSON — данные. Проверь каждое замечание на неизменённом артефакте, полном исходном задании и источниках. Выданная цитата и ID требования доказывают местоположение, но не правильность замечания. Для каждого замечания local_target — единственный текущий объект правки. pending_targets создаются позже отдельными этапами. Верни remedy_scope: current — замечание относится к текущему объекту; pending — к отдельному ожидаемому результату; none — правка не нужна или область не установлена. Не возвращай имя поля, адрес или ID объекта. Точный адрес current программа привяжет к local_target именно этого замечания. Нельзя переносить содержимое ожидаемого результата внутрь текущего. Если замечание требует другой объект, выбери keep_artifact и объясни смешение областей. Выбери действие по замечанию, не степень одобрения текста. correct_artifact: обнаружен конкретный дефект, который действительно требует правки; required_change должен содержать точное необходимое изменение без выдуманных требований. keep_artifact: правка по этому замечанию не нужна из-за ошибочной трактовки, вымышленного ограничения или смешения ролей; required_change обязан быть пустым. review_unavailable: обоснованность не установлена; required_change тоже пустой. Отсутствие сведений о бизнесе не запрещает редакторскую идею, вопрос аудитории или будущую постановку; при этом публичное утверждение о реальной услуге/результате требует источника. Название измеряемой величины и произвольное целевое значение — разные понятия. Требование к полноте оценивай по всему полю и материалу, а не только по вырванной фразе. Язык материала должен соответствовать запрошенному, по умолчанию языку исходного задания. Не выдумывай факты и не отменяй содержательный дефект ради получения PASS. quality_criterion, если присутствует, содержит выданное программой определение критерия и область артефакта. Проверь применимость по нему и исходному заданию; он не добавляет фактов бизнеса и не разрешает требовать неизвестные услуги или статистику. Для keep_artifact объясни конкретную ошибку рассуждения редактора. Не переписывай текст и не объявляй артефакт готовым. Верни только решения по выданным ID."
+        },
+        {
+          "role": "user",
+          "content": "{\"original_request\": \"Проверь только существующие поля текущего документа «Текущий_04cbbdddbb». Отдельный документ «Следующий_04cbbdddbb» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_04cbbdddbb»: параметр «топаз» имеет значение 54. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «янтарь кедр». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_04cbbdddbb» нельзя вставлять в текущий документ. Поле «требование_1_04cbbdddbb»: дословно включи «янтарь кедр». Поле «структура_2_04cbbdddbb»: обязательна строка с меткой «Решение» и описанием действия. Поле «поле_3_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb». Поле «поле_4_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb». Поле «требование_5_04cbbdddbb»: дословно включи «янтарь кедр».\", \"artifact_fields\": {\"требование_1_04cbbdddbb\": \"Требование выполнено: янтарь кедр.\", \"структура_2_04cbbdddbb\": \"Вводная заметка о документе «Текущий_04cbbdddbb».\", \"поле_3_04cbbdddbb\": \"Параметр «топаз» имеет значение 54.\", \"поле_4_04cbbdddbb\": \"Параметр «топаз» имеет значение 92.\", \"требование_5_04cbbdddbb\": \"Требование выполнено: ирис клён.\", \"поле_6_04cbbdddbb\": \"План документа «Текущий_04cbbdddbb». Решение: выполнить описанное действие.\"}, \"review_findings\": [{\"id\": \"A001\", \"finding\": {\"field\": \"требование_1_04cbbdddbb\", \"quote\": \"Требование выполнено: янтарь кедр.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_04cbbdddbb\"], \"pending_artifacts\": [\"Следующий_04cbbdddbb\"]}}, \"local_target\": \"требование_1_04cbbdddbb\", \"pending_targets\": [\"Следующий_04cbbdddbb\"]}, {\"id\": \"A002\", \"finding\": {\"field\": \"структура_2_04cbbdddbb\", \"quote\": \"Вводная заметка о документе «Текущий_04cbbdddbb».\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_04cbbdddbb\"], \"pending_artifacts\": [\"Следующий_04cbbdddbb\"]}}, \"local_target\": \"структура_2_04cbbdddbb\", \"pending_targets\": [\"Следующий_04cbbdddbb\"]}, {\"id\": \"A003\", \"finding\": {\"field\": \"поле_3_04cbbdddbb\", \"quote\": \"Параметр «топаз» имеет значение 54.\", \"reason\": \"Значение параметра не подтверждено источником «Источник_04cbbdddbb».\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_04cbbdddbb\"], \"pending_artifacts\": [\"Следующий_04cbbdddbb\"]}}, \"local_target\": \"поле_3_04cbbdddbb\", \"pending_targets\": [\"Следующий_04cbbdddbb\"]}, {\"id\": \"A004\", \"finding\": {\"field\": \"поле_4_04cbbdddbb\", \"quote\": \"Параметр «топаз» имеет значение 92.\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_04cbbdddbb\"], \"pending_artifacts\": [\"Следующий_04cbbdddbb\"]}}, \"local_target\": \"поле_4_04cbbdddbb\", \"pending_targets\": [\"Следующий_04cbbdddbb\"]}, {\"id\": \"A005\", \"finding\": {\"field\": \"требование_5_04cbbdddbb\", \"quote\": \"Требование выполнено: ирис клён.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_04cbbdddbb\"], \"pending_artifacts\": [\"Следующий_04cbbdddbb\"]}}, \"local_target\": \"требование_5_04cbbdddbb\", \"pending_targets\": [\"Следующий_04cbbdddbb\"]}, {\"id\": \"A006\", \"finding\": {\"field\": \"поле_6_04cbbdddbb\", \"quote\": \"План документа «Текущий_04cbbdddbb». Решение: выполнить описанное действие.\", \"reason\": \"В текущем документе отсутствует отдельный ожидаемый документ «Следующий_04cbbdddbb»; добавьте его целиком.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_04cbbdddbb\"], \"pending_artifacts\": [\"Следующий_04cbbdddbb\"]}}, \"local_target\": \"поле_6_04cbbdddbb\", \"pending_targets\": [\"Следующий_04cbbdddbb\"]}], \"requirements\": {\"R0001_f2aa3a58\": \"Проверь только существующие поля текущего документа «Текущий_04cbbdddbb».\", \"R0002_fb4a843f\": \"Отдельный документ «Следующий_04cbbdddbb» должен создаваться позже;\", \"R0003_da3801ac\": \"его отсутствие сейчас допустимо.\", \"R0004_cc2be754\": \"Подтверждённый источник «Источник_04cbbdddbb»: параметр «топаз» имеет значение 54.\", \"R0005_5fe2260f\": \"В полях о параметре нужен именно этот подтверждённый факт без изменённых значений.\", \"R0006_8df8101c\": \"В обоих полях с названием «требование» должна дословно присутствовать фраза «янтарь кедр».\", \"R0007_87d65790\": \"Для поля «структура» нужна строка с меткой «Решение» и описанием действия.\", \"R0008_00d0069e\": \"Документ «Следующий_04cbbdddbb» нельзя вставлять в текущий документ.\", \"R0009_00044995\": \"Поле «требование_1_04cbbdddbb»: дословно включи «янтарь кедр».\", \"R0010_750e653a\": \"Поле «структура_2_04cbbdddbb»: обязательна строка с меткой «Решение» и описанием действия.\", \"R0011_d40b2fd5\": \"Поле «поле_3_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb».\", \"R0012_1be72c7b\": \"Поле «поле_4_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb».\", \"R0013_55f1fd8d\": \"Поле «требование_5_04cbbdddbb»: дословно включи «янтарь кедр».\", \"G_language\": \"Язык пользовательского текста соответствует явно запрошенному языку, по умолчанию языку исходного задания; имена собственные и обозначения допустимы.\", \"G_requested_form\": \"Форма доступного артефакта соответствует запрошенной; наличие других артефактов проверяется отдельно.\", \"G_requested_tone\": \"Тон и подача доступного текста соответствуют исходному запросу.\", \"G_clarity\": \"Текст должен быть понятным и связным; причина должна объяснять конкретную неясность.\", \"G_grammar\": \"Отмечай конкретную грамматическую или языковую ошибку.\", \"G_repetition\": \"Отмечай бессодержательное повторение, мешающее прочтению.\", \"G_editorial_meta\": \"Не вставляй служебные инструкции и описание аудитории из ТЗ как готовую публичную речь для читателя (caption, CTA, реплики). Стратегия и внутренние поля планирования вправе описывать аудиторию, цели, производство и измерение; это не публичная речь. Оценивай роль конкретного поля и вид артефакта.\"}, \"source_context\": {\"schema_version\": 1, \"sources\": [{\"source_id\": \"user_request:c712b41a4d1602b1\", \"type\": \"user_request\", \"label\": \"Исходный запрос пользователя\", \"content\": \"Проверь только существующие поля текущего документа «Текущий_04cbbdddbb». Отдельный документ «Следующий_04cbbdddbb» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_04cbbdddbb»: параметр «топаз» имеет значение 54. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «янтарь кедр». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_04cbbdddbb» нельзя вставлять в текущий документ. Поле «требование_1_04cbbdddbb»: дословно включи «янтарь кедр». Поле «структура_2_04cbbdddbb»: обязательна строка с меткой «Решение» и описанием действия. Поле «поле_3_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb». Поле «поле_4_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb». Поле «требование_5_04cbbdddbb»: дословно включи «янтарь кедр».\"}], \"unknowns\": [], \"conflicts\": []}}"
+        }
+      ],
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192,
+        "num_predict": 1800
+      }
+    },
+    "response": {
+      "model": "gpt-oss:20b",
+      "created_at": "2026-10-30T06:53:03.921527042Z",
+      "message": {
+        "role": "assistant",
+        "content": "{\"decisions\": {\"A001\": {\"action\": \"correct_artifact\", \"reason\": \"В тексте присутствует лишнее слово «Требование выполнено», а требуемая фраза должна быть только «янтарь кедр».\", \"remedy_scope\": \"current\", \"required_change\": \"\\\"янтарь кедр\\\"\"}, \"A002\": {\"action\": \"correct_artifact\", \"reason\": \"Поле «структура» не содержит обязательную строку с меткой «Решение» и описанием действия.\", \"remedy_scope\": \"current\", \"required_change\": \"\\\"Решение: выполнить описанное действие.\\\"\"}, \"A003\": {\"action\": \"keep_artifact\", \"reason\": \"Значение параметра «топаз» соответствует подтверждённому источнику 54.\", \"remedy_scope\": \"none\", \"required_change\": \"\"}, \"A004\": {\"action\": \"correct_artifact\", \"reason\": \"Значение параметра «топаз» отличается от подтверждённого источника (92 вместо 54).\", \"remedy_scope\": \"current\", \"required_change\": \"\\\"Параметр «топаз» имеет значение 54.\\\"\"}, \"A005\": {\"action\": \"correct_artifact\", \"reason\": \"В тексте присутствует лишнее слово «Требование выполнено», а требуемая фраза должна быть только «янтарь кедр».\", \"remedy_scope\": \"current\", \"required_change\": \"\\\"янтарь кедр\\\"\"}, \"A006\": {\"action\": \"keep_artifact\", \"reason\": \"Требование не предусматривает вставку отдельного документа «Следующий_04cbbdddbb» в поле «поле_6_04cbbdddbb»; текущий контент соответствует требованиям.\", \"remedy_scope\": \"none\", \"required_change\": \"\"}}}",
+        "thinking": "We need decisions for each A001-A006. Evaluate.\n\nA001: field contains \"Требование выполнено: янтарь кедр.\" It includes phrase \"янтарь кедр\" but requirement says must be exactly phrase \"янтарь кедр\" without extra words. So defect. remedy_scope current. required_change: replace value with \"янтарь кедр\". action correct_artifact.\n\nA002: field lacks \"Решение:\" etc. So correct_artifact. required_change: prepend \"Решение: \" and description. But we don't know description. Just need string with label and description. We can say \"Решение: выполнить описанное действие.\" But that's already in field6. But requirement: string with label \"Решение\" and description. So we can set to \"Решение: выполнить описанное действие.\" action correct_artifact.\n\nA003: field value matches source 54. So no issue. keep_artifact.\n\nA004: value 92 wrong. So correct_artifact. required_change: set to \"Параметр «топаз» имеет значение 54.\"\n\nA005: similar to A001. correct_artifact. required_change: \"янтарь кедр\".\n\nA006: requirement says document \"Следующий\" cannot be inserted. Field6 currently has plan including \"Решение\". But requirement says field6 should be separate document? Actually requirement: \"Поле «поле_6_04cbbdddbb»: значение параметра должно соответствовать источнику «Источник_04cbbdddbb».\" Wait that's not. Actually field6 is plan. The review says missing separate expected document. But requirement doesn't mention field6. So maybe keep_artifact. The review says add separate document. But requirement doesn't require. So keep_artifact.\n\nReturn JSON.",
+        "tool_calls": [
+          {
+            "id": "call_jij5grs6",
+            "function": {
+              "index": 0,
+              "name": "return_structured_result",
+              "arguments": {
+                "decisions": {
+                  "A001": {
+                    "action": "correct_artifact",
+                    "reason": "В тексте присутствует лишнее слово «Требование выполнено», а требуемая фраза должна быть только «янтарь кедр».",
+                    "remedy_scope": "current",
+                    "required_change": "\"янтарь кедр\""
+                  },
+                  "A002": {
+                    "action": "correct_artifact",
+                    "reason": "Поле «структура» не содержит обязательную строку с меткой «Решение» и описанием действия.",
+                    "remedy_scope": "current",
+                    "required_change": "\"Решение: выполнить описанное действие.\""
+                  },
+                  "A003": {
+                    "action": "keep_artifact",
+                    "reason": "Значение параметра «топаз» соответствует подтверждённому источнику 54.",
+                    "remedy_scope": "none",
+                    "required_change": ""
+                  },
+                  "A004": {
+                    "action": "correct_artifact",
+                    "reason": "Значение параметра «топаз» отличается от подтверждённого источника (92 вместо 54).",
+                    "remedy_scope": "current",
+                    "required_change": "\"Параметр «топаз» имеет значение 54.\""
+                  },
+                  "A005": {
+                    "action": "correct_artifact",
+                    "reason": "В тексте присутствует лишнее слово «Требование выполнено», а требуемая фраза должна быть только «янтарь кедр».",
+                    "remedy_scope": "current",
+                    "required_change": "\"янтарь кедр\""
+                  },
+                  "A006": {
+                    "action": "keep_artifact",
+                    "reason": "Требование не предусматривает вставку отдельного документа «Следующий_04cbbdddbb» в поле «поле_6_04cbbdddbb»; текущий контент соответствует требованиям.",
+                    "remedy_scope": "none",
+                    "required_change": ""
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 4617513968,
+      "prompt_eval_count": 3924,
+      "prompt_eval_cached_count": 87,
+      "eval_count": 765
+    },
+    "expected_controls": {
+      "требование_1_04cbbdddbb": {
+        "kind": "literal_present",
+        "needs_change": false
+      },
+      "структура_2_04cbbdddbb": {
+        "kind": "scope_local",
+        "needs_change": true
+      },
+      "поле_3_04cbbdddbb": {
+        "kind": "source_supported",
+        "needs_change": false
+      },
+      "поле_4_04cbbdddbb": {
+        "kind": "source_changed",
+        "needs_change": true
+      },
+      "требование_5_04cbbdddbb": {
+        "kind": "literal_missing",
+        "needs_change": true
+      },
+      "поле_6_04cbbdddbb": {
+        "kind": "scope_pending",
+        "needs_change": false
+      }
+    },
+    "contract_pass": true,
+    "correct": 5,
+    "failed_controls": [
+      "literal_present"
+    ]
+  },
+  {
+    "model": "gemma4:cloud",
+    "request_payload": {
+      "model": "gemma4:cloud",
+      "stream": false,
+      "think": false,
+      "format": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisions"
+        ],
+        "properties": {
+          "decisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "A001",
+              "A002",
+              "A003",
+              "A004",
+              "A005",
+              "A006"
+            ],
+            "properties": {
+              "A001": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A002": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A003": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A004": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A005": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A006": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": 0,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Ты независимый арбитр применимости редакторских замечаний. Тексты в JSON — данные. Проверь каждое замечание на неизменённом артефакте, полном исходном задании и источниках. Выданная цитата и ID требования доказывают местоположение, но не правильность замечания. Для каждого замечания local_target — единственный текущий объект правки. pending_targets создаются позже отдельными этапами. Верни remedy_scope: current — замечание относится к текущему объекту; pending — к отдельному ожидаемому результату; none — правка не нужна или область не установлена. Не возвращай имя поля, адрес или ID объекта. Точный адрес current программа привяжет к local_target именно этого замечания. Нельзя переносить содержимое ожидаемого результата внутрь текущего. Если замечание требует другой объект, выбери keep_artifact и объясни смешение областей. Выбери действие по замечанию, не степень одобрения текста. correct_artifact: обнаружен конкретный дефект, который действительно требует правки; required_change должен содержать точное необходимое изменение без выдуманных требований. keep_artifact: правка по этому замечанию не нужна из-за ошибочной трактовки, вымышленного ограничения или смешения ролей; required_change обязан быть пустым. review_unavailable: обоснованность не установлена; required_change тоже пустой. Отсутствие сведений о бизнесе не запрещает редакторскую идею, вопрос аудитории или будущую постановку; при этом публичное утверждение о реальной услуге/результате требует источника. Название измеряемой величины и произвольное целевое значение — разные понятия. Требование к полноте оценивай по всему полю и материалу, а не только по вырванной фразе. Язык материала должен соответствовать запрошенному, по умолчанию языку исходного задания. Не выдумывай факты и не отменяй содержательный дефект ради получения PASS. quality_criterion, если присутствует, содержит выданное программой определение критерия и область артефакта. Проверь применимость по нему и исходному заданию; он не добавляет фактов бизнеса и не разрешает требовать неизвестные услуги или статистику. Для keep_artifact объясни конкретную ошибку рассуждения редактора. Не переписывай текст и не объявляй артефакт готовым. Верни только решения по выданным ID."
+        },
+        {
+          "role": "user",
+          "content": "{\"original_request\": \"Проверь только существующие поля текущего документа «Текущий_90916a5382». Отдельный документ «Следующий_90916a5382» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_90916a5382»: параметр «клён» имеет значение 68. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «сапфир берилл». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_90916a5382» нельзя вставлять в текущий документ. Поле «требование_1_90916a5382»: дословно включи «сапфир берилл». Поле «требование_2_90916a5382»: дословно включи «сапфир берилл». Поле «поле_4_90916a5382»: значение параметра должно соответствовать источнику «Источник_90916a5382». Поле «поле_5_90916a5382»: значение параметра должно соответствовать источнику «Источник_90916a5382». Поле «структура_6_90916a5382»: обязательна строка с меткой «Решение» и описанием действия.\", \"artifact_fields\": {\"требование_1_90916a5382\": \"Требование выполнено: янтарь агат.\", \"требование_2_90916a5382\": \"Требование выполнено: сапфир берилл.\", \"поле_3_90916a5382\": \"План документа «Текущий_90916a5382». Решение: выполнить описанное действие.\", \"поле_4_90916a5382\": \"Параметр «клён» имеет значение 68.\", \"поле_5_90916a5382\": \"Параметр «клён» имеет значение 91.\", \"структура_6_90916a5382\": \"Вводная заметка о документе «Текущий_90916a5382».\"}, \"review_findings\": [{\"id\": \"A001\", \"finding\": {\"field\": \"требование_1_90916a5382\", \"quote\": \"Требование выполнено: янтарь агат.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_90916a5382\"], \"pending_artifacts\": [\"Следующий_90916a5382\"]}}, \"local_target\": \"требование_1_90916a5382\", \"pending_targets\": [\"Следующий_90916a5382\"]}, {\"id\": \"A002\", \"finding\": {\"field\": \"требование_2_90916a5382\", \"quote\": \"Требование выполнено: сапфир берилл.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_90916a5382\"], \"pending_artifacts\": [\"Следующий_90916a5382\"]}}, \"local_target\": \"требование_2_90916a5382\", \"pending_targets\": [\"Следующий_90916a5382\"]}, {\"id\": \"A003\", \"finding\": {\"field\": \"поле_3_90916a5382\", \"quote\": \"План документа «Текущий_90916a5382». Решение: выполнить описанное действие.\", \"reason\": \"В текущем документе отсутствует отдельный ожидаемый документ «Следующий_90916a5382»; добавьте его целиком.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_90916a5382\"], \"pending_artifacts\": [\"Следующий_90916a5382\"]}}, \"local_target\": \"поле_3_90916a5382\", \"pending_targets\": [\"Следующий_90916a5382\"]}, {\"id\": \"A004\", \"finding\": {\"field\": \"поле_4_90916a5382\", \"quote\": \"Параметр «клён» имеет значение 68.\", \"reason\": \"Значение параметра не подтверждено источником «Источник_90916a5382».\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_90916a5382\"], \"pending_artifacts\": [\"Следующий_90916a5382\"]}}, \"local_target\": \"поле_4_90916a5382\", \"pending_targets\": [\"Следующий_90916a5382\"]}, {\"id\": \"A005\", \"finding\": {\"field\": \"поле_5_90916a5382\", \"quote\": \"Параметр «клён» имеет значение 91.\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_90916a5382\"], \"pending_artifacts\": [\"Следующий_90916a5382\"]}}, \"local_target\": \"поле_5_90916a5382\", \"pending_targets\": [\"Следующий_90916a5382\"]}, {\"id\": \"A006\", \"finding\": {\"field\": \"структура_6_90916a5382\", \"quote\": \"Вводная заметка о документе «Текущий_90916a5382».\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_90916a5382\"], \"pending_artifacts\": [\"Следующий_90916a5382\"]}}, \"local_target\": \"структура_6_90916a5382\", \"pending_targets\": [\"Следующий_90916a5382\"]}], \"requirements\": {\"R0001_c87a59b0\": \"Проверь только существующие поля текущего документа «Текущий_90916a5382».\", \"R0002_152e09df\": \"Отдельный документ «Следующий_90916a5382» должен создаваться позже;\", \"R0003_da3801ac\": \"его отсутствие сейчас допустимо.\", \"R0004_bf1991c1\": \"Подтверждённый источник «Источник_90916a5382»: параметр «клён» имеет значение 68.\", \"R0005_5fe2260f\": \"В полях о параметре нужен именно этот подтверждённый факт без изменённых значений.\", \"R0006_90f6d5e0\": \"В обоих полях с названием «требование» должна дословно присутствовать фраза «сапфир берилл».\", \"R0007_87d65790\": \"Для поля «структура» нужна строка с меткой «Решение» и описанием действия.\", \"R0008_128e02e7\": \"Документ «Следующий_90916a5382» нельзя вставлять в текущий документ.\", \"R0009_50141bfc\": \"Поле «требование_1_90916a5382»: дословно включи «сапфир берилл».\", \"R0010_7098a0bd\": \"Поле «требование_2_90916a5382»: дословно включи «сапфир берилл».\", \"R0011_02352837\": \"Поле «поле_4_90916a5382»: значение параметра должно соответствовать источнику «Источник_90916a5382».\", \"R0012_35637e06\": \"Поле «поле_5_90916a5382»: значение параметра должно соответствовать источнику «Источник_90916a5382».\", \"R0013_72d2938e\": \"Поле «структура_6_90916a5382»: обязательна строка с меткой «Решение» и описанием действия.\", \"G_language\": \"Язык пользовательского текста соответствует явно запрошенному языку, по умолчанию языку исходного задания; имена собственные и обозначения допустимы.\", \"G_requested_form\": \"Форма доступного артефакта соответствует запрошенной; наличие других артефактов проверяется отдельно.\", \"G_requested_tone\": \"Тон и подача доступного текста соответствуют исходному запросу.\", \"G_clarity\": \"Текст должен быть понятным и связным; причина должна объяснять конкретную неясность.\", \"G_grammar\": \"Отмечай конкретную грамматическую или языковую ошибку.\", \"G_repetition\": \"Отмечай бессодержательное повторение, мешающее прочтению.\", \"G_editorial_meta\": \"Не вставляй служебные инструкции и описание аудитории из ТЗ как готовую публичную речь для читателя (caption, CTA, реплики). Стратегия и внутренние поля планирования вправе описывать аудиторию, цели, производство и измерение; это не публичная речь. Оценивай роль конкретного поля и вид артефакта.\"}, \"source_context\": {\"schema_version\": 1, \"sources\": [{\"source_id\": \"user_request:777740c32e61112f\", \"type\": \"user_request\", \"label\": \"Исходный запрос пользователя\", \"content\": \"Проверь только существующие поля текущего документа «Текущий_90916a5382». Отдельный документ «Следующий_90916a5382» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_90916a5382»: параметр «клён» имеет значение 68. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «сапфир берилл». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_90916a5382» нельзя вставлять в текущий документ. Поле «требование_1_90916a5382»: дословно включи «сапфир берилл». Поле «требование_2_90916a5382»: дословно включи «сапфир берилл». Поле «поле_4_90916a5382»: значение параметра должно соответствовать источнику «Источник_90916a5382». Поле «поле_5_90916a5382»: значение параметра должно соответствовать источнику «Источник_90916a5382». Поле «структура_6_90916a5382»: обязательна строка с меткой «Решение» и описанием действия.\"}], \"unknowns\": [], \"conflicts\": []}}"
+        }
+      ],
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192,
+        "num_predict": 1800
+      }
+    },
+    "response": {
+      "model": "gemma4",
+      "created_at": "2026-10-30T06:53:05.885212523Z",
+      "message": {
+        "role": "assistant",
+        "content": "{\"decisions\": {\"A001\": {\"action\": \"correct_artifact\", \"reason\": \"В поле «требование_1_90916a5382» отсутствует обязательная фраза «сапфир берилл», вместо неё указано «янтарь агат».\", \"remedy_scope\": \"current\", \"required_change\": \"Добавить в поле «требование_1_90916a5382» фразу «сапфир берилл».\"}, \"A002\": {\"action\": \"keep_artifact\", \"reason\": \"Редактор ошибочно утверждает, что фраза отсутствует, хотя в цитате «Требование выполнено: сапфир берилл» она присутствует дословно.\", \"remedy_scope\": \"none\", \"required_change\": \"\"}, \"A003\": {\"action\": \"keep_artifact\", \"reason\": \"Редактор требует добавить документ «Следующий_90916a5382», что прямо запрещено требованием R0008 и противоречит R0002, R0003.\", \"remedy_scope\": \"none\", \"required_change\": \"\"}, \"A004\": {\"action\": \"keep_artifact\", \"reason\": \"Значение «68» в поле полностью соответствует источнику «Источник_90916a5382» (R0004). Замечание необоснованно.\", \"remedy_scope\": \"none\", \"required_change\": \"\"}, \"A005\": {\"action\": \"correct_artifact\", \"reason\": \"Значение параметра «91» в поле «поле_5_90916a5382» противоречит источнику, где указано значение «68».\", \"remedy_scope\": \"current\", \"required_change\": \"Заменить значение «91» на «68» в поле «поле_5_90916a5382».\"}, \"A006\": {\"action\": \"correct_artifact\", \"reason\": \"В поле «структура_6_90916a5382» отсутствует обязательная строка с меткой «Решение» и описанием действия.\", \"remedy_scope\": \"current\", \"required_change\": \"Добавить в поле «структура_6_90916a5382» строку с меткой «Решение» и описанием действия.\"}}}",
+        "tool_calls": [
+          {
+            "id": "call_a7rllaen",
+            "function": {
+              "index": 0,
+              "name": "return_structured_result",
+              "arguments": {
+                "decisions": {
+                  "A001": {
+                    "action": "correct_artifact",
+                    "reason": "В поле «требование_1_90916a5382» отсутствует обязательная фраза «сапфир берилл», вместо неё указано «янтарь агат».",
+                    "remedy_scope": "current",
+                    "required_change": "Добавить в поле «требование_1_90916a5382» фразу «сапфир берилл»."
+                  },
+                  "A002": {
+                    "action": "keep_artifact",
+                    "reason": "Редактор ошибочно утверждает, что фраза отсутствует, хотя в цитате «Требование выполнено: сапфир берилл» она присутствует дословно.",
+                    "remedy_scope": "none",
+                    "required_change": ""
+                  },
+                  "A003": {
+                    "action": "keep_artifact",
+                    "reason": "Редактор требует добавить документ «Следующий_90916a5382», что прямо запрещено требованием R0008 и противоречит R0002, R0003.",
+                    "remedy_scope": "none",
+                    "required_change": ""
+                  },
+                  "A004": {
+                    "action": "keep_artifact",
+                    "reason": "Значение «68» в поле полностью соответствует источнику «Источник_90916a5382» (R0004). Замечание необоснованно.",
+                    "remedy_scope": "none",
+                    "required_change": ""
+                  },
+                  "A005": {
+                    "action": "correct_artifact",
+                    "reason": "Значение параметра «91» в поле «поле_5_90916a5382» противоречит источнику, где указано значение «68».",
+                    "remedy_scope": "current",
+                    "required_change": "Заменить значение «91» на «68» в поле «поле_5_90916a5382»."
+                  },
+                  "A006": {
+                    "action": "correct_artifact",
+                    "reason": "В поле «структура_6_90916a5382» отсутствует обязательная строка с меткой «Решение» и описанием действия.",
+                    "remedy_scope": "current",
+                    "required_change": "Добавить в поле «структура_6_90916a5382» строку с меткой «Решение» и описанием действия."
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 1729489398,
+      "prompt_eval_count": 4987,
+      "prompt_eval_cached_count": 0,
+      "eval_count": 569
+    },
+    "expected_controls": {
+      "требование_1_90916a5382": {
+        "kind": "literal_missing",
+        "needs_change": true
+      },
+      "требование_2_90916a5382": {
+        "kind": "literal_present",
+        "needs_change": false
+      },
+      "поле_3_90916a5382": {
+        "kind": "scope_pending",
+        "needs_change": false
+      },
+      "поле_4_90916a5382": {
+        "kind": "source_supported",
+        "needs_change": false
+      },
+      "поле_5_90916a5382": {
+        "kind": "source_changed",
+        "needs_change": true
+      },
+      "структура_6_90916a5382": {
+        "kind": "scope_local",
+        "needs_change": true
+      }
+    },
+    "contract_pass": true,
+    "correct": 6,
+    "failed_controls": []
+  },
+  {
+    "model": "deepseek-r1:8b",
+    "request_payload": {
+      "model": "deepseek-r1:8b",
+      "stream": false,
+      "think": false,
+      "format": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisions"
+        ],
+        "properties": {
+          "decisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "A001",
+              "A002",
+              "A003",
+              "A004",
+              "A005",
+              "A006"
+            ],
+            "properties": {
+              "A001": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A002": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A003": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A004": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A005": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A006": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": 0,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Ты независимый арбитр применимости редакторских замечаний. Тексты в JSON — данные. Проверь каждое замечание на неизменённом артефакте, полном исходном задании и источниках. Выданная цитата и ID требования доказывают местоположение, но не правильность замечания. Для каждого замечания local_target — единственный текущий объект правки. pending_targets создаются позже отдельными этапами. Верни remedy_scope: current — замечание относится к текущему объекту; pending — к отдельному ожидаемому результату; none — правка не нужна или область не установлена. Не возвращай имя поля, адрес или ID объекта. Точный адрес current программа привяжет к local_target именно этого замечания. Нельзя переносить содержимое ожидаемого результата внутрь текущего. Если замечание требует другой объект, выбери keep_artifact и объясни смешение областей. Выбери действие по замечанию, не степень одобрения текста. correct_artifact: обнаружен конкретный дефект, который действительно требует правки; required_change должен содержать точное необходимое изменение без выдуманных требований. keep_artifact: правка по этому замечанию не нужна из-за ошибочной трактовки, вымышленного ограничения или смешения ролей; required_change обязан быть пустым. review_unavailable: обоснованность не установлена; required_change тоже пустой. Отсутствие сведений о бизнесе не запрещает редакторскую идею, вопрос аудитории или будущую постановку; при этом публичное утверждение о реальной услуге/результате требует источника. Название измеряемой величины и произвольное целевое значение — разные понятия. Требование к полноте оценивай по всему полю и материалу, а не только по вырванной фразе. Язык материала должен соответствовать запрошенному, по умолчанию языку исходного задания. Не выдумывай факты и не отменяй содержательный дефект ради получения PASS. quality_criterion, если присутствует, содержит выданное программой определение критерия и область артефакта. Проверь применимость по нему и исходному заданию; он не добавляет фактов бизнеса и не разрешает требовать неизвестные услуги или статистику. Для keep_artifact объясни конкретную ошибку рассуждения редактора. Не переписывай текст и не объявляй артефакт готовым. Верни только решения по выданным ID."
+        },
+        {
+          "role": "user",
+          "content": "{\"original_request\": \"Проверь только существующие поля текущего документа «Текущий_5d63d56467». Отдельный документ «Следующий_5d63d56467» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_5d63d56467»: параметр «липа» имеет значение 58. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «берилл янтарь». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_5d63d56467» нельзя вставлять в текущий документ. Поле «требование_1_5d63d56467»: дословно включи «берилл янтарь». Поле «поле_2_5d63d56467»: значение параметра должно соответствовать источнику «Источник_5d63d56467». Поле «структура_4_5d63d56467»: обязательна строка с меткой «Решение» и описанием действия. Поле «требование_5_5d63d56467»: дословно включи «берилл янтарь». Поле «поле_6_5d63d56467»: значение параметра должно соответствовать источнику «Источник_5d63d56467».\", \"artifact_fields\": {\"требование_1_5d63d56467\": \"Требование выполнено: берилл янтарь.\", \"поле_2_5d63d56467\": \"Параметр «липа» имеет значение 58.\", \"поле_3_5d63d56467\": \"План документа «Текущий_5d63d56467». Решение: выполнить описанное действие.\", \"структура_4_5d63d56467\": \"Вводная заметка о документе «Текущий_5d63d56467».\", \"требование_5_5d63d56467\": \"Требование выполнено: клён ирис.\", \"поле_6_5d63d56467\": \"Параметр «липа» имеет значение 24.\"}, \"review_findings\": [{\"id\": \"A001\", \"finding\": {\"field\": \"требование_1_5d63d56467\", \"quote\": \"Требование выполнено: берилл янтарь.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_5d63d56467\"], \"pending_artifacts\": [\"Следующий_5d63d56467\"]}}, \"local_target\": \"требование_1_5d63d56467\", \"pending_targets\": [\"Следующий_5d63d56467\"]}, {\"id\": \"A002\", \"finding\": {\"field\": \"поле_2_5d63d56467\", \"quote\": \"Параметр «липа» имеет значение 58.\", \"reason\": \"Значение параметра не подтверждено источником «Источник_5d63d56467».\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_5d63d56467\"], \"pending_artifacts\": [\"Следующий_5d63d56467\"]}}, \"local_target\": \"поле_2_5d63d56467\", \"pending_targets\": [\"Следующий_5d63d56467\"]}, {\"id\": \"A003\", \"finding\": {\"field\": \"поле_3_5d63d56467\", \"quote\": \"План документа «Текущий_5d63d56467». Решение: выполнить описанное действие.\", \"reason\": \"В текущем документе отсутствует отдельный ожидаемый документ «Следующий_5d63d56467»; добавьте его целиком.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_5d63d56467\"], \"pending_artifacts\": [\"Следующий_5d63d56467\"]}}, \"local_target\": \"поле_3_5d63d56467\", \"pending_targets\": [\"Следующий_5d63d56467\"]}, {\"id\": \"A004\", \"finding\": {\"field\": \"структура_4_5d63d56467\", \"quote\": \"Вводная заметка о документе «Текущий_5d63d56467».\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_5d63d56467\"], \"pending_artifacts\": [\"Следующий_5d63d56467\"]}}, \"local_target\": \"структура_4_5d63d56467\", \"pending_targets\": [\"Следующий_5d63d56467\"]}, {\"id\": \"A005\", \"finding\": {\"field\": \"требование_5_5d63d56467\", \"quote\": \"Требование выполнено: клён ирис.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_5d63d56467\"], \"pending_artifacts\": [\"Следующий_5d63d56467\"]}}, \"local_target\": \"требование_5_5d63d56467\", \"pending_targets\": [\"Следующий_5d63d56467\"]}, {\"id\": \"A006\", \"finding\": {\"field\": \"поле_6_5d63d56467\", \"quote\": \"Параметр «липа» имеет значение 24.\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_5d63d56467\"], \"pending_artifacts\": [\"Следующий_5d63d56467\"]}}, \"local_target\": \"поле_6_5d63d56467\", \"pending_targets\": [\"Следующий_5d63d56467\"]}], \"requirements\": {\"R0001_28c45c9e\": \"Проверь только существующие поля текущего документа «Текущий_5d63d56467».\", \"R0002_381411c0\": \"Отдельный документ «Следующий_5d63d56467» должен создаваться позже;\", \"R0003_da3801ac\": \"его отсутствие сейчас допустимо.\", \"R0004_d58e66ac\": \"Подтверждённый источник «Источник_5d63d56467»: параметр «липа» имеет значение 58.\", \"R0005_5fe2260f\": \"В полях о параметре нужен именно этот подтверждённый факт без изменённых значений.\", \"R0006_fd5312aa\": \"В обоих полях с названием «требование» должна дословно присутствовать фраза «берилл янтарь».\", \"R0007_87d65790\": \"Для поля «структура» нужна строка с меткой «Решение» и описанием действия.\", \"R0008_462605fa\": \"Документ «Следующий_5d63d56467» нельзя вставлять в текущий документ.\", \"R0009_7ca70f6d\": \"Поле «требование_1_5d63d56467»: дословно включи «берилл янтарь».\", \"R0010_10cad9da\": \"Поле «поле_2_5d63d56467»: значение параметра должно соответствовать источнику «Источник_5d63d56467».\", \"R0011_1e47f0cd\": \"Поле «структура_4_5d63d56467»: обязательна строка с меткой «Решение» и описанием действия.\", \"R0012_6383fe60\": \"Поле «требование_5_5d63d56467»: дословно включи «берилл янтарь».\", \"R0013_e9ec67f0\": \"Поле «поле_6_5d63d56467»: значение параметра должно соответствовать источнику «Источник_5d63d56467».\", \"G_language\": \"Язык пользовательского текста соответствует явно запрошенному языку, по умолчанию языку исходного задания; имена собственные и обозначения допустимы.\", \"G_requested_form\": \"Форма доступного артефакта соответствует запрошенной; наличие других артефактов проверяется отдельно.\", \"G_requested_tone\": \"Тон и подача доступного текста соответствуют исходному запросу.\", \"G_clarity\": \"Текст должен быть понятным и связным; причина должна объяснять конкретную неясность.\", \"G_grammar\": \"Отмечай конкретную грамматическую или языковую ошибку.\", \"G_repetition\": \"Отмечай бессодержательное повторение, мешающее прочтению.\", \"G_editorial_meta\": \"Не вставляй служебные инструкции и описание аудитории из ТЗ как готовую публичную речь для читателя (caption, CTA, реплики). Стратегия и внутренние поля планирования вправе описывать аудиторию, цели, производство и измерение; это не публичная речь. Оценивай роль конкретного поля и вид артефакта.\"}, \"source_context\": {\"schema_version\": 1, \"sources\": [{\"source_id\": \"user_request:6af4ab632588912e\", \"type\": \"user_request\", \"label\": \"Исходный запрос пользователя\", \"content\": \"Проверь только существующие поля текущего документа «Текущий_5d63d56467». Отдельный документ «Следующий_5d63d56467» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_5d63d56467»: параметр «липа» имеет значение 58. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «берилл янтарь». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_5d63d56467» нельзя вставлять в текущий документ. Поле «требование_1_5d63d56467»: дословно включи «берилл янтарь». Поле «поле_2_5d63d56467»: значение параметра должно соответствовать источнику «Источник_5d63d56467». Поле «структура_4_5d63d56467»: обязательна строка с меткой «Решение» и описанием действия. Поле «требование_5_5d63d56467»: дословно включи «берилл янтарь». Поле «поле_6_5d63d56467»: значение параметра должно соответствовать источнику «Источник_5d63d56467».\"}], \"unknowns\": [], \"conflicts\": []}}"
+        }
+      ],
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192,
+        "num_predict": 1800
+      }
+    },
+    "response": {
+      "model": "deepseek-r1:8b",
+      "created_at": "2026-10-30T06:53:30.4882Z",
+      "message": {
+        "role": "assistant",
+        "content": "{\"decisions\": {\"A001\": {\"action\": \"correct_artifact\", \"reason\": \"В текущем поле «требование_1_5d63d56467» присутствует фраза «Требование выполнено:», но отсутствует обязательная дословная фраза «берилл янтарь».\", \"remedy_scope\": \"current\", \"required_change\": \"Внести дословную фразу «берилл янтарь» в поле «требование_1_5d63d56467».\"}, \"A002\": {\"action\": \"correct_artifact\", \"reason\": \"Значение параметра в поле «поле_2_5d63d56467» не соответствует подтверждённому источнику «Источник_5d63d56467».\", \"remedy_scope\": \"current\", \"required_change\": \"Изменить значение параметра в поле «поле_2_5d63d56467» на 58, согласно подтверждённому источнику.\"}, \"A003\": {\"action\": \"keep_artifact\", \"reason\": \"Требование к добавлению отдельного документа «Следующий_5d63d56467» в поле «поле_3_5d63d56467» относится к будущему этапу и не является дефектом текущего артефакта.\", \"remedy_scope\": \"pending\", \"required_change\": \"\"}, \"A004\": {\"action\": \"correct_artifact\", \"reason\": \"В поле «структура_4_5d63d56467» отсутствует обязательная строка с меткой «Решение» и описанием действия.\", \"remedy_scope\": \"current\", \"required_change\": \"Добавить строку с меткой «Решение» и описанием действия в поле «структура_4_5d63d56467».\"}, \"A005\": {\"action\": \"correct_artifact\", \"reason\": \"В поле «требование_5_5d63d56467» присутствует фраза «Требование выполнено:», но отсутствует обязательная дословная фраза «берилл янтарь».\", \"remedy_scope\": \"current\", \"required_change\": \"Внести дословную фразу «берилл янтарь» в поле «требование_5_5d63d56467».\"}, \"A006\": {\"action\": \"correct_artifact\", \"reason\": \"Значение параметра в поле «поле_6_5d63d56467» не соответствует подтверждённому источнику «Источник_5d63d56467».\", \"remedy_scope\": \"current\", \"required_change\": \"Изменить значение параметра в поле «поле_6_5d63d56467» на 58, согласно подтверждённому источнику.\"}}}",
+        "thinking": "\nHmm, let me analyze this query carefully. The user is asking me to evaluate the applicability of editorial comments against a specific document structure, with strict guidelines about how to handle each type of comment.\n\nOkay, first I need to understand the core requirements. The original request specifies that certain fields in the \"Текущий_5d63d56467\" document must contain specific phrases or values. There are also requirements about the structure of the \"структура\" field and the handling of a separate \"Следующий_5d63d56467\" document.\n\nLooking at the review findings, I notice several key points:\n- Requirement fields must contain \"берилл янтарь\"\n- Parameter fields must match the source value\n- The \"структура\" field requires a specific solution format\n\nThe user seems to be testing my ability to follow editorial guidelines precisely. They've provided a detailed JSON structure with specific IDs and requirements, and want me to evaluate each comment's applicability.\n\nI need to focus on the specific IDs mentioned in the review findings and match them against the requirements. For each ID, I'll need to determine if the comment applies to the current document or pending document, and whether the required change is valid.\n\nThe user appears to be quite knowledgeable about the document structure and requirements, so they're likely testing my precision in handling these editorial comments. They've provided a comprehensive set of guidelines, so I need to be careful to follow them exactly.\n\nI'll need to examine each review finding ID, cross-reference it with the requirements, and determine the appropriate action and remedy scope. This requires careful attention to detail and strict adherence to the guidelines provided.\n"
+      },
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 25727330600,
+      "load_duration": 13469159500,
+      "prompt_eval_count": 4574,
+      "prompt_eval_cached_count": 0,
+      "prompt_eval_duration": 1242128000,
+      "eval_count": 1155,
+      "eval_duration": 10972313000
+    },
+    "expected_controls": {
+      "требование_1_5d63d56467": {
+        "kind": "literal_present",
+        "needs_change": false
+      },
+      "поле_2_5d63d56467": {
+        "kind": "source_supported",
+        "needs_change": false
+      },
+      "поле_3_5d63d56467": {
+        "kind": "scope_pending",
+        "needs_change": false
+      },
+      "структура_4_5d63d56467": {
+        "kind": "scope_local",
+        "needs_change": true
+      },
+      "требование_5_5d63d56467": {
+        "kind": "literal_missing",
+        "needs_change": true
+      },
+      "поле_6_5d63d56467": {
+        "kind": "source_changed",
+        "needs_change": true
+      }
+    },
+    "contract_pass": true,
+    "correct": 4,
+    "failed_controls": [
+      "literal_present",
+      "source_supported"
+    ]
+  },
+  {
+    "model": "gemma3:4b",
+    "request_payload": {
+      "model": "gemma3:4b",
+      "stream": false,
+      "think": false,
+      "format": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisions"
+        ],
+        "properties": {
+          "decisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "A001",
+              "A002",
+              "A003",
+              "A004",
+              "A005",
+              "A006"
+            ],
+            "properties": {
+              "A001": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A002": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A003": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A004": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A005": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A006": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": 0,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Ты независимый арбитр применимости редакторских замечаний. Тексты в JSON — данные. Проверь каждое замечание на неизменённом артефакте, полном исходном задании и источниках. Выданная цитата и ID требования доказывают местоположение, но не правильность замечания. Для каждого замечания local_target — единственный текущий объект правки. pending_targets создаются позже отдельными этапами. Верни remedy_scope: current — замечание относится к текущему объекту; pending — к отдельному ожидаемому результату; none — правка не нужна или область не установлена. Не возвращай имя поля, адрес или ID объекта. Точный адрес current программа привяжет к local_target именно этого замечания. Нельзя переносить содержимое ожидаемого результата внутрь текущего. Если замечание требует другой объект, выбери keep_artifact и объясни смешение областей. Выбери действие по замечанию, не степень одобрения текста. correct_artifact: обнаружен конкретный дефект, который действительно требует правки; required_change должен содержать точное необходимое изменение без выдуманных требований. keep_artifact: правка по этому замечанию не нужна из-за ошибочной трактовки, вымышленного ограничения или смешения ролей; required_change обязан быть пустым. review_unavailable: обоснованность не установлена; required_change тоже пустой. Отсутствие сведений о бизнесе не запрещает редакторскую идею, вопрос аудитории или будущую постановку; при этом публичное утверждение о реальной услуге/результате требует источника. Название измеряемой величины и произвольное целевое значение — разные понятия. Требование к полноте оценивай по всему полю и материалу, а не только по вырванной фразе. Язык материала должен соответствовать запрошенному, по умолчанию языку исходного задания. Не выдумывай факты и не отменяй содержательный дефект ради получения PASS. quality_criterion, если присутствует, содержит выданное программой определение критерия и область артефакта. Проверь применимость по нему и исходному заданию; он не добавляет фактов бизнеса и не разрешает требовать неизвестные услуги или статистику. Для keep_artifact объясни конкретную ошибку рассуждения редактора. Не переписывай текст и не объявляй артефакт готовым. Верни только решения по выданным ID."
+        },
+        {
+          "role": "user",
+          "content": "{\"original_request\": \"Проверь только существующие поля текущего документа «Текущий_498cbf3aa1». Отдельный документ «Следующий_498cbf3aa1» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_498cbf3aa1»: параметр «кедр» имеет значение 14. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «ирис берилл». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_498cbf3aa1» нельзя вставлять в текущий документ. Поле «поле_2_498cbf3aa1»: значение параметра должно соответствовать источнику «Источник_498cbf3aa1». Поле «требование_3_498cbf3aa1»: дословно включи «ирис берилл». Поле «структура_4_498cbf3aa1»: обязательна строка с меткой «Решение» и описанием действия. Поле «поле_5_498cbf3aa1»: значение параметра должно соответствовать источнику «Источник_498cbf3aa1». Поле «требование_6_498cbf3aa1»: дословно включи «ирис берилл».\", \"artifact_fields\": {\"поле_1_498cbf3aa1\": \"План документа «Текущий_498cbf3aa1». Решение: выполнить описанное действие.\", \"поле_2_498cbf3aa1\": \"Параметр «кедр» имеет значение 57.\", \"требование_3_498cbf3aa1\": \"Требование выполнено: липа топаз.\", \"структура_4_498cbf3aa1\": \"Вводная заметка о документе «Текущий_498cbf3aa1».\", \"поле_5_498cbf3aa1\": \"Параметр «кедр» имеет значение 14.\", \"требование_6_498cbf3aa1\": \"Требование выполнено: ирис берилл.\"}, \"review_findings\": [{\"id\": \"A001\", \"finding\": {\"field\": \"поле_1_498cbf3aa1\", \"quote\": \"План документа «Текущий_498cbf3aa1». Решение: выполнить описанное действие.\", \"reason\": \"В текущем документе отсутствует отдельный ожидаемый документ «Следующий_498cbf3aa1»; добавьте его целиком.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_498cbf3aa1\"], \"pending_artifacts\": [\"Следующий_498cbf3aa1\"]}}, \"local_target\": \"поле_1_498cbf3aa1\", \"pending_targets\": [\"Следующий_498cbf3aa1\"]}, {\"id\": \"A002\", \"finding\": {\"field\": \"поле_2_498cbf3aa1\", \"quote\": \"Параметр «кедр» имеет значение 57.\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_498cbf3aa1\"], \"pending_artifacts\": [\"Следующий_498cbf3aa1\"]}}, \"local_target\": \"поле_2_498cbf3aa1\", \"pending_targets\": [\"Следующий_498cbf3aa1\"]}, {\"id\": \"A003\", \"finding\": {\"field\": \"требование_3_498cbf3aa1\", \"quote\": \"Требование выполнено: липа топаз.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_498cbf3aa1\"], \"pending_artifacts\": [\"Следующий_498cbf3aa1\"]}}, \"local_target\": \"требование_3_498cbf3aa1\", \"pending_targets\": [\"Следующий_498cbf3aa1\"]}, {\"id\": \"A004\", \"finding\": {\"field\": \"структура_4_498cbf3aa1\", \"quote\": \"Вводная заметка о документе «Текущий_498cbf3aa1».\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_498cbf3aa1\"], \"pending_artifacts\": [\"Следующий_498cbf3aa1\"]}}, \"local_target\": \"структура_4_498cbf3aa1\", \"pending_targets\": [\"Следующий_498cbf3aa1\"]}, {\"id\": \"A005\", \"finding\": {\"field\": \"поле_5_498cbf3aa1\", \"quote\": \"Параметр «кедр» имеет значение 14.\", \"reason\": \"Значение параметра не подтверждено источником «Источник_498cbf3aa1».\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_498cbf3aa1\"], \"pending_artifacts\": [\"Следующий_498cbf3aa1\"]}}, \"local_target\": \"поле_5_498cbf3aa1\", \"pending_targets\": [\"Следующий_498cbf3aa1\"]}, {\"id\": \"A006\", \"finding\": {\"field\": \"требование_6_498cbf3aa1\", \"quote\": \"Требование выполнено: ирис берилл.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_498cbf3aa1\"], \"pending_artifacts\": [\"Следующий_498cbf3aa1\"]}}, \"local_target\": \"требование_6_498cbf3aa1\", \"pending_targets\": [\"Следующий_498cbf3aa1\"]}], \"requirements\": {\"R0001_b3a392f5\": \"Проверь только существующие поля текущего документа «Текущий_498cbf3aa1».\", \"R0002_094231b4\": \"Отдельный документ «Следующий_498cbf3aa1» должен создаваться позже;\", \"R0003_da3801ac\": \"его отсутствие сейчас допустимо.\", \"R0004_b4999869\": \"Подтверждённый источник «Источник_498cbf3aa1»: параметр «кедр» имеет значение 14.\", \"R0005_5fe2260f\": \"В полях о параметре нужен именно этот подтверждённый факт без изменённых значений.\", \"R0006_eb1d269e\": \"В обоих полях с названием «требование» должна дословно присутствовать фраза «ирис берилл».\", \"R0007_87d65790\": \"Для поля «структура» нужна строка с меткой «Решение» и описанием действия.\", \"R0008_f8b595c0\": \"Документ «Следующий_498cbf3aa1» нельзя вставлять в текущий документ.\", \"R0009_b91751f5\": \"Поле «поле_2_498cbf3aa1»: значение параметра должно соответствовать источнику «Источник_498cbf3aa1».\", \"R0010_06d22abe\": \"Поле «требование_3_498cbf3aa1»: дословно включи «ирис берилл».\", \"R0011_d6d4fc29\": \"Поле «структура_4_498cbf3aa1»: обязательна строка с меткой «Решение» и описанием действия.\", \"R0012_08f3ee39\": \"Поле «поле_5_498cbf3aa1»: значение параметра должно соответствовать источнику «Источник_498cbf3aa1».\", \"R0013_0fa94425\": \"Поле «требование_6_498cbf3aa1»: дословно включи «ирис берилл».\", \"G_language\": \"Язык пользовательского текста соответствует явно запрошенному языку, по умолчанию языку исходного задания; имена собственные и обозначения допустимы.\", \"G_requested_form\": \"Форма доступного артефакта соответствует запрошенной; наличие других артефактов проверяется отдельно.\", \"G_requested_tone\": \"Тон и подача доступного текста соответствуют исходному запросу.\", \"G_clarity\": \"Текст должен быть понятным и связным; причина должна объяснять конкретную неясность.\", \"G_grammar\": \"Отмечай конкретную грамматическую или языковую ошибку.\", \"G_repetition\": \"Отмечай бессодержательное повторение, мешающее прочтению.\", \"G_editorial_meta\": \"Не вставляй служебные инструкции и описание аудитории из ТЗ как готовую публичную речь для читателя (caption, CTA, реплики). Стратегия и внутренние поля планирования вправе описывать аудиторию, цели, производство и измерение; это не публичная речь. Оценивай роль конкретного поля и вид артефакта.\"}, \"source_context\": {\"schema_version\": 1, \"sources\": [{\"source_id\": \"user_request:1cd6263840797d2a\", \"type\": \"user_request\", \"label\": \"Исходный запрос пользователя\", \"content\": \"Проверь только существующие поля текущего документа «Текущий_498cbf3aa1». Отдельный документ «Следующий_498cbf3aa1» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_498cbf3aa1»: параметр «кедр» имеет значение 14. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «ирис берилл». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_498cbf3aa1» нельзя вставлять в текущий документ. Поле «поле_2_498cbf3aa1»: значение параметра должно соответствовать источнику «Источник_498cbf3aa1». Поле «требование_3_498cbf3aa1»: дословно включи «ирис берилл». Поле «структура_4_498cbf3aa1»: обязательна строка с меткой «Решение» и описанием действия. Поле «поле_5_498cbf3aa1»: значение параметра должно соответствовать источнику «Источник_498cbf3aa1». Поле «требование_6_498cbf3aa1»: дословно включи «ирис берилл».\"}], \"unknowns\": [], \"conflicts\": []}}"
+        }
+      ],
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192,
+        "num_predict": 1800
+      }
+    },
+    "response": {
+      "model": "gemma3:4b",
+      "created_at": "2026-10-30T06:53:44.4568241Z",
+      "message": {
+        "role": "assistant",
+        "content": "{\"decisions\": {\"A001\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Значение параметра «кедр» не соответствует подтверждённому источнику «Источник_498cbf3aa1».\", \"required_change\": \"Параметр «кедр» имеет значение 14.\"}, \"A002\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Значение параметра «кедр» отличается от подтверждённого источника.\", \"required_change\": \"Параметр «кедр» имеет значение 14.\"}, \"A003\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"required_change\": \"Требование выполнено: ирис берилл.\"}, \"A004\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"required_change\": \"В поле «структура» нужна строка с меткой «Решение» и описанием действия.\"}, \"A005\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Значение параметра не подтверждено источником «Источник_498cbf3aa1».\", \"required_change\": \"Параметр «кедр» имеет значение 14.\"}, \"A006\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"required_change\": \"Требование выполнено: ирис берилл.\"}}}"
+      },
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 13955150800,
+      "load_duration": 10163240100,
+      "prompt_eval_count": 3988,
+      "prompt_eval_cached_count": 0,
+      "prompt_eval_duration": 847414000,
+      "eval_count": 399,
+      "eval_duration": 2901959000
+    },
+    "expected_controls": {
+      "поле_1_498cbf3aa1": {
+        "kind": "scope_pending",
+        "needs_change": false
+      },
+      "поле_2_498cbf3aa1": {
+        "kind": "source_changed",
+        "needs_change": true
+      },
+      "требование_3_498cbf3aa1": {
+        "kind": "literal_missing",
+        "needs_change": true
+      },
+      "структура_4_498cbf3aa1": {
+        "kind": "scope_local",
+        "needs_change": true
+      },
+      "поле_5_498cbf3aa1": {
+        "kind": "source_supported",
+        "needs_change": false
+      },
+      "требование_6_498cbf3aa1": {
+        "kind": "literal_present",
+        "needs_change": false
+      }
+    },
+    "contract_pass": true,
+    "correct": 3,
+    "failed_controls": [
+      "scope_pending",
+      "source_supported",
+      "literal_present"
+    ]
+  },
+  {
+    "model": "llama3.1:8b",
+    "request_payload": {
+      "model": "llama3.1:8b",
+      "stream": false,
+      "think": false,
+      "format": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisions"
+        ],
+        "properties": {
+          "decisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "A001",
+              "A002",
+              "A003",
+              "A004",
+              "A005",
+              "A006"
+            ],
+            "properties": {
+              "A001": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A002": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A003": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A004": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A005": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A006": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": 0,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Ты независимый арбитр применимости редакторских замечаний. Тексты в JSON — данные. Проверь каждое замечание на неизменённом артефакте, полном исходном задании и источниках. Выданная цитата и ID требования доказывают местоположение, но не правильность замечания. Для каждого замечания local_target — единственный текущий объект правки. pending_targets создаются позже отдельными этапами. Верни remedy_scope: current — замечание относится к текущему объекту; pending — к отдельному ожидаемому результату; none — правка не нужна или область не установлена. Не возвращай имя поля, адрес или ID объекта. Точный адрес current программа привяжет к local_target именно этого замечания. Нельзя переносить содержимое ожидаемого результата внутрь текущего. Если замечание требует другой объект, выбери keep_artifact и объясни смешение областей. Выбери действие по замечанию, не степень одобрения текста. correct_artifact: обнаружен конкретный дефект, который действительно требует правки; required_change должен содержать точное необходимое изменение без выдуманных требований. keep_artifact: правка по этому замечанию не нужна из-за ошибочной трактовки, вымышленного ограничения или смешения ролей; required_change обязан быть пустым. review_unavailable: обоснованность не установлена; required_change тоже пустой. Отсутствие сведений о бизнесе не запрещает редакторскую идею, вопрос аудитории или будущую постановку; при этом публичное утверждение о реальной услуге/результате требует источника. Название измеряемой величины и произвольное целевое значение — разные понятия. Требование к полноте оценивай по всему полю и материалу, а не только по вырванной фразе. Язык материала должен соответствовать запрошенному, по умолчанию языку исходного задания. Не выдумывай факты и не отменяй содержательный дефект ради получения PASS. quality_criterion, если присутствует, содержит выданное программой определение критерия и область артефакта. Проверь применимость по нему и исходному заданию; он не добавляет фактов бизнеса и не разрешает требовать неизвестные услуги или статистику. Для keep_artifact объясни конкретную ошибку рассуждения редактора. Не переписывай текст и не объявляй артефакт готовым. Верни только решения по выданным ID."
+        },
+        {
+          "role": "user",
+          "content": "{\"original_request\": \"Проверь только существующие поля текущего документа «Текущий_8d872f3909». Отдельный документ «Следующий_8d872f3909» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_8d872f3909»: параметр «янтарь» имеет значение 59. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «топаз ирис». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_8d872f3909» нельзя вставлять в текущий документ. Поле «требование_1_8d872f3909»: дословно включи «топаз ирис». Поле «структура_2_8d872f3909»: обязательна строка с меткой «Решение» и описанием действия. Поле «требование_4_8d872f3909»: дословно включи «топаз ирис». Поле «поле_5_8d872f3909»: значение параметра должно соответствовать источнику «Источник_8d872f3909». Поле «поле_6_8d872f3909»: значение параметра должно соответствовать источнику «Источник_8d872f3909».\", \"artifact_fields\": {\"требование_1_8d872f3909\": \"Требование выполнено: сапфир ольха.\", \"структура_2_8d872f3909\": \"Вводная заметка о документе «Текущий_8d872f3909».\", \"поле_3_8d872f3909\": \"План документа «Текущий_8d872f3909». Решение: выполнить описанное действие.\", \"требование_4_8d872f3909\": \"Требование выполнено: топаз ирис.\", \"поле_5_8d872f3909\": \"Параметр «янтарь» имеет значение 23.\", \"поле_6_8d872f3909\": \"Параметр «янтарь» имеет значение 59.\"}, \"review_findings\": [{\"id\": \"A001\", \"finding\": {\"field\": \"требование_1_8d872f3909\", \"quote\": \"Требование выполнено: сапфир ольха.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_8d872f3909\"], \"pending_artifacts\": [\"Следующий_8d872f3909\"]}}, \"local_target\": \"требование_1_8d872f3909\", \"pending_targets\": [\"Следующий_8d872f3909\"]}, {\"id\": \"A002\", \"finding\": {\"field\": \"структура_2_8d872f3909\", \"quote\": \"Вводная заметка о документе «Текущий_8d872f3909».\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_8d872f3909\"], \"pending_artifacts\": [\"Следующий_8d872f3909\"]}}, \"local_target\": \"структура_2_8d872f3909\", \"pending_targets\": [\"Следующий_8d872f3909\"]}, {\"id\": \"A003\", \"finding\": {\"field\": \"поле_3_8d872f3909\", \"quote\": \"План документа «Текущий_8d872f3909». Решение: выполнить описанное действие.\", \"reason\": \"В текущем документе отсутствует отдельный ожидаемый документ «Следующий_8d872f3909»; добавьте его целиком.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_8d872f3909\"], \"pending_artifacts\": [\"Следующий_8d872f3909\"]}}, \"local_target\": \"поле_3_8d872f3909\", \"pending_targets\": [\"Следующий_8d872f3909\"]}, {\"id\": \"A004\", \"finding\": {\"field\": \"требование_4_8d872f3909\", \"quote\": \"Требование выполнено: топаз ирис.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_8d872f3909\"], \"pending_artifacts\": [\"Следующий_8d872f3909\"]}}, \"local_target\": \"требование_4_8d872f3909\", \"pending_targets\": [\"Следующий_8d872f3909\"]}, {\"id\": \"A005\", \"finding\": {\"field\": \"поле_5_8d872f3909\", \"quote\": \"Параметр «янтарь» имеет значение 23.\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_8d872f3909\"], \"pending_artifacts\": [\"Следующий_8d872f3909\"]}}, \"local_target\": \"поле_5_8d872f3909\", \"pending_targets\": [\"Следующий_8d872f3909\"]}, {\"id\": \"A006\", \"finding\": {\"field\": \"поле_6_8d872f3909\", \"quote\": \"Параметр «янтарь» имеет значение 59.\", \"reason\": \"Значение параметра не подтверждено источником «Источник_8d872f3909».\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_8d872f3909\"], \"pending_artifacts\": [\"Следующий_8d872f3909\"]}}, \"local_target\": \"поле_6_8d872f3909\", \"pending_targets\": [\"Следующий_8d872f3909\"]}], \"requirements\": {\"R0001_4eaf0897\": \"Проверь только существующие поля текущего документа «Текущий_8d872f3909».\", \"R0002_89f6fd8c\": \"Отдельный документ «Следующий_8d872f3909» должен создаваться позже;\", \"R0003_da3801ac\": \"его отсутствие сейчас допустимо.\", \"R0004_b1d4dfde\": \"Подтверждённый источник «Источник_8d872f3909»: параметр «янтарь» имеет значение 59.\", \"R0005_5fe2260f\": \"В полях о параметре нужен именно этот подтверждённый факт без изменённых значений.\", \"R0006_4d68486a\": \"В обоих полях с названием «требование» должна дословно присутствовать фраза «топаз ирис».\", \"R0007_87d65790\": \"Для поля «структура» нужна строка с меткой «Решение» и описанием действия.\", \"R0008_48c05789\": \"Документ «Следующий_8d872f3909» нельзя вставлять в текущий документ.\", \"R0009_4198ef10\": \"Поле «требование_1_8d872f3909»: дословно включи «топаз ирис».\", \"R0010_2a0a1518\": \"Поле «структура_2_8d872f3909»: обязательна строка с меткой «Решение» и описанием действия.\", \"R0011_35a0a97b\": \"Поле «требование_4_8d872f3909»: дословно включи «топаз ирис».\", \"R0012_c1a3c265\": \"Поле «поле_5_8d872f3909»: значение параметра должно соответствовать источнику «Источник_8d872f3909».\", \"R0013_757dc62e\": \"Поле «поле_6_8d872f3909»: значение параметра должно соответствовать источнику «Источник_8d872f3909».\", \"G_language\": \"Язык пользовательского текста соответствует явно запрошенному языку, по умолчанию языку исходного задания; имена собственные и обозначения допустимы.\", \"G_requested_form\": \"Форма доступного артефакта соответствует запрошенной; наличие других артефактов проверяется отдельно.\", \"G_requested_tone\": \"Тон и подача доступного текста соответствуют исходному запросу.\", \"G_clarity\": \"Текст должен быть понятным и связным; причина должна объяснять конкретную неясность.\", \"G_grammar\": \"Отмечай конкретную грамматическую или языковую ошибку.\", \"G_repetition\": \"Отмечай бессодержательное повторение, мешающее прочтению.\", \"G_editorial_meta\": \"Не вставляй служебные инструкции и описание аудитории из ТЗ как готовую публичную речь для читателя (caption, CTA, реплики). Стратегия и внутренние поля планирования вправе описывать аудиторию, цели, производство и измерение; это не публичная речь. Оценивай роль конкретного поля и вид артефакта.\"}, \"source_context\": {\"schema_version\": 1, \"sources\": [{\"source_id\": \"user_request:c7e6ba0a1dfb9e4f\", \"type\": \"user_request\", \"label\": \"Исходный запрос пользователя\", \"content\": \"Проверь только существующие поля текущего документа «Текущий_8d872f3909». Отдельный документ «Следующий_8d872f3909» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_8d872f3909»: параметр «янтарь» имеет значение 59. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «топаз ирис». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_8d872f3909» нельзя вставлять в текущий документ. Поле «требование_1_8d872f3909»: дословно включи «топаз ирис». Поле «структура_2_8d872f3909»: обязательна строка с меткой «Решение» и описанием действия. Поле «требование_4_8d872f3909»: дословно включи «топаз ирис». Поле «поле_5_8d872f3909»: значение параметра должно соответствовать источнику «Источник_8d872f3909». Поле «поле_6_8d872f3909»: значение параметра должно соответствовать источнику «Источник_8d872f3909».\"}], \"unknowns\": [], \"conflicts\": []}}"
+        }
+      ],
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192,
+        "num_predict": 1800
+      }
+    },
+    "response": {
+      "model": "llama3.1:8b",
+      "created_at": "2026-10-30T06:54:00.0633387Z",
+      "message": {
+        "role": "assistant",
+        "content": "{\"decisions\": {\"A001\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"required_change\": \"Поле «требование_1_8d872f3909» должно содержать фразу «топаз ирис».\"}, \"A002\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"required_change\": \"Поле «структура_2_8d872f3909» должно содержать строку с меткой «Решение» и описанием действия.\"}, \"A003\": {\"action\": \"keep_artifact\", \"remedy_scope\": \"none\", \"reason\": \"Отдельный документ «Следующий_8d872f3909» должен создаваться позже; его отсутствие сейчас допустимо.\", \"required_change\": \"\"}, \"A004\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"required_change\": \"Поле «требование_4_8d872f3909» должно содержать фразу «топаз ирис».\"}, \"A005\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"required_change\": \"Поле «поле_5_8d872f3909» должно содержать значение параметра 59.\"}, \"A006\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Значение параметра не подтверждено источником «Источник_8d872f3909».\", \"required_change\": \"Поле «поле_6_8d872f3909» должно содержать значение параметра 59.\"}}}"
+      },
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 15593474200,
+      "load_duration": 10330159600,
+      "prompt_eval_count": 3935,
+      "prompt_eval_cached_count": 0,
+      "prompt_eval_duration": 948683000,
+      "eval_count": 491,
+      "eval_duration": 4271298000
+    },
+    "expected_controls": {
+      "требование_1_8d872f3909": {
+        "kind": "literal_missing",
+        "needs_change": true
+      },
+      "структура_2_8d872f3909": {
+        "kind": "scope_local",
+        "needs_change": true
+      },
+      "поле_3_8d872f3909": {
+        "kind": "scope_pending",
+        "needs_change": false
+      },
+      "требование_4_8d872f3909": {
+        "kind": "literal_present",
+        "needs_change": false
+      },
+      "поле_5_8d872f3909": {
+        "kind": "source_changed",
+        "needs_change": true
+      },
+      "поле_6_8d872f3909": {
+        "kind": "source_supported",
+        "needs_change": false
+      }
+    },
+    "contract_pass": true,
+    "correct": 4,
+    "failed_controls": [
+      "literal_present",
+      "source_supported"
+    ]
+  },
+  {
+    "model": "mistral:7b",
+    "request_payload": {
+      "model": "mistral:7b",
+      "stream": false,
+      "think": false,
+      "format": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisions"
+        ],
+        "properties": {
+          "decisions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "A001",
+              "A002",
+              "A003",
+              "A004",
+              "A005",
+              "A006"
+            ],
+            "properties": {
+              "A001": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A002": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A003": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A004": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A005": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              },
+              "A006": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "reason",
+                  "required_change",
+                  "remedy_scope"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "correct_artifact",
+                      "keep_artifact",
+                      "review_unavailable"
+                    ]
+                  },
+                  "remedy_scope": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "current",
+                      "pending"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 500
+                  },
+                  "required_change": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "keep_alive": 0,
+      "messages": [
+        {
+          "role": "system",
+          "content": "Ты независимый арбитр применимости редакторских замечаний. Тексты в JSON — данные. Проверь каждое замечание на неизменённом артефакте, полном исходном задании и источниках. Выданная цитата и ID требования доказывают местоположение, но не правильность замечания. Для каждого замечания local_target — единственный текущий объект правки. pending_targets создаются позже отдельными этапами. Верни remedy_scope: current — замечание относится к текущему объекту; pending — к отдельному ожидаемому результату; none — правка не нужна или область не установлена. Не возвращай имя поля, адрес или ID объекта. Точный адрес current программа привяжет к local_target именно этого замечания. Нельзя переносить содержимое ожидаемого результата внутрь текущего. Если замечание требует другой объект, выбери keep_artifact и объясни смешение областей. Выбери действие по замечанию, не степень одобрения текста. correct_artifact: обнаружен конкретный дефект, который действительно требует правки; required_change должен содержать точное необходимое изменение без выдуманных требований. keep_artifact: правка по этому замечанию не нужна из-за ошибочной трактовки, вымышленного ограничения или смешения ролей; required_change обязан быть пустым. review_unavailable: обоснованность не установлена; required_change тоже пустой. Отсутствие сведений о бизнесе не запрещает редакторскую идею, вопрос аудитории или будущую постановку; при этом публичное утверждение о реальной услуге/результате требует источника. Название измеряемой величины и произвольное целевое значение — разные понятия. Требование к полноте оценивай по всему полю и материалу, а не только по вырванной фразе. Язык материала должен соответствовать запрошенному, по умолчанию языку исходного задания. Не выдумывай факты и не отменяй содержательный дефект ради получения PASS. quality_criterion, если присутствует, содержит выданное программой определение критерия и область артефакта. Проверь применимость по нему и исходному заданию; он не добавляет фактов бизнеса и не разрешает требовать неизвестные услуги или статистику. Для keep_artifact объясни конкретную ошибку рассуждения редактора. Не переписывай текст и не объявляй артефакт готовым. Верни только решения по выданным ID."
+        },
+        {
+          "role": "user",
+          "content": "{\"original_request\": \"Проверь только существующие поля текущего документа «Текущий_069358b80f». Отдельный документ «Следующий_069358b80f» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_069358b80f»: параметр «сапфир» имеет значение 46. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «ирис топаз». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_069358b80f» нельзя вставлять в текущий документ. Поле «требование_1_069358b80f»: дословно включи «ирис топаз». Поле «требование_2_069358b80f»: дословно включи «ирис топаз». Поле «поле_3_069358b80f»: значение параметра должно соответствовать источнику «Источник_069358b80f». Поле «структура_4_069358b80f»: обязательна строка с меткой «Решение» и описанием действия. Поле «поле_5_069358b80f»: значение параметра должно соответствовать источнику «Источник_069358b80f».\", \"artifact_fields\": {\"требование_1_069358b80f\": \"Требование выполнено: клён ольха.\", \"требование_2_069358b80f\": \"Требование выполнено: ирис топаз.\", \"поле_3_069358b80f\": \"Параметр «сапфир» имеет значение 46.\", \"структура_4_069358b80f\": \"Вводная заметка о документе «Текущий_069358b80f».\", \"поле_5_069358b80f\": \"Параметр «сапфир» имеет значение 49.\", \"поле_6_069358b80f\": \"План документа «Текущий_069358b80f». Решение: выполнить описанное действие.\"}, \"review_findings\": [{\"id\": \"A001\", \"finding\": {\"field\": \"требование_1_069358b80f\", \"quote\": \"Требование выполнено: клён ольха.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_069358b80f\"], \"pending_artifacts\": [\"Следующий_069358b80f\"]}}, \"local_target\": \"требование_1_069358b80f\", \"pending_targets\": [\"Следующий_069358b80f\"]}, {\"id\": \"A002\", \"finding\": {\"field\": \"требование_2_069358b80f\", \"quote\": \"Требование выполнено: ирис топаз.\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_069358b80f\"], \"pending_artifacts\": [\"Следующий_069358b80f\"]}}, \"local_target\": \"требование_2_069358b80f\", \"pending_targets\": [\"Следующий_069358b80f\"]}, {\"id\": \"A003\", \"finding\": {\"field\": \"поле_3_069358b80f\", \"quote\": \"Параметр «сапфир» имеет значение 46.\", \"reason\": \"Значение параметра не подтверждено источником «Источник_069358b80f».\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_069358b80f\"], \"pending_artifacts\": [\"Следующий_069358b80f\"]}}, \"local_target\": \"поле_3_069358b80f\", \"pending_targets\": [\"Следующий_069358b80f\"]}, {\"id\": \"A004\", \"finding\": {\"field\": \"структура_4_069358b80f\", \"quote\": \"Вводная заметка о документе «Текущий_069358b80f».\", \"reason\": \"В поле «структура» нет обязательной строки «Решение» и описания действия.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_069358b80f\"], \"pending_artifacts\": [\"Следующий_069358b80f\"]}}, \"local_target\": \"структура_4_069358b80f\", \"pending_targets\": [\"Следующий_069358b80f\"]}, {\"id\": \"A005\", \"finding\": {\"field\": \"поле_5_069358b80f\", \"quote\": \"Параметр «сапфир» имеет значение 49.\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_069358b80f\"], \"pending_artifacts\": [\"Следующий_069358b80f\"]}}, \"local_target\": \"поле_5_069358b80f\", \"pending_targets\": [\"Следующий_069358b80f\"]}, {\"id\": \"A006\", \"finding\": {\"field\": \"поле_6_069358b80f\", \"quote\": \"План документа «Текущий_069358b80f». Решение: выполнить описанное действие.\", \"reason\": \"В текущем документе отсутствует отдельный ожидаемый документ «Следующий_069358b80f»; добавьте его целиком.\", \"review_scope\": {\"stage\": \"qualification_current_artifact\", \"available_artifacts\": [\"Текущий_069358b80f\"], \"pending_artifacts\": [\"Следующий_069358b80f\"]}}, \"local_target\": \"поле_6_069358b80f\", \"pending_targets\": [\"Следующий_069358b80f\"]}], \"requirements\": {\"R0001_ca024d0e\": \"Проверь только существующие поля текущего документа «Текущий_069358b80f».\", \"R0002_f49d555d\": \"Отдельный документ «Следующий_069358b80f» должен создаваться позже;\", \"R0003_da3801ac\": \"его отсутствие сейчас допустимо.\", \"R0004_738e8a0d\": \"Подтверждённый источник «Источник_069358b80f»: параметр «сапфир» имеет значение 46.\", \"R0005_5fe2260f\": \"В полях о параметре нужен именно этот подтверждённый факт без изменённых значений.\", \"R0006_ff0753b3\": \"В обоих полях с названием «требование» должна дословно присутствовать фраза «ирис топаз».\", \"R0007_87d65790\": \"Для поля «структура» нужна строка с меткой «Решение» и описанием действия.\", \"R0008_a216c820\": \"Документ «Следующий_069358b80f» нельзя вставлять в текущий документ.\", \"R0009_87ca6ad1\": \"Поле «требование_1_069358b80f»: дословно включи «ирис топаз».\", \"R0010_2de75803\": \"Поле «требование_2_069358b80f»: дословно включи «ирис топаз».\", \"R0011_f1f2807e\": \"Поле «поле_3_069358b80f»: значение параметра должно соответствовать источнику «Источник_069358b80f».\", \"R0012_062fbcd6\": \"Поле «структура_4_069358b80f»: обязательна строка с меткой «Решение» и описанием действия.\", \"R0013_b1f5c5cb\": \"Поле «поле_5_069358b80f»: значение параметра должно соответствовать источнику «Источник_069358b80f».\", \"G_language\": \"Язык пользовательского текста соответствует явно запрошенному языку, по умолчанию языку исходного задания; имена собственные и обозначения допустимы.\", \"G_requested_form\": \"Форма доступного артефакта соответствует запрошенной; наличие других артефактов проверяется отдельно.\", \"G_requested_tone\": \"Тон и подача доступного текста соответствуют исходному запросу.\", \"G_clarity\": \"Текст должен быть понятным и связным; причина должна объяснять конкретную неясность.\", \"G_grammar\": \"Отмечай конкретную грамматическую или языковую ошибку.\", \"G_repetition\": \"Отмечай бессодержательное повторение, мешающее прочтению.\", \"G_editorial_meta\": \"Не вставляй служебные инструкции и описание аудитории из ТЗ как готовую публичную речь для читателя (caption, CTA, реплики). Стратегия и внутренние поля планирования вправе описывать аудиторию, цели, производство и измерение; это не публичная речь. Оценивай роль конкретного поля и вид артефакта.\"}, \"source_context\": {\"schema_version\": 1, \"sources\": [{\"source_id\": \"user_request:d0d0fa416e49e51f\", \"type\": \"user_request\", \"label\": \"Исходный запрос пользователя\", \"content\": \"Проверь только существующие поля текущего документа «Текущий_069358b80f». Отдельный документ «Следующий_069358b80f» должен создаваться позже; его отсутствие сейчас допустимо. Подтверждённый источник «Источник_069358b80f»: параметр «сапфир» имеет значение 46. В полях о параметре нужен именно этот подтверждённый факт без изменённых значений. В обоих полях с названием «требование» должна дословно присутствовать фраза «ирис топаз». Для поля «структура» нужна строка с меткой «Решение» и описанием действия. Документ «Следующий_069358b80f» нельзя вставлять в текущий документ. Поле «требование_1_069358b80f»: дословно включи «ирис топаз». Поле «требование_2_069358b80f»: дословно включи «ирис топаз». Поле «поле_3_069358b80f»: значение параметра должно соответствовать источнику «Источник_069358b80f». Поле «структура_4_069358b80f»: обязательна строка с меткой «Решение» и описанием действия. Поле «поле_5_069358b80f»: значение параметра должно соответствовать источнику «Источник_069358b80f».\"}], \"unknowns\": [], \"conflicts\": []}}"
+        }
+      ],
+      "options": {
+        "temperature": 0,
+        "num_ctx": 8192,
+        "num_predict": 1800
+      }
+    },
+    "response": {
+      "model": "mistral:7b",
+      "created_at": "2026-10-30T06:54:15.4606435Z",
+      "message": {
+        "role": "assistant",
+        "content": "{\"decisions\": {\"A001\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"required_change\": \"Добавить фразу 'ирис топаз' в поле 'требование_1_069358b80f'.\"}, \"A002\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Обязательная дословная фраза отсутствует.\", \"required_change\": \"Добавить фразу 'ирис топаз' в поле 'требование_2_069358b80f'.\"}, \"A003\": {\"action\": \"keep_artifact\", \"remedy_scope\": \"none\", \"reason\": \"Значение параметра подтверждено источником.\", \"required_change\": \"\"}, \"A004\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"В поле 'структура' нет обязательной строки 'Решение' и описания действия.\", \"required_change\": \"Добавить строку с меткой 'Решение' и описанием действия в поле 'структура_4_069358b80f'.\"}, \"A005\": {\"action\": \"correct_artifact\", \"remedy_scope\": \"current\", \"reason\": \"Значение параметра отличается от подтверждённого источника.\", \"required_change\": \"Изменить значение параметра в поле 'поле_5_069358b80f' на '46'.\"}, \"A006\": {\"action\": \"keep_artifact\", \"remedy_scope\": \"none\", \"reason\": \"Отсутствие отдельного ожидаемого документа допустимо.\", \"required_change\": \"\"}}}"
+      },
+      "done": true,
+      "done_reason": "stop",
+      "total_duration": 15381241700,
+      "load_duration": 9778735300,
+      "prompt_eval_count": 5331,
+      "prompt_eval_cached_count": 0,
+      "prompt_eval_duration": 1261912000,
+      "eval_count": 520,
+      "eval_duration": 4300239000
+    },
+    "expected_controls": {
+      "требование_1_069358b80f": {
+        "kind": "literal_missing",
+        "needs_change": true
+      },
+      "требование_2_069358b80f": {
+        "kind": "literal_present",
+        "needs_change": false
+      },
+      "поле_3_069358b80f": {
+        "kind": "source_supported",
+        "needs_change": false
+      },
+      "структура_4_069358b80f": {
+        "kind": "scope_local",
+        "needs_change": true
+      },
+      "поле_5_069358b80f": {
+        "kind": "source_changed",
+        "needs_change": true
+      },
+      "поле_6_069358b80f": {
+        "kind": "scope_pending",
+        "needs_change": false
+      }
+    },
+    "contract_pass": true,
+    "correct": 5,
+    "failed_controls": [
+      "literal_present"
+    ]
+  }
+]

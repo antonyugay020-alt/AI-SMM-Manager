@@ -1,0 +1,24 @@
+# No user data, credentials, local models, QA output or model transcripts.
+.env
+.env.*
+*.pem
+*.key
+client_secret.json
+credentials.json
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+AGENT_RUNS/
+VALIDATION_RESULTS/
+VALIDATION_RESULTS.zip
+AI_SMM_TEN_FULL_QA_RESULTS/
+ci_evidence/
+review_input.diff
+node_modules/
+*.log
+.DS_Store

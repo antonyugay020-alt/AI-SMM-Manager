@@ -1,0 +1,376 @@
+{
+  "origin": "Actual R69 reviewer-only report, 2026-10-28; controls only, not content quality",
+  "results": [
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "gpt-oss:20b-cloud",
+      "seed": 10235449696244571608,
+      "checked_at": 1793173925.9395776,
+      "contract_pass": true,
+      "pass": true,
+      "controls": [
+        {
+          "kind": "literal_present",
+          "field": "требование_1_f7317346b5",
+          "expected": "dismissed",
+          "actual": "dismissed",
+          "pass": true
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_2_f7317346b5",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "scope_pending",
+          "field": "поле_3_f7317346b5",
+          "expected": "dismissed",
+          "actual": "dismissed",
+          "pass": true
+        },
+        {
+          "kind": "source_changed",
+          "field": "поле_4_f7317346b5",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_5_f7317346b5",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "source_supported",
+          "field": "поле_6_f7317346b5",
+          "expected": "dismissed",
+          "actual": "dismissed",
+          "pass": true
+        }
+      ],
+      "model_calls": 1
+    },
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "gemma4:cloud",
+      "seed": 13385902923990595696,
+      "checked_at": 1793173927.8562095,
+      "contract_pass": true,
+      "pass": true,
+      "controls": [
+        {
+          "kind": "source_changed",
+          "field": "поле_1_aec3b6093f",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "literal_present",
+          "field": "требование_2_aec3b6093f",
+          "expected": "dismissed",
+          "actual": "dismissed",
+          "pass": true
+        },
+        {
+          "kind": "source_supported",
+          "field": "поле_3_aec3b6093f",
+          "expected": "dismissed",
+          "actual": "dismissed",
+          "pass": true
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_4_aec3b6093f",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_5_aec3b6093f",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "scope_pending",
+          "field": "поле_6_aec3b6093f",
+          "expected": "dismissed",
+          "actual": "dismissed",
+          "pass": true
+        }
+      ],
+      "model_calls": 1
+    },
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "llama3.1:8b",
+      "seed": 17703006933520678819,
+      "checked_at": 1793173943.8946402,
+      "contract_pass": false,
+      "pass": false,
+      "controls": [
+        {
+          "kind": "literal_present",
+          "field": "требование_1_3402ac47e5",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_2_3402ac47e5",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_pending",
+          "field": "поле_3_3402ac47e5",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "source_supported",
+          "field": "поле_4_3402ac47e5",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_5_3402ac47e5",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "source_changed",
+          "field": "поле_6_3402ac47e5",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        }
+      ],
+      "model_calls": 1
+    },
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "deepseek-r1:8b",
+      "seed": 10595753206547018708,
+      "checked_at": 1793173971.7942226,
+      "contract_pass": false,
+      "pass": false,
+      "controls": [
+        {
+          "kind": "scope_pending",
+          "field": "поле_1_0fa5cd0199",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "source_changed",
+          "field": "поле_2_0fa5cd0199",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "source_supported",
+          "field": "поле_3_0fa5cd0199",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_4_0fa5cd0199",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_present",
+          "field": "требование_5_0fa5cd0199",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_6_0fa5cd0199",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        }
+      ],
+      "model_calls": 1
+    },
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "mistral:7b",
+      "seed": 17188890126391503962,
+      "checked_at": 1793173985.548443,
+      "contract_pass": false,
+      "pass": false,
+      "controls": [
+        {
+          "kind": "source_changed",
+          "field": "поле_1_94ce543a2c",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "source_supported",
+          "field": "поле_2_94ce543a2c",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_present",
+          "field": "требование_3_94ce543a2c",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_4_94ce543a2c",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_5_94ce543a2c",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_pending",
+          "field": "поле_6_94ce543a2c",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        }
+      ],
+      "model_calls": 1
+    },
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "gemma3:4b",
+      "seed": 9214926795108335851,
+      "checked_at": 1793173997.9033966,
+      "contract_pass": false,
+      "pass": false,
+      "controls": [
+        {
+          "kind": "source_supported",
+          "field": "поле_1_46150ec7b1",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_2_46150ec7b1",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "source_changed",
+          "field": "поле_3_46150ec7b1",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "scope_pending",
+          "field": "поле_4_46150ec7b1",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_present",
+          "field": "требование_5_46150ec7b1",
+          "expected": "dismissed",
+          "actual": null,
+          "pass": false
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_6_46150ec7b1",
+          "expected": "confirmed",
+          "actual": null,
+          "pass": false
+        }
+      ],
+      "model_calls": 1
+    },
+    {
+      "protocol": "review_qualification_scope_targets_r69_v1",
+      "model": "qwen3:8b",
+      "seed": 12487831209012046642,
+      "checked_at": 1793174014.8527255,
+      "contract_pass": true,
+      "pass": false,
+      "controls": [
+        {
+          "kind": "source_changed",
+          "field": "поле_1_8c29481799",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "scope_local",
+          "field": "структура_2_8c29481799",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "literal_present",
+          "field": "требование_3_8c29481799",
+          "expected": "dismissed",
+          "actual": "confirmed",
+          "pass": false
+        },
+        {
+          "kind": "literal_missing",
+          "field": "требование_4_8c29481799",
+          "expected": "confirmed",
+          "actual": "confirmed",
+          "pass": true
+        },
+        {
+          "kind": "scope_pending",
+          "field": "поле_5_8c29481799",
+          "expected": "dismissed",
+          "actual": "uncertain",
+          "pass": false
+        },
+        {
+          "kind": "source_supported",
+          "field": "поле_6_8c29481799",
+          "expected": "dismissed",
+          "actual": "confirmed",
+          "pass": false
+        }
+      ],
+      "model_calls": 1
+    }
+  ]
+}
