@@ -44,10 +44,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
+      - name: Restore verified partial review evidence
+        uses: actions/cache/restore@v4
+        with:
+          path: ci_evidence/review_kie.json
+          key: kie-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            kie-review-${{ github.event.pull_request.number }}-
       - name: Independent model audit
         env:
           KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
         run: python ci/independent_review.py --provider ${{ matrix.provider }} --diff review_input.diff --output ci_evidence/review_${{ matrix.provider }}.json
+      - name: Save reviewed segments for safe continuation
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ci_evidence/review_kie.json
+          key: kie-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
