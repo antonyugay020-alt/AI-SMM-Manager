@@ -62,6 +62,18 @@ class ProjectKieMediaTests(unittest.TestCase):
                          [(ident,"task_kie_123456789")])
         self.assertEqual(self.gateway.recover(self.p2),[])
 
+    def test_pro_supports_text_to_image_without_source_upload(self):
+        ident=self.gateway.prepare_image(self.p1,prompt="Create a brand poster",
+                                         sources=[],pro=True,resolution="2K")
+        self.upload.assert_not_called()
+        saved=json.loads(self.db.execute(
+            "SELECT payload_json FROM kie_media_tasks WHERE id=?",(ident,)).fetchone()[0])
+        self.assertEqual(saved["model"],"nano-banana-pro")
+        self.assertEqual(saved["input"]["image_input"],[])
+        self.assertEqual(saved["input"]["resolution"],"2K")
+        with self.assertRaises(ValueError):
+            self.gateway.prepare_image(self.p1,prompt="Edit",sources=[],pro=False)
+
     def test_edit_model_uses_image_urls(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Fix the background",
                                          sources=[self.one],pro=False)
