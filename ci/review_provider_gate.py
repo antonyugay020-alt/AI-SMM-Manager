@@ -52,7 +52,7 @@ def verified_complete(report, provider, chunks, diff_sha):
 def permitted_backup(primary, diff_sha):
     if not isinstance(primary, dict):
         return False
-    if primary.get("provider") != "kie" or primary.get("diff_sha256") != diff_sha:
+    if primary.get("provider") not in ("kie", "anthropic") or primary.get("diff_sha256") != diff_sha:
         return False
     if primary.get("status") != "BLOCKED" or not TRANSIENT.fullmatch(str(primary.get("reason"))):
         return False
@@ -89,9 +89,12 @@ def run_gate(diff_path, primary_path, backup_path, output_path, env=None, runner
     result = {"status": "BLOCKED", "diff_sha256": digest,
               "reason": "primary independent review incomplete",
               "reviewer": None, "segments_expected": len(chunks)}
-    if verified_complete(primary, "kie", chunks, digest):
-        result.update(status="PASS", reason=None, reviewer="kie")
-    elif permitted_backup(primary, digest):
+    primary_provider = env.get("PRIMARY_REVIEW_PROVIDER", "kie")
+    if primary_provider not in ("kie", "anthropic"):
+        result["reason"] = "invalid primary reviewer configuration"
+    elif verified_complete(primary, primary_provider, chunks, digest):
+        result.update(status="PASS", reason=None, reviewer=primary_provider)
+    elif permitted_backup(primary, digest) and primary.get("provider") == primary_provider:
         if all(env.get(name) for name in
                ("ALT_REVIEW_API_KEY", "ALT_REVIEW_API_URL", "ALT_REVIEW_MODEL")):
             command = [sys.executable, str(Path(__file__).with_name("independent_review.py")),
