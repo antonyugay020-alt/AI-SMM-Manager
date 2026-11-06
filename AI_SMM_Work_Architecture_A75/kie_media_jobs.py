@@ -33,10 +33,14 @@ def install(db: sqlite3.Connection):
         model TEXT NOT NULL, payload_json TEXT NOT NULL,
         payload_sha256 TEXT NOT NULL, state TEXT NOT NULL,
         provider_task_id TEXT UNIQUE, output_path TEXT,
+        result_sha256 TEXT,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         error_code TEXT, CHECK (state IN (
         'prepared','submitting','submitted','completed','failed',
         'submission_unknown')))""")
+    columns={row[1] for row in db.execute("PRAGMA table_info(kie_media_tasks)")}
+    if "result_sha256" not in columns:
+        db.execute("ALTER TABLE kie_media_tasks ADD COLUMN result_sha256 TEXT")
     db.execute("""CREATE INDEX IF NOT EXISTS kie_media_task_owner
         ON kie_media_tasks(project_id,created_at)""")
 
@@ -81,7 +85,7 @@ def prepare(db, project_id, payload):
 def _owned_row(db, project_id, job_id):
     _project_exists(db, project_id)
     row=db.execute("""SELECT model,payload_json,payload_sha256,state,
-        provider_task_id,output_path FROM kie_media_tasks
+        provider_task_id,output_path,result_sha256 FROM kie_media_tasks
         WHERE id=? AND project_id=?""",(job_id,project_id)).fetchone()
     if row is None:
         raise ValueError("job does not belong to requested project")
@@ -128,6 +132,14 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False):
 
 
 
+def _digest_file(path):
+    result=hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for block in iter(lambda: source.read(1024*1024), b""):
+            result.update(block)
+    return result.hexdigest()
+
+
 def _validate_media_bytes(path, *, is_video):
     """Verify bytes before they cross the project publication boundary."""
     if path.stat().st_size > (500 if is_video else 60)*1024*1024:
@@ -166,7 +178,7 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
     row=_owned_row(db,project_id,job_id)
-    model, _, _, state, provider_id, output_path=row
+    model, _, _, state, provider_id, output_path, result_digest=row
     if state=="completed":
         if not output_path:
             raise ValueError("completed Kie task has no artifact receipt")
@@ -176,6 +188,8 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         if not dest.is_file():
             raise ValueError("completed Kie artifact is missing")
         _validate_media_bytes(dest,is_video=model.startswith("kling-"))
+        if not result_digest or _digest_file(dest)!=result_digest:
+            raise ValueError("completed Kie media artifact fingerprint mismatch")
         return str(dest)
     if state!="submitted" or not provider_id or not TASK_ID.fullmatch(provider_id):
         raise RuntimeError("task has no confirmed remote ID")
@@ -225,8 +239,9 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
             raise ValueError("existing media receipt has unsafe location")
         _validate_media_bytes(resolved,is_video=model.startswith("kling-"))
         db.execute("""UPDATE kie_media_tasks SET state='completed',
-            output_path=?,updated_at=? WHERE id=? AND project_id=?
-            AND state='submitted'""",(str(resolved),utcnow(),job_id,project_id))
+            output_path=?,result_sha256=?,updated_at=? WHERE id=? AND project_id=?
+            AND state='submitted'""",
+            (str(resolved),_digest_file(resolved),utcnow(),job_id,project_id))
         db.commit()
         return str(resolved)
     root=Path(workspace(project_id))
@@ -250,9 +265,10 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         if not receipt.published:
             raise RuntimeError("media result committed but publication pending")
         db.execute("""UPDATE kie_media_tasks SET state='completed',
-            output_path=?,updated_at=?
+            output_path=?,result_sha256=?,updated_at=?
             WHERE id=? AND project_id=? AND state='submitted'""",
-            (str(receipt.final_path),utcnow(),job_id,project_id))
+            (str(receipt.final_path),_digest_file(receipt.final_path),
+             utcnow(),job_id,project_id))
         db.commit()
         return str(receipt.final_path)
     finally:
