@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import stat
 from project_file_boundary import require_managed_folder,require_managed_file
 
 _NAME=re.compile(r'[0-9a-f]{32}\.[a-z0-9]{1,12}\Z')
@@ -81,18 +82,33 @@ def _spool(root,sha):
     return folder,require_managed_file(root,folder/sha,('.ingest_spool',))
 
 
+def _source_identity(path):
+    """Regular-file identity, checked on the pathname and opened descriptor."""
+    info=os.stat(path,follow_symlinks=False)
+    if not stat.S_ISREG(info.st_mode):raise ValueError('Source is not a regular file')
+    return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+
+
 def stage_source(root,source):
-    """Fsync immutable source bytes before accepting any project reference."""
+    """Stage a stable source snapshot; reject replacement or mutation while copying."""
     src=Path(source)
-    if not src.is_file() or src.is_symlink():raise ValueError('Source is not a regular file')
+    before=_source_identity(src)
     folder=require_managed_folder(root,'.ingest_spool')
     folder.mkdir(parents=True,exist_ok=True)
     tmp=require_managed_file(root,folder/('.import-'+uuid4().hex+'.tmp'),('.ingest_spool',))
     sha=hashlib.sha256();length=0
     try:
-        with src.open('rb') as reader,tmp.open('xb') as writer:
+        fd=os.open(src,os.O_RDONLY|getattr(os,'O_BINARY',0)|getattr(os,'O_NOFOLLOW',0))
+        with os.fdopen(fd,'rb') as reader,tmp.open('xb') as writer:
+            opened=os.fstat(reader.fileno())
+            if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns)!=before:
+                raise ValueError('Source changed before media staging')
             for block in iter(lambda:reader.read(1024*1024),b''):
                 sha.update(block);length+=len(block);writer.write(block)
+            closed=os.fstat(reader.fileno())
+            if ((closed.st_dev,closed.st_ino,closed.st_size,closed.st_mtime_ns,closed.st_ctime_ns)!=before
+                    or _source_identity(src)!=before or length!=before[2]):
+                raise ValueError('Source changed during media staging')
             writer.flush();os.fsync(writer.fileno())
         _,target=_spool(root,sha.hexdigest())
         try:os.link(tmp,target)

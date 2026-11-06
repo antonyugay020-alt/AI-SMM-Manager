@@ -138,3 +138,43 @@ class MediaSpoolGcTests(unittest.TestCase):
                 self.assertFalse(orphan.exists())
                 self.assertTrue(live.exists())
             finally:db.close()
+
+class MediaStageSourceRaceTests(unittest.TestCase):
+    """Source swaps and mid-copy writes cannot become durable project media."""
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name)/'project';self.root.mkdir()
+        self.source=Path(self.tmp.name)/'source.png'
+        self.source.write_bytes(b'original-media-bytes')
+
+    def test_stable_source_stages(self):
+        from media_ingest_core import stage_source
+        sha,length=stage_source(self.root,self.source)
+        self.assertEqual(length,len(b'original-media-bytes'))
+        self.assertEqual((self.root/'.ingest_spool'/sha).read_bytes(),b'original-media-bytes')
+
+    def test_replacement_before_open_is_rejected(self):
+        import media_ingest_core
+        real=os.open
+        def replace(path,*args,**kwargs):
+            if Path(path)==self.source:
+                self.source.unlink();self.source.write_bytes(b'replacement')
+            return real(path,*args,**kwargs)
+        with patch.object(media_ingest_core.os,'open',side_effect=replace):
+            with self.assertRaisesRegex(ValueError,'changed'):
+                media_ingest_core.stage_source(self.root,self.source)
+        self.assertEqual(list((self.root/'.ingest_spool').iterdir()),[])
+
+    def test_mutation_after_copy_is_rejected(self):
+        import media_ingest_core
+        real=os.fstat
+        calls=[0]
+        def mutate(fd):
+            calls[0]+=1
+            if calls[0]==2:self.source.write_bytes(b'modified during source read')
+            return real(fd)
+        with patch.object(media_ingest_core.os,'fstat',side_effect=mutate):
+            with self.assertRaisesRegex(ValueError,'changed'):
+                media_ingest_core.stage_source(self.root,self.source)
+        self.assertEqual(list((self.root/'.ingest_spool').iterdir()),[])
+
