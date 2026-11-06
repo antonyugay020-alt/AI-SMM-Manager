@@ -7,7 +7,11 @@ import json
 import os
 import sys
 from PySide6.QtCore import QCoreApplication, QThread, Signal, QTimer
+from pathlib import Path
 
+# Python launched with a script in ci/ does not automatically import sibling
+# runtime modules from the application's separate source directory.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'AI_SMM_Work_Architecture_A75'))
 from text_providers import call_text
 
 MODEL = "anthropic/claude-sonnet-5-5"
