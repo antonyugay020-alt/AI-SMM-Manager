@@ -14,7 +14,9 @@ import urllib.request
 from provider_errors import ProviderHTTPError
 
 _KEYS = {'groq': 'GROQ_API_KEY', 'openrouter': 'OPENROUTER_API_KEY',
-         'gemini': 'GEMINI_API_KEY', 'openai': 'OPENAI_API_KEY'}
+         'gemini': 'GEMINI_API_KEY', 'openai': 'OPENAI_API_KEY',
+         'anthropic': 'ANTHROPIC_API_KEY'}
+_ANTHROPIC_ALLOWED = frozenset({'claude-sonnet-5-5'})
 _GROQ_FREE_MODELS = frozenset({'openai/gpt-oss-20b','openai/gpt-oss-120b',
                                'qwen/qwen3.8-27b'})
 _GEMINI_FREE_MODELS = frozenset({'gemini-3.1-flash-lite'})
@@ -33,6 +35,8 @@ def parse_cloud_model(model: str):
         raise ValueError('Для бесплатного Groq задавайте модель из текущего Free Plan allowlist')
     if provider == 'gemini' and model_id not in _GEMINI_FREE_MODELS:
         raise ValueError('Для бесплатного Gemini разрешена только gemini-3.1-flash-lite')
+    if provider == 'anthropic' and model_id not in _ANTHROPIC_ALLOWED:
+        raise ValueError('Anthropic: модель не подтверждена для этого подключения')
     return provider, model_id
 
 
@@ -67,6 +71,9 @@ def configured_cloud_models(env=None):
                 str(env.get('AI_SMM_ENABLE_OPENAI_API', '')).strip() != '1' or
                 str(env.get('AI_SMM_ENABLE_OPENAI_ACCEPTANCE', '')).strip() != '1'):
             continue
+        if provider == 'anthropic' and (env.get('AI_SMM_ENABLE_ANTHROPIC_API') != '1'
+                                        or env.get('AI_SMM_ENABLE_ANTHROPIC_ACCEPTANCE') != '1'):
+            continue
         if provider == 'openai' and env is os.environ:
             # Runtime access and model selection must use the same explicit,
             # process-local credential source; do not export the key to child processes.
@@ -82,8 +89,71 @@ def configured_cloud_models(env=None):
     return result
 
 
+def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_format):
+    """Native Anthropic Messages API with strict roles, completion and JSON gates."""
+    if not isinstance(messages, list) or response_format not in (None, 'json_object'):
+        raise ValueError('Anthropic: invalid request')
+    system, chat = [], []
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get('role') not in ('system', 'user', 'assistant'):
+            raise ValueError('Anthropic: unsupported message role')
+        content = msg.get('content')
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError('Anthropic: empty or nontext content')
+        role = msg['role']
+        if role == 'system':
+            if chat:
+                raise ValueError('Anthropic: system messages must precede dialogue')
+            system.append(content)
+        elif chat and chat[-1]['role'] == role:
+            chat[-1]['content'] += '\\n\\n' + content
+        else:
+            chat.append({'role': role, 'content': content})
+    if not chat or chat[0]['role'] != 'user' or chat[-1]['role'] != 'user':
+        raise ValueError('Anthropic: expected conversation ending with user prompt')
+    if response_format == 'json_object':
+        system.append('Output exactly one valid JSON object without Markdown.')
+    body = {'model': model_id, 'max_tokens': 4096, 'messages': chat,
+            'temperature': temperature}
+    if system:
+        body['system'] = '\\n\\n'.join(system)
+    req = urllib.request.Request(
+        'https://api.anthropic.com/v1/messages',
+        data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
+        headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01',
+                 'Content-Type': 'application/json'}, method='POST')
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        raw_response = response.read()
+        from diagnostic_report import record_model_event
+        record_model_event('cloud_transport_metadata',
+                           provider='anthropic', bytes_received=len(raw_response))
+        result = json.loads(raw_response)
+    if not isinstance(result, dict) or result.get('stop_reason') != 'end_turn':
+        raise ValueError('Anthropic: incomplete model response')
+    blocks = result.get('content')
+    if not isinstance(blocks, list) or not blocks or any(
+            not isinstance(block, dict) or block.get('type') != 'text'
+            or not isinstance(block.get('text'), str) for block in blocks):
+        raise ValueError('Anthropic: unexpected response content')
+    text = '\\n'.join(block['text'] for block in blocks).strip()
+    if not text:
+        raise ValueError('Anthropic: empty response')
+    if response_format == 'json_object':
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError) as exc:
+            raise ValueError('Anthropic: malformed structured output') from exc
+        if not isinstance(parsed, dict):
+            raise ValueError('Anthropic: structured output must be JSON object')
+    usage = result.get('usage')
+    return text, usage if isinstance(usage, dict) else {}
+
+
 def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
                   response_format=None):
+    if provider == 'anthropic':
+        return _anthropic_chat(model_id, messages, timeout, api_key,
+                               temperature, response_format)
     if provider == 'gemini':
         system = '\n'.join(str(m.get('content') or '') for m in messages
                            if isinstance(m, dict) and m.get('role') == 'system')
@@ -164,6 +234,10 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         raise ValueError('Неизвестный формат облачной модели')
     provider, model_id = parsed
     env = os.environ if environ is None else environ
+    if provider == 'anthropic' and (
+            env.get('AI_SMM_ENABLE_ANTHROPIC_API') != '1'
+            or env.get('AI_SMM_ENABLE_ANTHROPIC_ACCEPTANCE') != '1'):
+        raise RuntimeError('Anthropic API отключён: требуется явное разрешение платных вызовов')
     key_name = _KEYS[provider]
     if provider == 'openai':
         from cloud_credentials import get_openai_key
