@@ -46,6 +46,13 @@ class CostGate:
         self._reserved = {}
         self._spent = {}
 
+    def set_monthly_cap(self, amount_usd):
+        """Change the cap without resetting existing spending or reservations."""
+        new_cap = money(amount_usd)
+        with self._lock:
+            self.cap = new_cap
+        return new_cap
+
     @staticmethod
     def month():
         return datetime.now(timezone.utc).strftime("%Y-%m")
