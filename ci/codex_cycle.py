@@ -34,17 +34,17 @@ def main():
     try:
         login=subprocess.run(
             ['codex','login','--with-api-key'],
-            input=os.environ['OPENAI_API_KEY']+'\\n',
+            input=os.environ['OPENAI_API_KEY']+'\n',
             text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=60, check=False)
         if login.returncode != 0:
             status['reason']='Codex API-key login failed; inspect GitHub secret validity and API account access'
-            (output/'codex.json').write_text(json.dumps(status,indent=2)+'\\n',encoding='utf-8')
+            (output/'codex.json').write_text(json.dumps(status,indent=2)+'\n',encoding='utf-8')
             print('BLOCKED: Codex could not authenticate; no secret content logged',file=sys.stderr)
             return 2
     except (OSError,subprocess.TimeoutExpired) as exc:
         status['reason']='Codex API-key login unavailable: '+type(exc).__name__
-        (output/'codex.json').write_text(json.dumps(status,indent=2)+'\\n',encoding='utf-8')
+        (output/'codex.json').write_text(json.dumps(status,indent=2)+'\n',encoding='utf-8')
         print('BLOCKED: Codex authentication did not complete',file=sys.stderr)
         return 2
     # Read credentials from this runner's Codex auth store, not from an
