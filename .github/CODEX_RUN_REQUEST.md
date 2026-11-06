@@ -30,3 +30,6 @@ The initial cloud Codex invocation was blocked by an unsupported `--full-auto` f
 
 ## Cloud execution preflight (2026-11-06, third invocation)
 The second workflow reached Codex but API responses returned HTTP 401 (no Authorization header). The cloud launcher now performs ephemeral Codex CLI API-key authentication from GitHub Secret via stdin before execution. If auth fails, stop and report; never print credentials. Continue the full architectural workstream unchanged.
+
+## Execution note (2026-11-06, isolated runner without nested bubblewrap)
+The prior job authenticated successfully but could not execute commands: bubblewrap failed with `RTM_NEWADDR: Operation not permitted`. Use the trusted ephemeral GitHub runner without nested bubblewrap, and require actual source/test changes before marking coding PASS. All architecture requirements, QA gates, and release restrictions above remain mandatory.
