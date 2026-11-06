@@ -98,8 +98,10 @@ class KieMediaGateway:
                       aspect_ratio="1:1",resolution="1K",output_format=None):
         """No remote generation yet; uploads may be billed by service."""
         sources=list(sources)
-        if not sources or len(sources)>(8 if pro else 10):
-            raise ValueError("image editing needs 1-8/10 reference sources")
+        # Pro supports both text-to-image and image-to-image. Nano Edit
+        # requires at least one existing photograph per its OpenAPI contract.
+        if len(sources)>(8 if pro else 10) or (not pro and not sources):
+            raise ValueError("invalid number of Nano Banana reference sources")
         urls=self._upload_image_refs(project_id,sources,limit=30 if pro else 10)
         if pro:
             payload=nano_banana_pro(prompt, urls,aspect_ratio,resolution,
