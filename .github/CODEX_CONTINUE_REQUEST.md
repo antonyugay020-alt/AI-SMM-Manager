@@ -15,3 +15,6 @@ status until the full regression runs again.
 
 Model cost should be bounded to the prescribed single integrated workstream.
 All source and test changes should remain on PR #2.
+
+## Cloud authentication recovery
+The previous attempt failed before Codex because checkout disabled persistent credentials and `git fetch` received no GitHub token. The trusted workflow now supplies a scoped GitHub token only to its branch-fetch step, not to the coding agent. Retry the same integrated Qt/task lifecycle workstream without changing acceptance criteria.
