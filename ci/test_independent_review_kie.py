@@ -51,6 +51,28 @@ class KieReviewerContractTests(unittest.TestCase):
         self.assertNotIn("system", data)
         self.assertEqual([m["role"] for m in data["messages"]], ["user"])
 
+    def test_explicit_alternate_claude_model_changes_request_without_weakening_contract(self):
+        seen = []
+        def fake_urlopen(request, timeout=None):
+            seen.append(json.loads(request.data))
+            return io.BytesIO(json.dumps({
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": json.dumps(APPROVAL)}],
+            }).encode("utf-8"))
+        with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only",
+                                    "KIE_REVIEW_MODEL": "claude-opus-4-6"}):
+            with patch.object(review.urllib.request, "urlopen", side_effect=fake_urlopen):
+                self.assertEqual(review.request_review("kie", "test"), APPROVAL)
+        self.assertEqual(seen[0]["model"], "claude-opus-4-6")
+
+    def test_invalid_kie_model_refused_before_network(self):
+        with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only",
+                                    "KIE_REVIEW_MODEL": "https://attacker.invalid/evil"}):
+            with patch.object(review.urllib.request, "urlopen") as network:
+                with self.assertRaisesRegex(RuntimeError, "invalid Kie Claude model identifier"):
+                    review.request_review("kie", "test")
+                network.assert_not_called()
+
     def test_missing_key_fails_closed_without_network(self):
         with patch.dict(os.environ, {"KIE_AI_API_KEY": ""}):
             with patch.object(review.urllib.request, "urlopen") as network:
