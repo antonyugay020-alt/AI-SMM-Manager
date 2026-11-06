@@ -45,6 +45,7 @@ jobs:
         run: python -m pip install -r AI_SMM_Work_Architecture_A75/requirements.txt
       - name: Verify source mirrors
         run: python ci/verify_tree.py
+      # Exercise regression-fixed VideoTrimWorker.start without a synthetic FFmpeg mock.
       - name: Run native Qt photo processing and FFmpeg video trimming
         env:
           QT_QPA_PLATFORM: offscreen
