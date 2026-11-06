@@ -31,7 +31,7 @@ class DurableFileEffects(unittest.TestCase):
         self.reqsha = hashlib.sha256(self.request.encode()).hexdigest()
         self.dbfile = Path(self.temp.name) / 'project.db'
         self.db = sqlite3.connect(self.dbfile, factory=ProjectConnection)
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE manager_documents(id TEXT, project_id TEXT, content TEXT)')
         self.db.execute('INSERT INTO manager_documents VALUES(?,?,?)', (self.artifact, self.pid, self.body))
         install(self.db)
