@@ -52,6 +52,9 @@ def execute(shards: int, index: int, timeout: int, out: Path):
         if before['status'] != 'PASS': raise RuntimeError('structural preflight blocked: '+repr(before['errors']))
         env = os.environ.copy()
         env['PYTHONDONTWRITEBYTECODE'] = '1'
+        # Windows defaults to cp1252 on GitHub runners. All application/test
+        # fixtures are UTF-8; enforce one deterministic process text encoding.
+        env['PYTHONUTF8'] = '1'
         env['QT_QPA_PLATFORM'] = env.get('QT_QPA_PLATFORM', 'offscreen')
         env['PYTHONPATH'] = os.pathsep.join([str(DEV),str(TESTS),env.get('PYTHONPATH','')])
         command=[sys.executable,'-m','pytest','--import-mode=importlib','-q',
