@@ -1,6 +1,6 @@
 name: AI SMM / Gemini direct connection (one-time)
 
-# Diagnostic connection check: inventory model IDs only after a 404, never log secrets.
+# Diagnostic check: separate configured URL and native Gemini response after 404.
 # Later ordinary code pushes must not spend Gemini API credits.
 on:
   push:
