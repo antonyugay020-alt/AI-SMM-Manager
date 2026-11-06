@@ -49,13 +49,29 @@ def main():
         return 2
     # Read credentials from this runner's Codex auth store, not from an
     # environment-only mode that may send requests without a bearer header.
-    command=['codex','exec','--sandbox','workspace-write',PROMPT+task]
+    # GitHub-hosted Linux jobs do not permit bubblewrap network namespace
+    # setup. This is an ephemeral dedicated Actions VM (not a developer PC).
+    # No GitHub write token or unrelated provider credentials are forwarded
+    # into the Codex subprocess. The following QA guard checks all edits.
+    if os.environ.get('GITHUB_ACTIONS')!='true':
+        status['reason']='Unsandboxed Codex is limited to ephemeral GitHub Actions runners'
+        (output/'codex.json').write_text(json.dumps(status,indent=2)+'\n',encoding='utf-8')
+        return 2
+    command=['codex','exec','--sandbox','danger-full-access',PROMPT+task]
     try:
         with log.open('w',encoding='utf-8') as stream:
             result=subprocess.run(command,cwd=ROOT,stdout=stream,stderr=subprocess.STDOUT,
                                   timeout=5400,check=False,env={k:v for k,v in os.environ.items() if k!='OPENAI_API_KEY'})
         status['exit_code']=result.returncode
         if result.returncode != 0:raise RuntimeError('Codex exited with an error')
+        # Codex can return exit 0 despite reporting a blocked environment.
+        # A successful coding phase MUST change production code or tests.
+        changed=subprocess.run(
+            ['git','status','--porcelain','--','AI_SMM_Work_Architecture_A75','AI_SMM_Developer_A75'],
+            cwd=ROOT, capture_output=True, text=True, timeout=20, check=True)
+        if not changed.stdout.strip():
+            raise RuntimeError('Codex made no source/test changes; coding phase not completed')
+        status['changed_entries']=len(changed.stdout.splitlines())
         status['status']='PASS'
     except (OSError,RuntimeError,subprocess.TimeoutExpired) as exc:
         status['reason']=str(exc)
