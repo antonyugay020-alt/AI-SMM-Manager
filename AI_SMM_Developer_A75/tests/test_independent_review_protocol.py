@@ -46,6 +46,20 @@ class IndependentReviewProtocolTests(unittest.TestCase):
                 '"critical_findings":[{"file":"foo.py","reason":"data loss"}],'
                 '"confidence":"high"}')
 
+    def test_review_budget_preserves_large_multi_file_diff(self):
+        # Tests the same 20k/24-segment bounds used by paid audit workflow.
+        files = [
+            f"diff --git a/file_{index}.py b/file_{index}.py\\n" +
+            ("+line=1\\n" * 250)
+            for index in range(75)
+        ]
+        original = "".join(files)
+        chunks = REVIEW.split_review_diff(
+            original, max_chars=20_000, max_parts=24
+        )
+        self.assertTrue(all(len(chunk) <= 20_000 for chunk in chunks))
+        self.assertEqual("".join(chunks), original)
+
     def test_missing_confidence_cannot_pass_as_approval(self):
         with self.assertRaisesRegex(ValueError, "confidence"):
             REVIEW.parse_verdict(
