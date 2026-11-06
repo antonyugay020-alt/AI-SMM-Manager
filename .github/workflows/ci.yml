@@ -1,0 +1,71 @@
+name: AI SMM / Cross-platform regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: ${{ matrix.os }} / shard ${{ matrix.shard }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        shard: [0, 1, 2, 3]
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install application and QA dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pip install -r AI_SMM_Work_Architecture_A75/requirements.txt
+      - name: Structural and mirror preflight
+        run: python ci/verify_tree.py
+      - name: Run assigned entire regression shard
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python ci/run_regression.py --shards 4 --index ${{ matrix.shard }} --timeout 3300
+      - name: Keep evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-${{ runner.os }}-${{ matrix.shard }}
+          path: ci_evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  regression-gate:
+    name: Regression gate / both operating systems
+    if: always()
+    needs: regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Download all shard evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: regression-*
+          path: downloaded_evidence
+      - name: Reject missing or mismatched test evidence
+        run: python ci/aggregate_regression.py --input downloaded_evidence
+      - name: Keep gate summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregate-regression-gate
+          path: ci_evidence/aggregate.json
+          if-no-files-found: warn

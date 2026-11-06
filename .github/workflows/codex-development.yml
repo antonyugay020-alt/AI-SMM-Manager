@@ -1,0 +1,70 @@
+name: AI SMM / Codex architecture branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'One complete architecture workstream; not an isolated symptom'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  architecture:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Run only on an approved, trusted repository and its default branch.
+    concurrency:
+      group: codex-architecture
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - name: Preflight immutable baseline
+        run: python ci/verify_tree.py
+      - name: Install Codex CLI
+        run: npm install --global @openai/codex
+      - name: Create isolated feature branch
+        run: git switch -c codex/architecture-${{ github.run_id }}
+      - name: Codex integrated architecture work
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SMM_CODEX_TASK: ${{ inputs.task }}
+        run: python ci/codex_cycle.py
+      - name: Reject changes to protected quality authority
+        run: python ci/protect_qa.py
+      - name: Check code/developer mirror and full test inventory
+        run: python ci/verify_tree.py
+      # Only code/test files are committed; never secrets, logs, CI guard changes.
+      - name: Commit proposed changes and open a DRAFT PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          git config user.name 'ai-smm-codex-bot'
+          git config user.email 'ai-smm-codex-bot@users.noreply.github.com'
+          git add -- AI_SMM_Work_Architecture_A75 AI_SMM_Developer_A75
+          git diff --cached --quiet && { echo 'No source changes; no PR'; exit 2; }
+          git commit -m 'Codex: integrated AI SMM architecture workstream'
+          gh auth setup-git
+          git push --set-upstream origin HEAD
+          gh pr create --draft --base main --head codex/architecture-${{ github.run_id }} --title 'Codex: integrated architecture workstream' --body 'Proposed changes only. Cross-platform CI, independent reviews and full Windows E2E must PASS. No autonomous release.'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-run-diagnostics
+          path: ci_evidence/
+          if-no-files-found: warn
+          retention-days: 14

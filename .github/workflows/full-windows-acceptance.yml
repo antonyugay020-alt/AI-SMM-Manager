@@ -1,0 +1,50 @@
+name: AI SMM / 10 full Windows E2E cycles
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-windows-e2e:
+    # Requires a CLOUD Windows VM runner with interactive desktop, GPU + running
+    # Ollama, actual independent reviewers, and installed Python 3.14.
+    # GitHub-hosted Windows regression is NOT a replacement for this job.
+    runs-on: [self-hosted, windows, smm-cloud-qa]
+    timeout-minutes: 720
+    concurrency:
+      group: smm-full-native-acceptance
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Set up dependencies
+        shell: pwsh
+        run: |
+          python -m pip install pytest
+          python -m pip install -r AI_SMM_Work_Architecture_A75/requirements.txt
+      - name: Rebuild frozen acceptance candidate from current code
+        run: python ci/build_candidate.py --output ci_evidence/packaged_candidate
+      - name: Run 10 independent FULL Windows E2E cycles
+        shell: pwsh
+        env:
+          AI_SMM_ENABLE_OPENAI_API: '1'
+          AI_SMM_ENABLE_OPENAI_ACCEPTANCE: '1'
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AI_SMM_CLOUD_MODELS: ${{ vars.AI_SMM_CLOUD_MODELS }}
+          AI_SMM_TEST_PROFILE: full
+        run: |
+          python AI_SMM_10_FULL_WINDOWS_QA.py ci_evidence/packaged_candidate/candidate/AI_SMM_Work_Architecture_A75 --tests-source AI_SMM_Developer_A75/tests --output AI_SMM_TEN_FULL_QA_RESULTS
+      - name: Always retain the ten-cycle acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-e2e-evidence
+          path: AI_SMM_TEN_FULL_QA_RESULTS/
+          if-no-files-found: warn
+          retention-days: 90

@@ -1,0 +1,49 @@
+name: AI SMM / Independent cloud reviews
+
+# SECURITY: pull_request_target runs the review script from the trusted base branch.
+# It never checks out or executes code from the proposed PR, only reads its diff.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  independent-review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [anthropic, compatible]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Export PR diff as data, without executing PR code
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
+      - name: Independent model audit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          ALT_REVIEW_API_KEY: ${{ secrets.ALT_REVIEW_API_KEY }}
+          ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
+          ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
+        run: python ci/independent_review.py --provider ${{ matrix.provider }} --diff review_input.diff --output ci_evidence/review_${{ matrix.provider }}.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-review-${{ matrix.provider }}
+          path: ci_evidence/review_${{ matrix.provider }}.json
+          if-no-files-found: warn
+          retention-days: 30
