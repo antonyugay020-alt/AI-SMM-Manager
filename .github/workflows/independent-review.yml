@@ -29,6 +29,10 @@ jobs:
           python-version: '3.14'
       - name: Verify independent reviewer transport and fail-closed contract
         run: python -m unittest discover -s ci -p test_independent_review_kie.py -v
+      - name: Probe Kie Claude with small bounded request before full audit
+        env:
+          KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
+        run: python ci/kie_review_smoke.py
       - name: Export PR diff as data, without executing PR code
         env:
           GH_TOKEN: ${{ github.token }}
