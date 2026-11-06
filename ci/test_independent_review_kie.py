@@ -1,0 +1,83 @@
+"""No-network contract tests for the Kie.ai independent reviewer."""
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+SPEC = importlib.util.spec_from_file_location(
+    "independent_review", Path(__file__).with_name("independent_review.py")
+)
+review = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(review)
+
+APPROVAL = {
+    "verdict": "APPROVE",
+    "critical_findings": [],
+    "confidence": "high",
+    "notes": "Reviewed supplied segment",
+}
+
+
+class KieReviewerContractTests(unittest.TestCase):
+    def test_native_claude_request_and_response(self):
+        seen = []
+
+        def fake_urlopen(request, timeout=None):
+            seen.append((request, timeout))
+            return io.BytesIO(json.dumps({
+                "type": "message", "model": "claude-sonnet-5-5",
+                "stop_reason": "end_turn", "content": [
+                    {"type": "text", "text": json.dumps(APPROVAL)}
+                ],
+            }).encode("utf-8"))
+
+        with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only"}):
+            with patch.object(review.urllib.request, "urlopen", side_effect=fake_urlopen):
+                self.assertEqual(review.request_review("kie", "diff --git a/x b/x"), APPROVAL)
+        request, timeout = seen[0]
+        self.assertEqual(request.full_url, "https://api.kie.ai/claude/v1/messages")
+        self.assertEqual(request.get_header("Authorization"), "Bearer placeholder-only")
+        self.assertEqual(timeout, 180)
+        data = json.loads(request.data)
+        self.assertEqual(data["model"], "claude-sonnet-5-5")
+        self.assertIs(data["stream"], False)
+        self.assertTrue(data["messages"][0]["content"].endswith("diff --git a/x b/x"))
+        self.assertNotIn("system", data)
+        self.assertEqual([m["role"] for m in data["messages"]], ["user"])
+
+    def test_missing_key_fails_closed_without_network(self):
+        with patch.dict(os.environ, {"KIE_AI_API_KEY": ""}):
+            with patch.object(review.urllib.request, "urlopen") as network:
+                with self.assertRaisesRegex(RuntimeError, "KIE_AI_API_KEY missing"):
+                    review.request_review("kie", "diff")
+                network.assert_not_called()
+
+    def test_truncated_or_tool_result_is_never_approved(self):
+        for stop in ("max_tokens", "tool_use"):
+            with self.subTest(stop=stop):
+                response = {"stop_reason": stop, "content": [
+                    {"type": "text", "text": json.dumps(APPROVAL)}
+                ]}
+                with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only"}):
+                    with patch.object(review.urllib.request, "urlopen",
+                                      return_value=io.BytesIO(json.dumps(response).encode())):
+                        with self.assertRaisesRegex(ValueError, "incomplete"):
+                            review.request_review("kie", "diff")
+
+    def test_invalid_or_nontext_response_is_blocked(self):
+        for body in ({"stop_reason": "end_turn", "content": []},
+                     {"stop_reason": "end_turn", "content": [{"type": "tool_use"}]},
+                     {"stop_reason": "end_turn", "content": "wrong"}):
+            with self.subTest(body=body):
+                with patch.dict(os.environ, {"KIE_AI_API_KEY": "placeholder-only"}):
+                    with patch.object(review.urllib.request, "urlopen",
+                                      return_value=io.BytesIO(json.dumps(body).encode())):
+                        with self.assertRaises(ValueError):
+                            review.request_review("kie", "diff")
+
+
+if __name__ == "__main__":
+    unittest.main()
