@@ -75,11 +75,11 @@ class ArtifactStaging(unittest.TestCase):
 
     def test_symlink_destination_rejected(self):
         target=self.root/'outside.txt'
-        target.write_text('sensitive')
+        target.write_text('sensitive', encoding='utf-8')
         try:self.text.symlink_to(target)
         except (NotImplementedError,OSError) as exc:self.skipTest(str(exc))
         with StagedArtifactBatch(self.root,('texts','pdf')) as batch:
             with self.assertRaises(ValueError):batch.stage(self.text)
-        self.assertEqual(target.read_text(),'sensitive')
+        self.assertEqual(target.read_text(encoding='utf-8'),'sensitive')
 
 if __name__=='__main__': unittest.main()

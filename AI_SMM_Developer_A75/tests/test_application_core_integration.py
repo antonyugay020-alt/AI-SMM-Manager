@@ -25,13 +25,13 @@ class ApplicationCoreTests(unittest.TestCase):
     def test_persists_and_exports_text(self):
         result=core.save_project_text(self.db,self.workspace,self.a,'hello','2026')
         self.assertTrue(result.exported)
-        self.assertEqual(result.path.read_text(),'hello')
+        self.assertEqual(result.path.read_text(encoding='utf-8'),'hello')
     def test_two_projects_remain_disjoint(self):
         a=core.save_project_text(self.db,self.workspace,self.a,'first','2026')
         b=core.save_project_text(self.db,self.workspace,self.b,'second','2026')
         self.assertNotEqual(a.path.parent,b.path.parent)
-        self.assertEqual(a.path.read_text(),'first')
-        self.assertEqual(b.path.read_text(),'second')
+        self.assertEqual(a.path.read_text(encoding='utf-8'),'first')
+        self.assertEqual(b.path.read_text(encoding='utf-8'),'second')
     def test_invalid_project_rolls_back_everything(self):
         with self.assertRaises(ValueError):
             core.save_project_text(self.db,self.workspace,'f'*32,'hello','2026')
@@ -41,7 +41,7 @@ class ApplicationCoreTests(unittest.TestCase):
         first=core.save_project_text(self.db,self.workspace,self.a,'first','2026',file_id=ident)
         with self.assertRaises(sqlite3.IntegrityError):
             core.save_project_text(self.db,self.workspace,self.a,'second','2026',file_id=ident)
-        self.assertEqual(first.path.read_text(),'first')
+        self.assertEqual(first.path.read_text(encoding='utf-8'),'first')
         self.assertFalse(self.db.in_transaction)
     def test_foreign_transaction_is_not_committed(self):
         self.db.execute('INSERT INTO projects VALUES(?,?)',('c'*32,'C'))
@@ -55,7 +55,7 @@ class ApplicationCoreTests(unittest.TestCase):
         self.assertFalse(result.exported)
         self.assertEqual(self.db.execute('SELECT state FROM project_text_projections').fetchone(),('pending',))
         core.drain_text(self.db,self.workspace,project_id=self.a)
-        self.assertEqual(result.path.read_text(),'recover')
+        self.assertEqual(result.path.read_text(encoding='utf-8'),'recover')
     def test_completion_only_after_export_confirmed(self):
         self.db.execute('CREATE TABLE ai_file_effect_outbox(project_id TEXT,artifact_id TEXT,state TEXT)')
         self.db.execute('INSERT INTO ai_file_effect_outbox VALUES(?,?,?)',(self.a,'d'*32,'pending'))

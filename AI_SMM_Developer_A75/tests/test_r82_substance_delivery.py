@@ -262,7 +262,7 @@ class RevisionProvenanceTests(unittest.TestCase):
     def test_revision_input_cannot_cross_project_request_or_escape_workspace(self):
         with tempfile.TemporaryDirectory() as home:
             path=Path(home)/'drafts';path.mkdir();rid='b'*32
-            (path/('revision_input_'+rid+'.json')).write_text(json.dumps({'project_id':'p','request':self.request}))
+            (path/('revision_input_'+rid+'.json')).write_text(json.dumps({'project_id':'p','request':self.request}), encoding='utf-8')
             self.assertEqual(load_revision_seed(home,'p',self.request,rid)['request'],self.request)
             for pid,request,key in [('other',self.request,rid),('p','Another request',rid),('p',self.request,'../x')]:
                 with self.assertRaises(ValueError):load_revision_seed(home,pid,request,key)
@@ -281,8 +281,8 @@ class RevisionProvenanceTests(unittest.TestCase):
                     'revision_id':rid,'revision_seed':seed})
             self.assertEqual(source.read_bytes(),b'Original saved checkpoint')
             fresh=next(p for p in drafts.glob('publication_progress_*.json') if p!=source)
-            self.assertEqual(json.loads(fresh.read_text())['posts'],{})
-            repair=json.loads(next(drafts.glob('publication_repair_*.json')).read_text())['drafts']
+            self.assertEqual(json.loads(fresh.read_text(encoding='utf-8'))['posts'],{})
+            repair=json.loads(next(drafts.glob('publication_repair_*.json')).read_text(encoding='utf-8'))['drafts']
             self.assertEqual(repair['1/Вт']['post'],seed['posts']['1/Вт'])
             self.assertEqual(repair['1/Вт']['review_state'],'unavailable')
 

@@ -50,7 +50,9 @@ def test_gui_deletion_success_requires_backup_receipt():
     assert view.active_document_id is None
     view.load_manager_documents.assert_called_once_with()
     assert [kind for kind,_ in notes] == ['status']
-    assert '/verified/backup.zip' in notes[0][1]
+    # A verified backup receipt must be displayed with the native platform
+    # representation of its path (\\ on Windows, / on POSIX).
+    assert str(Path('/verified/backup.zip')) in notes[0][1]
 
 
 def test_all_gui_document_deletion_routes_use_same_authority():

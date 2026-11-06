@@ -13,7 +13,7 @@ class TestDirectoryDurability(unittest.TestCase):
             atomic_write_json(path, {'version': 1})
             atomic_write_json(path, {'version': 2})
             self.assertEqual(path.read_text(encoding='utf-8').count('"version"'), 1)
-            self.assertIn('2', path.read_text())
+            self.assertIn('2', path.read_text(encoding='utf-8'))
             self.assertFalse(list(Path(directory).glob('*.tmp')))
 
     @unittest.skipUnless(os.name == 'posix', 'Directory sync supported on POSIX')

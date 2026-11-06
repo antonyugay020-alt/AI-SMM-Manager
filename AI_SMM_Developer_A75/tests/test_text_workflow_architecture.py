@@ -296,7 +296,7 @@ class TextWorkflowArchitectureTests(unittest.TestCase):
             Path(folder,'case_synthetic_documents.json').write_text(json.dumps({
                 'workflow_type':'standalone_post','author_model':'author:1','request':'Напиши пост.',
                 'response':{'action':'write','answer':'Принятый текст.',
-                    'quality_review':{'revision_author_model':'cloud:cloud'}}}))
+                    'quality_review':{'revision_author_model':'cloud:cloud'}}}), encoding='utf-8')
             with acceptance_model_pool(pool),patch('generic_text_review._reviewer_pool_is_prevalidated',return_value=True),patch('generic_text_review.review_text',side_effect=audit):
                 result=review_saved_results(Path(folder),editor_call=lambda *a:None)
         self.assertEqual(result['cases'][0]['status'],'PASS')
@@ -361,7 +361,7 @@ class ProviderBoundaryTests(unittest.TestCase):
                 request_chat(self.payload,stage='provider',attempts=1,
                              report=lambda name,**d:events.append(d))
             filename=record_model_failure(folder,'a'*64,'arbitrary:cloud','strategy',caught.exception)
-            saved=json.loads((Path(folder)/filename).read_text())
+            saved=json.loads((Path(folder)/filename).read_text(encoding='utf-8'))
         self.assertIn('upstream parser failed',saved['response'])
         self.assertNotIn(secret,saved['response']+repr(events)+str(caught.exception))
         self.assertNotIn('OTHER_SECRET',saved['response'])

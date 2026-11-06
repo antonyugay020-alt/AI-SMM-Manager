@@ -46,6 +46,33 @@ def install(db):
         ON batch_item_receipts(project_id,batch_id,status,position)''')
 
 
+def recover_inflight_batch_receipts(db, *, project_id=None, timestamp=None):
+    """Fence orphaned batch claims in an existing cross-service transaction.
+
+    Shared by normal application restart and pre-constraint SQLite migration:
+    both worker kinds must commit or roll back together. No filesystem access.
+    """
+    if not isinstance(db, sqlite3.Connection) or not db.in_transaction:
+        raise RuntimeError('Batch restart recovery requires an application transaction')
+    if project_id is not None and (not isinstance(project_id,str) or not project_id.strip()
+            or not db.execute('SELECT 1 FROM projects WHERE id=?',(project_id,)).fetchone()):
+        raise ValueError('Unknown batch project')
+    stamp=timestamp or _now()
+    if project_id is None:
+        return db.execute("""UPDATE batch_item_receipts
+            SET status='failed',attempt_token=NULL,updated_at=?
+            WHERE status='running' AND EXISTS
+                (SELECT 1 FROM batch_runs r WHERE r.id=batch_item_receipts.batch_id
+                 AND r.project_id=batch_item_receipts.project_id AND r.status='running')""",
+            (stamp,)).rowcount
+    return db.execute("""UPDATE batch_item_receipts
+            SET status='failed',attempt_token=NULL,updated_at=?
+            WHERE project_id=? AND status='running' AND EXISTS
+                (SELECT 1 FROM batch_runs r WHERE r.id=batch_item_receipts.batch_id
+                 AND r.project_id=batch_item_receipts.project_id AND r.status='running')""",
+            (stamp,project_id)).rowcount
+
+
 @dataclass(frozen=True)
 class BatchReceipt:
     batch_id: str
@@ -228,12 +255,14 @@ class BatchRuntime:
         if not checked.is_file() or original is None or _fingerprint(checked)!=tuple(original):
             raise ValueError('Batch original changed before result publication')
 
-    def accept_in_transaction(self,claim,result_path,*,timestamp=None):
+    def accept_in_transaction(self,claim,result_path,*,timestamp=None,expected_sha256=None):
         self.authorize_in_transaction(claim)
         output=require_managed_file(Path(self.workspace(claim.project_id)),result_path,('processed',))
         if not output.is_file():raise FileNotFoundError('Batch result was not saved')
         result_sha,result_size=_fingerprint(output)
         if result_size<=0:raise ValueError('Empty batch result cannot be accepted')
+        if expected_sha256 is not None and result_sha!=expected_sha256:
+            raise ValueError('Media changed during publication')
         changed=self.db.execute('''UPDATE batch_item_receipts SET status='completed',
             result_path=?,result_sha256=?,result_size=?,updated_at=? WHERE batch_id=? AND project_id=?
             AND source_path=? AND status='running' AND attempt_token=?''',
@@ -257,32 +286,12 @@ class BatchRuntime:
             return bool(changed)
 
     def recover_in_transaction(self, *, project_id=None, timestamp=None):
-        """Fence every abandoned batch worker in the caller's restart transaction.
+        """Fence abandoned batch workers within the application's transaction.
 
-        Only execution authority is revoked; pending inputs and accepted outputs
-        remain intact. This composes with task-attempt recovery, so a crash
-        cannot reopen one kind of worker while leaving the other kind active.
+        This delegates to the same SQL used by legacy-index bootstrap, so
+        execution and batch fencing share a single durable boundary.
         """
-        if not self.db.in_transaction:
-            raise RuntimeError('Batch restart recovery requires an application transaction')
-        if project_id is not None:
-            self._check(project_id)
-        stamp=timestamp or _now()
-        if project_id is None:
-            changed=self.db.execute("""UPDATE batch_item_receipts
-                SET status='failed',attempt_token=NULL,updated_at=?
-                WHERE status='running' AND EXISTS
-                    (SELECT 1 FROM batch_runs r WHERE r.id=batch_item_receipts.batch_id
-                     AND r.project_id=batch_item_receipts.project_id AND r.status='running')""",
-                    (stamp,)).rowcount
-        else:
-            changed=self.db.execute("""UPDATE batch_item_receipts
-                SET status='failed',attempt_token=NULL,updated_at=?
-                WHERE project_id=? AND status='running' AND EXISTS
-                    (SELECT 1 FROM batch_runs r WHERE r.id=batch_item_receipts.batch_id
-                     AND r.project_id=batch_item_receipts.project_id AND r.status='running')""",
-                    (stamp,project_id)).rowcount
-        return changed
+        return recover_inflight_batch_receipts(self.db, project_id=project_id, timestamp=timestamp)
 
     def recover(self,pid,batch_id,*,timestamp=None):
         """After process restart old worker claims cannot retain authority."""

@@ -24,7 +24,7 @@ class CloudOwnership(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
+        self.db=sqlite3.connect(':memory:');self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
         self.db.execute('CREATE TABLE project_files(id TEXT,project_id TEXT,kind TEXT,display_name TEXT,path TEXT,created_at TEXT)')
         self.db.executemany('INSERT INTO projects VALUES(?)',[('first',),('second',)])
@@ -46,7 +46,15 @@ class CloudOwnership(unittest.TestCase):
         f=self.p1/'output.png';Image.new('RGB',(8,8)).save(f)
         self.cloud_done(self.view,str(f),project_id='first')
         rows=self.db.execute('SELECT project_id,path FROM project_files').fetchall()
-        self.assertEqual(rows,[('first',str(f))])
+        # The registry stores the canonical filesystem identity, not an
+        # arbitrary spelling of the input path. Windows can resolve the same
+        # temp directory via RUNNER~1 or its long Unicode name.
+        assert len(rows) == 1
+        self.assertEqual(rows[0][0], 'first')
+        stored = Path(rows[0][1])
+        self.assertTrue(stored.is_file())
+        self.assertTrue(stored.samefile(f))
+        self.assertTrue(stored.resolve(strict=True).is_relative_to(self.p1.resolve(strict=True)))
     def test_other_project_file_is_rejected(self):
         from PIL import Image
         f=self.p2/'other.png';Image.new('RGB',(8,8)).save(f)
@@ -71,7 +79,7 @@ class DocumentExportTruth(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
+        self.db=sqlite3.connect(':memory:');self.addCleanup(lambda: self.db.close())
         from application_bootstrap import install_schema
         install_schema(self.db)
         self.db.execute('INSERT INTO projects(id,name,created_at) VALUES(?,?,?)', ('project','Sample','before'))
@@ -107,7 +115,7 @@ class DocumentExportTruth(unittest.TestCase):
         def export(*args,**kwargs):
             txt=self.root/'strategies'/'new_doc.txt';pdf=self.root/'pdf'/'new_doc.pdf'
             txt.parent.mkdir(parents=True,exist_ok=True);pdf.parent.mkdir(parents=True,exist_ok=True)
-            txt.write_text('new text');pdf.write_bytes(b'%PDF-1.4 valid mock PDF document')
+            txt.write_text('new text', encoding='utf-8');pdf.write_bytes(b'%PDF-1.4 valid mock PDF document')
         self.assertTrue(self.make_save(export)(self.view))
         self.assertIn('сохранены',self.messages[-1])
         self.assertEqual(self.db.execute('SELECT content FROM manager_documents').fetchone()[0],'new text')

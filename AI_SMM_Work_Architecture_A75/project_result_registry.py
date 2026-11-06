@@ -54,7 +54,7 @@ class ProjectResultRegistry:
             return cursor.lastrowid
         return self._atomic(operation)
 
-    def _admit_media(self, project_id, path, *, kind, extensions, timestamp=None):
+    def _admit_media(self, project_id, path, *, kind, extensions, timestamp=None, require_new=False):
         '''Verify a project-scoped media result without involving Qt.'''
         def operation():
             self._project(project_id)
@@ -84,6 +84,8 @@ class ProjectResultRegistry:
             existing=self.db.execute('''SELECT id FROM project_files
                 WHERE project_id=? AND kind=? AND path=?''',(project_id,kind,str(dest))).fetchone()
             if existing:
+                if require_new:
+                    raise ValueError('Batch result was already registered')
                 return existing[0]
             ident=uuid4().hex
             self.db.execute('''INSERT INTO project_files
@@ -95,5 +97,5 @@ class ProjectResultRegistry:
     def admit_video(self, project_id, path, *, timestamp=None):
         return self._admit_media(project_id,path,kind='video',extensions=VIDEO_TYPES,timestamp=timestamp)
 
-    def admit_image(self, project_id, path, *, timestamp=None):
-        return self._admit_media(project_id,path,kind='result',extensions=IMAGE_TYPES,timestamp=timestamp)
+    def admit_image(self, project_id, path, *, timestamp=None, require_new=False):
+        return self._admit_media(project_id,path,kind='result',extensions=IMAGE_TYPES,timestamp=timestamp,require_new=require_new)
