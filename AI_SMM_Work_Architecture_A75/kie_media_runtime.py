@@ -117,12 +117,13 @@ class KieMediaGateway:
         images=list(source_images)
         if len(images)>(7 if source_video is None else 4):
             raise ValueError("too many Kling reference images")
-        urls=self._upload_image_refs(project_id,images,limit=50,kling=True)
-        video_url=None
-        metadata=None
+        if not reference_mode and source_video is None:
+            raise ValueError("Transformation requires source video")
+        local=metadata=None
         if source_video is not None:
             local,metadata=verified_video(self._authorized(project_id,source_video))
-            video_url=_url(self.upload_file(local))
+        urls=self._upload_image_refs(project_id,images,limit=50,kling=True)
+        video_url=_url(self.upload_file(local)) if local is not None else None
         if reference_mode:
             payload=kling_omni_reference_to_video(
                 prompt,urls,video_url=video_url,metadata=metadata,
