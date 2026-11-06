@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -34,6 +35,30 @@ def model_inventory():
     )
 
 
+
+def sanitized_google_message(value):
+    """Render Google error text only after dropping secrets and opaque identifiers.
+
+    This is diagnostic evidence, not a raw HTTP response. Never persist
+    Authorization headers, credentials, URLs with queries, or token-like data.
+    """
+    if not isinstance(value, str):
+        return None
+    value = value[:2000]
+    for name in ("ALT_REVIEW_API_KEY", "KIE_AI_API_KEY", "OPENAI_API_KEY"):
+        secret = os.environ.get(name, "")
+        if secret:
+            value = value.replace(secret, "[REDACTED]")
+    value = re.sub(r"(?i)\\bBearer\\s+[^\\s,;]+", "Bearer [REDACTED]", value)
+    value = re.sub(r"(?i)\\bAIza[A-Za-z0-9_\\-]{16,}", "[REDACTED]", value)
+    value = re.sub(r"(?i)\\b(?:api[_ -]?key|access[_ -]?token|authorization)"
+                   r"\\s*[:=]\\s*[^\\s,;]+", "[REDACTED]", value)
+    value = re.sub(r"https?://[^\\s<>]+", "[URL REDACTED]", value)
+    value = re.sub(r"[A-Za-z0-9_+\\-]{36,}", "[OPAQUE REDACTED]", value)
+    value = re.sub(r"[\\x00-\\x1f\\x7f]+", " ", value).strip()
+    return value[:500] if value else None
+
+
 def safe_provider_error(error):
     """Record structured Google status only; never echo messages or credentials."""
     result = {"http_status": int(error.code)}
@@ -52,6 +77,9 @@ def safe_provider_error(error):
             }
             if isinstance(status, str) and status in allowed_statuses:
                 result["google_status"] = status
+            explanation = sanitized_google_message(obj.get("message"))
+            if explanation:
+                result["google_message_redacted"] = explanation
             kinds = set()
             reasons = set()
             for entry in obj.get("details", [])[:8] if isinstance(obj.get("details"), list) else []:
