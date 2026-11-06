@@ -1,0 +1,31 @@
+name: AI SMM / Gemini direct connection (one-time)
+
+# A single connection check when this workflow is first committed to main.
+# Later ordinary code pushes must not spend Gemini API credits.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/gemini-connection-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gemini-connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Probe Google Gemini Pro direct API (one small synthetic request)
+        env:
+          ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
+          ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
+        run: python ci/gemini_review_smoke.py
