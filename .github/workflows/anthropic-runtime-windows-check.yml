@@ -27,7 +27,7 @@ jobs:
           python -m pip install PySide6
       - name: Verify source and acceptance test mirrors
         run: python ci/verify_tree.py
-      # Second probe includes the corrected runtime import path.
+      # Probe HTTP status is sanitized; no response body or credentials are logged.
       - name: Perform one genuine bounded Claude call from Windows Qt thread
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
