@@ -7,7 +7,7 @@ from dialogue_runtime import DialogueContract,understand_dialogue
 from text_workflow import run_text_task
 from test_r86_semantic_dialogue import decision
 
-FIXTURE=json.loads((Path(__file__).with_name('r96_received_windows.json')).read_text())
+FIXTURE=json.loads((Path(__file__).with_name('r96_received_windows.json')).read_text(encoding='utf-8'))
 
 class LiveRequirementEvidenceTests(unittest.TestCase):
     def replay(self,index=0):
