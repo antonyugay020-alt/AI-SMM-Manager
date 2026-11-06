@@ -112,6 +112,46 @@ class KieMediaDurabilityTests(unittest.TestCase):
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM project_files").fetchone()[0],1)
 
+    def test_recovered_download_must_pass_media_integrity_again(self):
+        ident=prepare(self.db,self.a,self.payload)
+        submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
+               enable_paid=True)
+        status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
+            "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
+        def save_image(_,path):
+            with Image.new("RGB",(64,64)) as im:im.save(path,"PNG")
+        completed=complete(self.db,self.a,ident,lambda _:status,
+                           save_image,self.workspace)
+        self.db.execute("""UPDATE kie_media_tasks SET state='submitted',output_path=NULL
+            WHERE id=?""",(ident,))
+        self.db.commit()
+        Path(completed).write_bytes(b"tampered media bytes")
+        with self.assertRaises(Exception):
+            complete(self.db,self.a,ident,lambda _:status,Mock(),self.workspace)
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM kie_media_tasks WHERE id=?",(ident,)).fetchone()[0],
+            "submitted")
+
+    def test_video_ingest_migrates_old_result_only_schema(self):
+        from media_ingest_core import ingest
+        self.db.execute("""CREATE TABLE media_ingest_jobs (
+            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
+            CHECK(kind IN ('asset','reference','result')),
+            source_sha256 TEXT NOT NULL,source_size INTEGER NOT NULL,
+            filename TEXT NOT NULL,state TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL)""")
+        self.db.commit()
+        video=self.root/"synthetic.mp4"
+        video.write_bytes(b"media ingestion transport test")
+        receipt=ingest(self.db,self.workspace,video,project_id=self.a,kind="video")
+        self.assertTrue(receipt.published)
+        self.assertEqual(self.db.execute(
+            "SELECT kind FROM project_files WHERE id=?",(receipt.item_id,)).fetchone()[0],
+            "video")
+        table=self.db.execute("SELECT sql FROM sqlite_master WHERE name='media_ingest_jobs'").fetchone()[0]
+        self.assertIn("'video'",table)
+
     def test_missing_completion_does_not_publish(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
