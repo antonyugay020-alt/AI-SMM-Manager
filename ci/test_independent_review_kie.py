@@ -47,9 +47,22 @@ class KieReviewerContractTests(unittest.TestCase):
         data = json.loads(request.data)
         self.assertEqual(data["model"], "claude-sonnet-5-5")
         self.assertIs(data["stream"], False)
-        self.assertTrue(data["messages"][0]["content"].endswith("diff --git a/x b/x"))
+        self.assertEqual(
+            data["messages"][0]["content"],
+            review.KIE_REVIEW_PREFIX + review.REVIEW_SYSTEM +
+            review.KIE_REVIEW_SEPARATOR + "diff --git a/x b/x",
+        )
+        self.assertIn("\n\nUNTRUSTED GIT DIFF FOR REVIEW", data["messages"][0]["content"])
+        self.assertNotIn("\\n", data["messages"][0]["content"])
         self.assertNotIn("system", data)
         self.assertEqual([m["role"] for m in data["messages"]], ["user"])
+
+    def test_transport_framing_change_invalidates_cached_approval(self):
+        before = review.review_contract_sha256("kie")
+        with patch.object(review, "KIE_REVIEW_SEPARATOR",
+                          "\n\nUNTRUSTED DIFF (revised framing):\n"):
+            after = review.review_contract_sha256("kie")
+        self.assertNotEqual(before, after)
 
     def test_missing_key_fails_closed_without_network(self):
         with patch.dict(os.environ, {"KIE_AI_API_KEY": ""}):
