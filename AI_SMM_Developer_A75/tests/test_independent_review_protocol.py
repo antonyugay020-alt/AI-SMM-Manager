@@ -46,6 +46,12 @@ class IndependentReviewProtocolTests(unittest.TestCase):
                 '"critical_findings":[{"file":"foo.py","reason":"data loss"}],'
                 '"confidence":"high"}')
 
+    def test_missing_confidence_cannot_pass_as_approval(self):
+        with self.assertRaisesRegex(ValueError, "confidence"):
+            REVIEW.parse_verdict(
+                '{"verdict":"APPROVE","critical_findings":[],"notes":"ok"}'
+            )
+
     def test_unknown_review_status_is_rejected(self):
         with self.assertRaises(ValueError):
             REVIEW.parse_verdict(
