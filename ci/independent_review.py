@@ -116,7 +116,9 @@ def request_review(provider: str, diff: str):
         if not key or not model:raise RuntimeError('ANTHROPIC_API_KEY / ANTHROPIC_MODEL missing')
         url='https://api.anthropic.com/v1/messages'
         headers={'x-api-key':key,'anthropic-version':'2023-06-01'}
-        # Full-context architecture reviews need enough response tokens to emit\n        # every finding without silently truncating the structured verdict.\n        payload={'model':model,'max_tokens':12000,'system':REVIEW_SYSTEM,
+        # Full-context architecture reviews need enough response tokens to emit
+        # every finding without silently truncating the structured verdict.
+        payload={'model':model,'max_tokens':12000,'system':REVIEW_SYSTEM,
                  'messages':[{'role':'user','content':diff}]}
     elif provider=='kie':
         # Kie.ai Claude Messages API uses Anthropic-style messages, but
