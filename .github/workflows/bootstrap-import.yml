@@ -1,0 +1,43 @@
+name: Bootstrap verified AI SMM source
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap/ai_smm_source.tar.xz'
+      - '.github/workflows/bootstrap-import.yml'
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Verify and extract immutable snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '2c292f1ee46eac190ab9c94fa4b136111519f152a2074d81c6f4ff0b59dbfdf3  bootstrap/ai_smm_source.tar.xz' | sha256sum -c -
+          mkdir -p .bootstrap-extracted
+          tar -xJf bootstrap/ai_smm_source.tar.xz -C .bootstrap-extracted
+          test -f .bootstrap-extracted/ci/verify_tree.py
+          test -f .bootstrap-extracted/AI_SMM_Work_Architecture_A75/app.py
+          test -f .bootstrap-extracted/AI_SMM_Developer_A75/tests/app.py
+          test -f .bootstrap-extracted/.github/workflows/ci.yml
+          cp -a .bootstrap-extracted/. .
+          rm -rf .bootstrap-extracted
+      - name: Commit complete source, tests and CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ai-smm-cloud-bootstrap'
+          git config user.email 'ai-smm-cloud-bootstrap@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No new source changes'
+            exit 0
+          fi
+          git commit -m 'Import verified AI SMM Manager application, QA and CI'
+          git push origin HEAD:main
