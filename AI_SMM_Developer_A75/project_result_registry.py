@@ -10,12 +10,22 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 from datetime import datetime, timezone
+from dataclasses import dataclass
+from file_evidence import FileEvidence, capture, unchanged
+from project_file_boundary import reject_path_link
 
 VIDEO_TYPES = frozenset({'.mp4', '.mov', '.mkv', '.webm'})
 IMAGE_TYPES = frozenset({'.png', '.jpg', '.jpeg', '.webp'})
 
 def _timestamp():
     return datetime.now(timezone.utc).isoformat()
+
+@dataclass(frozen=True)
+class PreparedMedia:
+    project_id:str
+    kind:str
+    path:Path
+    evidence:FileEvidence
 
 class ProjectResultRegistry:
     def __init__(self, db: sqlite3.Connection, workspace):
@@ -41,7 +51,8 @@ class ProjectResultRegistry:
             project_id, content, role=role, timestamp=timestamp))
 
     def publish_video(self, project_id, path, *, timestamp=None):
-        return self._publish(lambda: self.admit_video(project_id, path, timestamp=timestamp))
+        prepared=self.prepare_media(project_id,path,kind='video')
+        return self._publish(lambda:self.admit_prepared_media(project_id,prepared,timestamp=timestamp))
 
     def admit_message(self, project_id, content, *, role='assistant', timestamp=None):
         def operation():
@@ -54,48 +65,60 @@ class ProjectResultRegistry:
             return cursor.lastrowid
         return self._atomic(operation)
 
-    def _admit_media(self, project_id, path, *, kind, extensions, timestamp=None, require_new=False):
-        '''Verify a project-scoped media result without involving Qt.'''
+    def prepare_media(self,project_id,path,*,kind):
+        """Outside-transaction ownership, full hash and image validation."""
+        if kind not in ('image','video'):raise ValueError('Unsupported media kind')
+        if self.workspace is None:raise ValueError('Media publication requires a project workspace')
+        root=Path(self.workspace(project_id));folder=root/'processed';candidate=Path(path)
+        for part in (root,folder,candidate):reject_path_link(part)
+        try:
+            dest=candidate.resolve(strict=True);canonical=folder.resolve(strict=True)
+        except (OSError,RuntimeError) as exc:
+            raise ValueError('Missing or unsafe media artifact') from exc
+        extensions=IMAGE_TYPES if kind=='image' else VIDEO_TYPES
+        if dest.parent!=canonical or dest.suffix.lower() not in extensions or not dest.is_file():
+            raise ValueError('Media artifact does not belong to the project or is empty')
+        evidence=capture(dest)
+        if kind=='image':
+            from PIL import Image
+            try:
+                with Image.open(dest) as loaded:loaded.verify()
+            except (OSError,ValueError,TypeError) as exc:
+                raise ValueError('Corrupt image result') from exc
+            if not unchanged(evidence):raise ValueError('Media changed during image verification')
+        return PreparedMedia(project_id,kind,dest,evidence)
+
+    def admit_prepared_media(self,project_id,prepared,*,timestamp=None,require_new=False):
+        """Short database savepoint: no file content streaming or PIL decoding."""
         def operation():
             self._project(project_id)
-            if self.workspace is None:
-                raise ValueError('Media publication requires a project workspace')
-            root=Path(self.workspace(project_id))
-            processed=root/'processed'
-            candidate=Path(path)
-            if any(p.is_symlink() or getattr(p,'is_junction',lambda:False)()
-                   for p in (root,processed,candidate)):
-                raise ValueError('Symlink result is forbidden')
-            try:
-                dest=candidate.resolve(strict=True)
-                canonical_folder=processed.resolve(strict=True)
-            except (OSError,RuntimeError) as exc:
-                raise ValueError('Missing or unsafe media artifact') from exc
-            if (not dest.is_file() or dest.stat().st_size<=0 or
-                    dest.suffix.lower() not in extensions or dest.parent!=canonical_folder):
-                raise ValueError('Media artifact does not belong to the project or is empty')
-            if kind=='result':
-                from PIL import Image
-                try:
-                    with Image.open(dest) as loaded:
-                        loaded.verify()
-                except (OSError,ValueError,TypeError) as exc:
-                    raise ValueError('Corrupt image result') from exc
+            if not isinstance(prepared,PreparedMedia) or prepared.project_id!=project_id:
+                raise ValueError('Prepared media belongs to another project')
+            if not unchanged(prepared.evidence):raise ValueError('Media changed during publication')
+            kind='result' if prepared.kind=='image' else 'video'
+            dest=prepared.path
             existing=self.db.execute('''SELECT id FROM project_files
                 WHERE project_id=? AND kind=? AND path=?''',(project_id,kind,str(dest))).fetchone()
             if existing:
-                if require_new:
-                    raise ValueError('Batch result was already registered')
+                if require_new:raise ValueError('Batch result was already registered')
+                if not unchanged(prepared.evidence):raise ValueError('Media changed during publication')
                 return existing[0]
             ident=uuid4().hex
             self.db.execute('''INSERT INTO project_files
                 (id,project_id,kind,display_name,path,created_at) VALUES(?,?,?,?,?,?)''',
                 (ident,project_id,kind,dest.name,str(dest),timestamp or _timestamp()))
+            if not unchanged(prepared.evidence):raise ValueError('Media changed during publication')
             return ident
         return self._atomic(operation)
 
-    def admit_video(self, project_id, path, *, timestamp=None):
+    def _admit_media(self,project_id,path,*,kind,extensions,timestamp=None,require_new=False):
+        prepared=self.prepare_media(project_id,path,kind='image' if kind=='result' else 'video')
+        if prepared.path.suffix.lower() not in extensions:raise ValueError('Unsupported media extension')
+        return self.admit_prepared_media(project_id,prepared,timestamp=timestamp,require_new=require_new)
+
+    def admit_video(self,project_id,path,*,timestamp=None):
         return self._admit_media(project_id,path,kind='video',extensions=VIDEO_TYPES,timestamp=timestamp)
 
-    def admit_image(self, project_id, path, *, timestamp=None, require_new=False):
-        return self._admit_media(project_id,path,kind='result',extensions=IMAGE_TYPES,timestamp=timestamp,require_new=require_new)
+    def admit_image(self,project_id,path,*,timestamp=None,require_new=False):
+        return self._admit_media(project_id,path,kind='result',extensions=IMAGE_TYPES,
+                                 timestamp=timestamp,require_new=require_new)

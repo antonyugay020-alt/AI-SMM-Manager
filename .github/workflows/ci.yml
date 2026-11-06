@@ -2,7 +2,7 @@ name: AI SMM / Cross-platform regression
 
 on:
   push:
-    branches: [main, codex/reviewer-integrity-staging-20261106]
+    branches: [main, codex/reviewer-integrity-staging-20261106, codex/media-transaction-staging-20261107]
   pull_request:
     branches: [main]
   workflow_dispatch:

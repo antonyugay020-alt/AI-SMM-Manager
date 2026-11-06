@@ -14,6 +14,7 @@ import sqlite3
 from hashlib import sha256
 from sqlite_transaction_core import own
 from project_file_boundary import require_managed_file
+from file_evidence import unchanged
 
 
 def _now():
@@ -236,9 +237,8 @@ class BatchRuntime:
             if changed!=1:raise RuntimeError('Batch item claim was not acquired')
         return BatchClaim(batch_id,pid,path,token)
 
-    def authorize_in_transaction(self,claim):
-        if not self.db.in_transaction:
-            raise RuntimeError('Batch authority must be checked inside publication transaction')
+    def authorize_in_transaction(self,claim,*,source_evidence=None):
+        if not self.db.in_transaction:raise RuntimeError('Batch authority must be checked inside publication transaction')
         if not isinstance(claim,BatchClaim):raise ValueError('Invalid batch claim')
         state,total=self._row(claim.project_id,claim.batch_id)
         self._legacy_guard(claim.project_id,claim.batch_id,total)
@@ -246,20 +246,30 @@ class BatchRuntime:
         item=self.db.execute('''SELECT status,attempt_token FROM batch_item_receipts
             WHERE project_id=? AND batch_id=? AND source_path=?''',
             (claim.project_id,claim.batch_id,claim.source_path)).fetchone()
-        if item!=('running',claim.token):
-            raise ValueError('Stale or invalid batch worker authority')
+        if item!=('running',claim.token):raise ValueError('Stale or invalid batch worker authority')
         original=self.db.execute('''SELECT source_sha256,source_size FROM batch_item_receipts
             WHERE project_id=? AND batch_id=? AND source_path=?''',
             (claim.project_id,claim.batch_id,claim.source_path)).fetchone()
         checked=require_managed_file(Path(self.workspace(claim.project_id)),claim.source_path,('originals',))
-        if not checked.is_file() or original is None or _fingerprint(checked)!=tuple(original):
-            raise ValueError('Batch original changed before result publication')
+        if source_evidence is None:
+            valid=checked.is_file() and original is not None and _fingerprint(checked)==tuple(original)
+        else:
+            valid=(str(source_evidence.path)==str(checked) and original is not None
+                   and (source_evidence.digest,source_evidence.size)==tuple(original)
+                   and unchanged(source_evidence))
+        if not valid:raise ValueError('Batch original changed before result publication')
 
-    def accept_in_transaction(self,claim,result_path,*,timestamp=None,expected_sha256=None):
-        self.authorize_in_transaction(claim)
+    def accept_in_transaction(self,claim,result_path,*,timestamp=None,expected_sha256=None,
+                              source_evidence=None,result_evidence=None):
+        self.authorize_in_transaction(claim,source_evidence=source_evidence)
         output=require_managed_file(Path(self.workspace(claim.project_id)),result_path,('processed',))
-        if not output.is_file():raise FileNotFoundError('Batch result was not saved')
-        result_sha,result_size=_fingerprint(output)
+        if result_evidence is None:
+            if not output.is_file():raise FileNotFoundError('Batch result was not saved')
+            result_sha,result_size=_fingerprint(output)
+        else:
+            if str(result_evidence.path)!=str(output) or not unchanged(result_evidence):
+                raise ValueError('Media changed during publication')
+            result_sha,result_size=result_evidence.digest,result_evidence.size
         if result_size<=0:raise ValueError('Empty batch result cannot be accepted')
         if expected_sha256 is not None and result_sha!=expected_sha256:
             raise ValueError('Media changed during publication')

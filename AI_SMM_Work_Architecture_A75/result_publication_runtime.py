@@ -11,6 +11,7 @@ import sqlite3
 from execution_runtime import ExecutionRuntime, ExecutionReceipt
 from sqlite_transaction_core import own
 from project_result_registry import ProjectResultRegistry
+from file_evidence import capture, unchanged
 
 def _media_digest(value):
     from pathlib import Path
@@ -62,18 +63,16 @@ class ResultPublicationRuntime:
             # Ownership is checked under BEGIN IMMEDIATE, after replay identity lookup.
         elif active_project_id is not None and active_project_id != project_id:
             raise ValueError('Unowned result cannot publish into a different project')
-        if kind in ('video','image'):
-            # File content, not the path string, identifies a published media result.
-            payload_hash = _media_digest(value)
-        else:
-            payload_hash = sha256(str(value).encode('utf-8')).hexdigest()
+        prepared=self.registry.prepare_media(project_id,value,kind=kind) if kind in ('video','image') else None
+        payload_hash=prepared.evidence.digest if prepared is not None else sha256(str(value).encode('utf-8')).hexdigest()
         if operation_id is not None and (not isinstance(operation_id, str) or not operation_id.strip()):
             raise ValueError('Invalid publication operation identity')
         if batch_claim is not None and (kind != "image" or self.batches is None or batch_claim.project_id != project_id):
             raise ValueError("Batch image result needs matching batch ownership")
+        source_evidence=capture(batch_claim.source_path,allow_empty=True) if batch_claim is not None else None
         with own(self.db):
             if batch_claim is not None:
-                self.batches.authorize_in_transaction(batch_claim)
+                self.batches.authorize_in_transaction(batch_claim,source_evidence=source_evidence)
             self.db.execute('''CREATE TABLE IF NOT EXISTS result_publication_events (
                 operation_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
                 kind TEXT NOT NULL, record_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
@@ -110,13 +109,11 @@ class ResultPublicationRuntime:
                 self.execution.authorize_result(receipt, active_project_id=active_project_id)
             if kind == 'message':
                 record = self.registry.admit_message(project_id, value)
-            elif kind == 'video':
-                record = self.registry.admit_video(project_id, value)
-            elif kind == 'image':
-                record = self.registry.admit_image(project_id, value, require_new=batch_claim is not None)
+            elif kind in ('video','image'):
+                record=self.registry.admit_prepared_media(project_id,prepared,require_new=batch_claim is not None)
             else:
                 raise ValueError('Unsupported result kind')
-            if kind in ('image', 'video') and _media_digest(value) != payload_hash:
+            if prepared is not None and not unchanged(prepared.evidence):
                 raise ValueError('Media changed during publication')
             if operation_id is not None:
                 self.db.execute('''INSERT INTO result_publication_events
@@ -126,7 +123,8 @@ class ResultPublicationRuntime:
             if completion_request is not None:
                 self.execution.finish(receipt, completion_request)
             if batch_claim is not None:
-                self.batches.accept_in_transaction(batch_claim,value,expected_sha256=payload_hash)
+                self.batches.accept_in_transaction(batch_claim,value,expected_sha256=payload_hash,
+                    source_evidence=source_evidence,result_evidence=prepared.evidence)
             if dialogue_turn_id is not None:
                 from conversation_runtime import ConversationRuntime
                 ConversationRuntime(self.db).finish_in_transaction(project_id,dialogue_turn_id)

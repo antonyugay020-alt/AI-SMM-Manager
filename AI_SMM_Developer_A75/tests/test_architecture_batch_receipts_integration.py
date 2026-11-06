@@ -181,12 +181,12 @@ class BatchPublicationIntegration(unittest.TestCase):
         run=self._new()
         claim=self.core.batches.claim('a',run.batch_id,str(self.inputs['a']))
         registry=self.core.publications.registry
-        admit=registry.admit_image
+        admit=registry.admit_prepared_media
         def changed(*args,**kwargs):
             result=admit(*args,**kwargs)
             Image.new('RGB',(3,3),color='red').save(self.outputs['a'])
             return result
-        with patch.object(registry,'admit_image',side_effect=changed):
+        with patch.object(registry,'admit_prepared_media',side_effect=changed):
             with self.assertRaisesRegex(ValueError,'changed during publication'):
                 self.core.publish_result('a','image',str(self.outputs['a']),batch_claim=claim)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM project_files WHERE kind='result'").fetchone()[0],0)
