@@ -179,7 +179,7 @@ def main():
             result['segments_reviewed'] = len(segment_results)
             args.output.parent.mkdir(parents=True,exist_ok=True)
             temporary = args.output.with_suffix(args.output.suffix + '.tmp')
-            temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\\n',encoding='utf-8')
+            temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
             temporary.replace(args.output)
         write_progress()
         for i, chunk in enumerate(chunks, 1):
