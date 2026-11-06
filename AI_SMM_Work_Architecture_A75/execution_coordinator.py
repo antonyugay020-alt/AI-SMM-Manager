@@ -27,21 +27,34 @@ class ExecutionCoordinator:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
 
-    def _ensure(self):
+    def _ensure_base(self):
+        """Install durable storage without assuming legacy worker rows are unique.
+
+        A pre-constraint database can contain multiple stale running attempts
+        for one project. Restart recovery must fence them before UNIQUE indexes
+        are installed; ordinary worker operations must never bypass the indexes.
+        """
         self.db.execute('''CREATE TABLE IF NOT EXISTS execution_attempts (
           attempt_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL,
           state TEXT NOT NULL CHECK(state IN ('running','accepted','failed','interrupted')),
           started_at TEXT NOT NULL, finished_at TEXT,
           FOREIGN KEY(task_id) REFERENCES ai_task_registry(task_id) ON DELETE CASCADE,
           FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)''')
-        self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_task
-          ON execution_attempts(task_id) WHERE state='running' ''')
         self.db.execute('''CREATE INDEX IF NOT EXISTS execution_project_states
           ON execution_attempts(project_id,state)''')
-        # Enforce project-wide worker fencing in SQLite too. A pre-insert SELECT
-        # cannot replace a database constraint when separate connections race.
+
+    def _ensure_constraints(self):
+        """Enforce both worker ownership invariants at the database boundary."""
+        self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_task
+          ON execution_attempts(task_id) WHERE state='running' ''')
+        # A pre-insert SELECT cannot replace a constraint across connections.
         self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_project
           ON execution_attempts(project_id) WHERE state='running' ''')
+
+    def _ensure(self):
+        """Normal execution paths fail closed on unmigrated legacy duplicates."""
+        self._ensure_base()
+        self._ensure_constraints()
 
     def _transaction(self, action):
         from sqlite_transaction_core import compose
@@ -104,11 +117,25 @@ class ExecutionCoordinator:
             raise ValueError('Execution attempt already settled or lost ownership')
 
     def recover(self, *, project_id=None):
-        """Fail closed after process restart; never auto-approve old worker results."""
-        def action():
+        """Fence stale workers and restore both unique indexes atomically.
+
+        On startup, global recovery migrates legacy databases with duplicate
+        running rows before constraints are created. Scoped recovery preserves
+        other projects; if their unmigrated rows violate an index, it fails and
+        rolls back instead of silently fencing another project's workers.
+        Task statuses, active pointers and checkpoints are never rewritten.
+        """
+        from sqlite_transaction_core import compose
+        with compose(self.db, 'execution_coordinator_recover'):
+            self._ensure_base()
             if project_id is None:
-                return self.db.execute('''UPDATE execution_attempts
-                   SET state='interrupted', finished_at=? WHERE state='running' ''',(_now(),)).rowcount
-            return self.db.execute('''UPDATE execution_attempts SET state='interrupted',finished_at=?
-                   WHERE state='running' AND project_id=?''',(_now(),project_id)).rowcount
-        return self._transaction(action)
+                changed = self.db.execute('''UPDATE execution_attempts
+                    SET state='interrupted', finished_at=? WHERE state='running' ''',
+                    (_now(),)).rowcount
+            else:
+                changed = self.db.execute('''UPDATE execution_attempts
+                    SET state='interrupted', finished_at=?
+                    WHERE state='running' AND project_id=?''',
+                    (_now(), project_id)).rowcount
+            self._ensure_constraints()
+            return changed
