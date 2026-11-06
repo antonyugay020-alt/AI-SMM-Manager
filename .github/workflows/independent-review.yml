@@ -60,7 +60,9 @@ jobs:
         env:
           ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
-          ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
+          # Gemini 2.5 Pro returns 404 for newly provisioned accounts.
+          # Google's 404 response recommends gemini-3.1-pro-preview.
+          ALT_REVIEW_MODEL: gemini-3.1-pro-preview
         run: python ci/review_provider_gate.py --diff review_input.diff --primary ci_evidence/review_kie.json --backup ci_evidence/review_compatible.json --output ci_evidence/review_gate.json
       - name: Save reviewed segments for safe continuation
         if: ${{ always() && hashFiles('ci_evidence/review_kie.json') != '' }}
