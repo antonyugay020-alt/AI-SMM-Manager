@@ -138,7 +138,7 @@ def request_review(provider: str, diff: str):
         headers={'Authorization':'Bearer '+key}
         payload={'model':'claude-sonnet-5-5','stream':False,'max_tokens':4096,
                  'messages':[{'role':'user','content':
-                     KIE_REVIEW_PREFIX+REVIEW_SYSTEM+KIE_REVIEW_SEPARATOR+diff}]}}
+                     KIE_REVIEW_PREFIX+REVIEW_SYSTEM+KIE_REVIEW_SEPARATOR+diff}]}
     elif provider=='compatible':
         key=os.environ.get('ALT_REVIEW_API_KEY','')
         model=os.environ.get('ALT_REVIEW_MODEL','')
