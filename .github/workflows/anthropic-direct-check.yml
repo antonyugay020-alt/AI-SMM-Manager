@@ -1,7 +1,11 @@
 name: AI SMM / Anthropic direct connection (one-time)
 
-# Manual only: intentionally no paid requests on source pushes.
+# One bounded diagnostic on workflow update; ordinary pushes do not spend credits.
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/anthropic-direct-check.yml
   workflow_dispatch:
 
 permissions:
@@ -20,6 +24,8 @@ jobs:
           python-version: '3.14'
       - name: Validate independent reviewer transport (offline)
         run: python -m unittest discover -s ci -p 'test_*review*.py' -v
+      - name: Validate model inventory selection without external requests
+        run: python -m unittest discover -s ci -p 'test_anthropic_model_inventory.py' -v
       - name: One bounded direct Anthropic request
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
