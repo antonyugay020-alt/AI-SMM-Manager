@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 import urllib.request
 import urllib.error
 
@@ -126,12 +127,20 @@ def request_review(provider: str, diff: str):
     else:raise ValueError('unknown provider')
     request=urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'),method='POST',headers={
         **headers,'Content-Type':'application/json'})
-    try:
-        with urllib.request.urlopen(request,timeout=180) as response:
-            body=json.loads(response.read(2_000_000).decode('utf-8'))
-    except urllib.error.HTTPError as exc:
-        # Do not print response body: providers occasionally echo user data or secrets.
-        raise RuntimeError('provider HTTP status '+str(exc.code)) from None
+    # Retry only transient provider/gateway failures, with a strict budget.
+    # Never retry a malformed verdict or an explicit substantive REJECT.
+    # Do not log provider bodies: they may contain private diff data or keys.
+    transient = frozenset((500, 502, 503, 504))
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                body=json.loads(response.read(2_000_000).decode('utf-8'))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code not in transient or attempt == 1:
+                raise RuntimeError('provider HTTP status '+str(exc.code)) from None
+            time.sleep(2)
+
     if provider in ('anthropic','kie'):
         if not isinstance(body,dict):raise ValueError('invalid provider response')
         if body.get('stop_reason') in ('max_tokens','tool_use'):
@@ -163,6 +172,16 @@ def main():
         result['diff_sha256'] = hashlib.sha256(diff.encode('utf-8')).hexdigest()
         result['segments_expected'] = len(chunks)
         segment_results = []
+        # Persist non-secret evidence after every completed segment. A partial
+        # review is never an approval; CI uploads this file even on failure.
+        def write_progress():
+            result['reviews'] = segment_results
+            result['segments_reviewed'] = len(segment_results)
+            args.output.parent.mkdir(parents=True,exist_ok=True)
+            temporary = args.output.with_suffix(args.output.suffix + '.tmp')
+            temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\\n',encoding='utf-8')
+            temporary.replace(args.output)
+        write_progress()
         for i, chunk in enumerate(chunks, 1):
             review_input = (
                 f'INDEPENDENT REVIEW SEGMENT {i}/{len(chunks)}. '
@@ -173,8 +192,8 @@ def main():
             verdict = request_review(args.provider, review_input)
             segment_results.append({'index':i,'sha256':hashlib.sha256(chunk.encode('utf-8')).hexdigest(),
                                     'verdict':verdict})
-        result['reviews'] = segment_results
-        result['segments_reviewed'] = len(segment_results)
+            write_progress()
+
         result['status'] = 'PASS' if all(
             x['verdict']['verdict'] == 'APPROVE' for x in segment_results) else 'BLOCKED'
         if result['status']!='PASS':result['reason']='at least one segment was not approved'
