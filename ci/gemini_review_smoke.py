@@ -33,6 +33,49 @@ def model_inventory():
         and len(entry["name"]) < 100
     )
 
+
+def safe_provider_error(error):
+    """Record structured Google status only; never echo messages or credentials."""
+    result = {"http_status": int(error.code)}
+    try:
+        data = json.loads(error.read(8192).decode("utf-8"))
+        obj = data.get("error", {}) if isinstance(data, dict) else {}
+        if isinstance(obj, dict):
+            code = obj.get("code")
+            if type(code) is int and 100 <= code <= 599:
+                result["google_code"] = code
+            status = obj.get("status")
+            allowed_statuses = {
+                "NOT_FOUND", "PERMISSION_DENIED", "FAILED_PRECONDITION",
+                "RESOURCE_EXHAUSTED", "UNAUTHENTICATED", "INVALID_ARGUMENT",
+                "UNAVAILABLE", "INTERNAL", "UNKNOWN",
+            }
+            if isinstance(status, str) and status in allowed_statuses:
+                result["google_status"] = status
+            kinds = set()
+            reasons = set()
+            for entry in obj.get("details", [])[:8] if isinstance(obj.get("details"), list) else []:
+                if not isinstance(entry, dict):
+                    continue
+                kind = str(entry.get("@type", "")).rsplit("/", 1)[-1]
+                if kind in {"ErrorInfo", "QuotaFailure", "PreconditionFailure"}:
+                    kinds.add(kind)
+                reason = entry.get("reason")
+                if isinstance(reason, str) and reason in {
+                    "API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED",
+                    "SERVICE_DISABLED", "BILLING_DISABLED", "CONSUMER_INVALID",
+                    "RATE_LIMIT_EXCEEDED", "QUOTA_EXCEEDED", "LOCATION_NOT_SUPPORTED",
+                }:
+                    reasons.add(reason)
+            if kinds:
+                result["detail_kinds"] = sorted(kinds)
+            if reasons:
+                result["error_reasons"] = sorted(reasons)
+    except (OSError, ValueError, UnicodeError):
+        result["structured_error"] = "unavailable"
+    return result
+
+
 def main():
     evidence = {"provider": "gemini-direct", "status": "BLOCKED",
                 "reason": "not run", "scope": "one synthetic API probe; NOT a code review"}
@@ -89,6 +132,7 @@ def main():
                             evidence["native_endpoint_status"] = "PASS"
                         except urllib.error.HTTPError as native_error:
                             evidence["native_endpoint_status"] = "HTTP " + str(native_error.code)
+                            evidence["native_error"] = safe_provider_error(native_error)
                         except (OSError, ValueError):
                             evidence["native_endpoint_status"] = "BLOCKED"
                     # One low-token Flash probe isolates Pro tier restrictions.
@@ -111,6 +155,7 @@ def main():
                             evidence["flash_endpoint_status"] = "PASS"
                         except urllib.error.HTTPError as flash_error:
                             evidence["flash_endpoint_status"] = "HTTP " + str(flash_error.code)
+                            evidence["flash_error"] = safe_provider_error(flash_error)
                         except (OSError, ValueError):
                             evidence["flash_endpoint_status"] = "BLOCKED"
                 except urllib.error.HTTPError as inventory_error:
