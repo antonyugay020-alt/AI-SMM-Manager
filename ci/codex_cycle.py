@@ -5,7 +5,6 @@ import os
 import subprocess
 import sys
 import json
-import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,7 +29,7 @@ def main():
     log=output/'codex_output.log'
     status={'status':'BLOCKED','agent':'codex','phase':'coding','exit_code':None}
     # Do not log the prompt, API keys or environment variables.
-    command=['codex','exec','--full-auto',PROMPT+task]
+    command=['codex','exec','--sandbox','workspace-write',PROMPT+task]
     try:
         with log.open('w',encoding='utf-8') as stream:
             result=subprocess.run(command,cwd=ROOT,stdout=stream,stderr=subprocess.STDOUT,
