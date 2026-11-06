@@ -29,3 +29,11 @@ jobs:
           ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
           ALT_REVIEW_MODEL: ${{ vars.ALT_REVIEW_MODEL }}
         run: python ci/gemini_review_smoke.py
+      - name: Save sanitized provider status, including failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-direct-connection-status
+          path: ci_evidence/gemini_probe.json
+          retention-days: 7
+          if-no-files-found: warn
