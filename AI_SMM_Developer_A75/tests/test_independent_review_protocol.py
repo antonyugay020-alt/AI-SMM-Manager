@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,6 +82,71 @@ class IndependentReviewProtocolTests(unittest.TestCase):
             REVIEW.parse_verdict(
                 '{"verdict":"PARTIAL","critical_findings":[],"confidence":"high"}'
             )
+
+
+    def test_independent_fallback_never_overrides_claude_objections(self):
+        # A provider outage is not an independent approval; substantive findings
+        # are never erased by a subsequent Gemini verdict.
+        import hashlib
+        import json
+        import sys
+        with mock.patch.dict(sys.modules, {"independent_review": REVIEW}):
+            spec = importlib.util.spec_from_file_location(
+                "isolated_review_gate", ROOT / "ci" / "review_provider_gate.py"
+            )
+            gate = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(gate)
+        diff = "diff --git a/example.py b/example.py\\n+value=1\\n"
+        digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+        segment_sha = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+        rejected = {
+            "provider": "kie", "status": "BLOCKED", "diff_sha256": digest,
+            "reason": "provider HTTP status 503",
+            "reviews": [{"index": 1, "sha256": segment_sha,
+                         "verdict": {"verdict": "REJECT", "confidence": "high",
+                                     "critical_findings": [
+                                         {"file": "example.py", "reason": "state corruption"}
+                                     ]}}],
+        }
+        self.assertFalse(gate.permitted_backup(rejected, digest))
+        rejected["reviews"][0]["verdict"] = {
+            "verdict": "NEEDS_INFORMATION", "confidence": "low",
+            "critical_findings": [],
+        }
+        self.assertFalse(gate.permitted_backup(rejected, digest))
+        rejected["reviews"][0]["verdict"] = {
+            "verdict": "APPROVE", "confidence": "high", "critical_findings": [],
+        }
+        self.assertTrue(gate.permitted_backup(rejected, digest))
+        rejected["reason"] = "provider HTTP status 401"
+        self.assertFalse(gate.permitted_backup(rejected, digest))
+
+    def test_fallback_cannot_claim_complete_on_incomplete_coverage(self):
+        import hashlib
+        import json
+        import sys
+        with unittest.mock.patch.dict(sys.modules, {"independent_review": REVIEW}):
+            spec = importlib.util.spec_from_file_location(
+                "isolated_review_gate", ROOT / "ci" / "review_provider_gate.py"
+            )
+            gate = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(gate)
+        diff = "diff --git a/example.py b/example.py\\n+value=1\\n"
+        digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+        fake = {
+            "provider": "compatible", "status": "PASS", "diff_sha256": digest,
+            "review_contract_sha256": "a" * 64,
+            "segments_expected": 1, "segments_reviewed": 0,
+            "reviews": [],
+        }
+        self.assertFalse(gate.verified_complete(fake, "compatible", [diff], digest))
+        fake["segments_reviewed"] = 1
+        fake["reviews"] = [{
+            "index": 1, "sha256": "incorrect",
+            "verdict": {"verdict": "APPROVE", "confidence": "high",
+                        "critical_findings": []}
+        }]
+        self.assertFalse(gate.verified_complete(fake, "compatible", [diff], digest))
 
 
 if __name__ == "__main__":
