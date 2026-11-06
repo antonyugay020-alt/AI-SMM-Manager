@@ -46,7 +46,7 @@ class CloudOwnership(unittest.TestCase):
         f=self.p1/'output.png';Image.new('RGB',(8,8)).save(f)
         self.cloud_done(self.view,str(f),project_id='first')
         rows=self.db.execute('SELECT project_id,path FROM project_files').fetchall()
-        self.assertEqual(rows,[('first',str(f))])
+        self.assertEqual([(pid,Path(path).resolve()) for pid,path in rows], [('first',f.resolve())])
     def test_other_project_file_is_rejected(self):
         from PIL import Image
         f=self.p2/'other.png';Image.new('RGB',(8,8)).save(f)
