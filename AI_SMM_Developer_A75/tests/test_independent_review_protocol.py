@@ -60,6 +60,16 @@ class IndependentReviewProtocolTests(unittest.TestCase):
         self.assertTrue(all(len(chunk) <= 20_000 for chunk in chunks))
         self.assertEqual("".join(chunks), original)
 
+    def test_unicode_fixtures_have_explicit_cross_platform_encoding(self):
+        # Windows CP1252 must never affect JSON fixture loading at import time.
+        for filename in (
+            "test_r96_live_requirement_evidence.py",
+            "test_r97_ai_content_authority.py",
+        ):
+            with self.subTest(filename=filename):
+                source = Path(__file__).with_name(filename).read_text(encoding="utf-8")
+                self.assertIn(".read_text(encoding='utf-8')", source)
+
     def test_missing_confidence_cannot_pass_as_approval(self):
         with self.assertRaisesRegex(ValueError, "confidence"):
             REVIEW.parse_verdict(
