@@ -1,6 +1,6 @@
 name: AI SMM / Gemini direct connection (one-time)
 
-# Diagnostic check: one cheap Flash probe distinguishes Pro tier and project access.
+# Diagnostic check: store allowlisted native error status after persistent HTTP 404.
 # Later ordinary code pushes must not spend Gemini API credits.
 on:
   push:
