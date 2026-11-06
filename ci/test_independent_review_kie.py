@@ -132,5 +132,58 @@ class KieReviewerContractTests(unittest.TestCase):
             self.assertEqual(provider.call_count, 2)
 
 
+    def test_resume_skips_approved_segments_only_for_same_diff(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "review.json"
+            diff_file = Path(folder) / "review.diff"
+            diff_file.write_text(
+                "diff --git a/a.py b/a.py\n" + "+a=1\n" * 4500,
+                encoding="utf-8"
+            )
+            argv = [
+                "independent_review.py", "--provider", "kie",
+                "--diff", str(diff_file), "--output", str(output)
+            ]
+            # First run gets one valid approval and a provider outage.
+            with patch.object(sys, "argv", argv):
+                with patch.object(review, "request_review",
+                                  side_effect=[APPROVAL, RuntimeError("HTTP 503")]):
+                    self.assertEqual(review.main(), 2)
+            recorded = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(recorded["segments_reviewed"], 1)
+            self.assertEqual(recorded["status"], "BLOCKED")
+
+            # Exact same bytes: only the missing segment must be paid for.
+            with patch.object(sys, "argv", argv):
+                with patch.object(review, "request_review", return_value=APPROVAL) as call:
+                    self.assertEqual(review.main(), 0)
+            call.assert_called_once()
+            completed = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(completed["status"], "PASS")
+            self.assertEqual(completed["segments_reviewed"], completed["segments_expected"])
+
+            # A one-byte PR change invalidates the full cached approval.
+            diff_file.write_text(diff_file.read_text(encoding="utf-8") + "+new=2\n", encoding="utf-8")
+            with patch.object(sys, "argv", argv):
+                with patch.object(review, "request_review", return_value=APPROVAL) as call:
+                    self.assertEqual(review.main(), 0)
+            self.assertGreater(call.call_count, 1)
+
+    def test_reviewer_contract_change_invalidates_approval_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "review.json"
+            diff_file = Path(folder) / "review.diff"
+            diff_file.write_text("diff --git a/a b/a\n+a\n", encoding="utf-8")
+            argv = ["independent_review.py", "--provider", "kie",
+                    "--diff", str(diff_file), "--output", str(output)]
+            with patch.object(sys, "argv", argv):
+                with patch.object(review, "request_review", return_value=APPROVAL):
+                    self.assertEqual(review.main(), 0)
+                with patch.object(review, "REVIEW_SYSTEM", review.REVIEW_SYSTEM + " revised"):
+                    with patch.object(review, "request_review", return_value=APPROVAL) as provider:
+                        self.assertEqual(review.main(), 0)
+            provider.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
