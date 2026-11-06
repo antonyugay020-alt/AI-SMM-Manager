@@ -11,7 +11,7 @@ class PublicationIntegration(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         self.db=open_application_database(self.root/'manager.sqlite',self.root)
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.executemany("INSERT INTO projects(id,name,created_at) VALUES(?,?,?)",[('a','A','now'),('b','B','now')])
         self.db.commit()
         self.runtime=ApplicationRuntime(self.db,lambda pid:self.root/pid)
