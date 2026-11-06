@@ -11,7 +11,7 @@ class DocumentProjectionTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         self.db=sqlite3.connect(self.root/'data.sqlite')
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE manager_documents(id TEXT PRIMARY KEY, project_id TEXT,kind TEXT,title TEXT,content TEXT,created_at TEXT,updated_at TEXT)')
         self.id='a'*32
         self.pid='1'*32
