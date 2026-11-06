@@ -155,7 +155,11 @@ def main():
     result={'provider':args.provider,'status':'BLOCKED','reason':None,'verdict':None}
     try:
         diff=args.diff.read_text(encoding='utf-8')
-        chunks = split_review_diff(diff)
+        # Kie Claude gateway returned HTTP 500 on 75k-character segments while
+        # authenticating and accepting small requests. Keep every diff byte,
+        # but bound provider context to conservative 20k-character segments.
+        # More than 24 segments is BLOCKED, never silently truncated.
+        chunks = split_review_diff(diff, max_chars=20_000, max_parts=24)
         result['diff_sha256'] = hashlib.sha256(diff.encode('utf-8')).hexdigest()
         result['segments_expected'] = len(chunks)
         segment_results = []
