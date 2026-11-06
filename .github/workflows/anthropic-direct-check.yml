@@ -29,7 +29,7 @@ jobs:
       - name: One bounded direct Anthropic request
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL || 'claude-sonnet-4-5' }}
+          ANTHROPIC_MODEL: claude-sonnet-5-5
         run: python ci/anthropic_direct_smoke.py
       - name: Retain sanitized outcome even on failure
         if: always()
