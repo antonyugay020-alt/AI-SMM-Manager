@@ -20,6 +20,9 @@ def main():
         "-ANSWER = 1\n"
         "+ANSWER = 2\n"
     )
+    # Exercise a near-production context size before allowing the whole PR.
+    # This deliberately cheap synthetic input is NOT evidence of code quality.
+    minimal_diff += "".join(f"+VALUE_{i:04d} = {i:05d}\\n" for i in range(800))
     try:
         review = request_review("kie", minimal_diff)
     except (ValueError, RuntimeError, OSError) as exc:
