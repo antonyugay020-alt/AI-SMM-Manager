@@ -74,6 +74,19 @@ class ProjectKieMediaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.gateway.prepare_image(self.p1,prompt="Edit",sources=[],pro=False)
 
+    def test_gateway_status_and_unpaid_draft_are_project_scoped(self):
+        ident=self.gateway.prepare_image(self.p1,prompt="Campaign cover",
+                                         sources=[self.one],pro=True)
+        own=self.gateway.tasks(self.p1)
+        self.assertEqual(len(own),1)
+        self.assertEqual(own[0]["id"],ident)
+        self.assertEqual(own[0]["state"],"prepared")
+        self.assertEqual(self.gateway.tasks(self.p2),[])
+        with self.assertRaises(ValueError):
+            self.gateway.discard_unpaid(self.p2,ident)
+        self.gateway.discard_unpaid(self.p1,ident)
+        self.assertEqual(self.gateway.tasks(self.p1),[])
+
     def test_edit_model_uses_image_urls(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Fix the background",
                                          sources=[self.one],pro=False)
