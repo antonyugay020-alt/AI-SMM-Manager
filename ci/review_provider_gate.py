@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 
-from independent_review import parse_verdict, split_review_diff
+from independent_review import parse_verdict, review_chunks, split_review_diff
 
 TRANSIENT = re.compile(r"^provider HTTP status (?:500|502|503|504)$")
 
@@ -82,39 +82,59 @@ def load(path):
 def run_gate(diff_path, primary_path, backup_path, output_path, env=None, runner=None):
     env = os.environ if env is None else env
     runner = subprocess.run if runner is None else runner
-    diff = diff_path.read_text(encoding="utf-8")
-    chunks = split_review_diff(diff, max_chars=20_000, max_parts=24)
-    digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
-    primary = load(primary_path)
-    result = {"status": "BLOCKED", "diff_sha256": digest,
-              "reason": "primary independent review incomplete",
-              "reviewer": None, "segments_expected": len(chunks)}
-    primary_provider = env.get("PRIMARY_REVIEW_PROVIDER", "kie")
-    if primary_provider not in ("kie", "anthropic"):
-        result["reason"] = "invalid primary reviewer configuration"
-    elif verified_complete(primary, primary_provider, chunks, digest):
-        result.update(status="PASS", reason=None, reviewer=primary_provider)
-    elif permitted_backup(primary, digest) and primary.get("provider") == primary_provider:
-        if all(env.get(name) for name in
-               ("ALT_REVIEW_API_KEY", "ALT_REVIEW_API_URL", "ALT_REVIEW_MODEL")):
-            command = [sys.executable, str(Path(__file__).with_name("independent_review.py")),
-                       "--provider", "compatible", "--diff", str(diff_path),
-                       "--output", str(backup_path)]
-            try:
-                runner(command, env=env, check=False, timeout=600)
-                alternate = load(backup_path)
-                if verified_complete(alternate, "compatible", chunks, digest):
-                    result.update(status="PASS", reason=None, reviewer="compatible")
-                else:
-                    result["reason"] = "backup independent review incomplete"
-            except (OSError, subprocess.TimeoutExpired):
-                result["reason"] = "backup transport failed"
+    result = {"status": "BLOCKED", "diff_sha256": None,
+              "reason": "review input not checked", "reviewer": None,
+              "segments_expected": 0}
+    try:
+        diff = diff_path.read_text(encoding="utf-8")
+        digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+        result["diff_sha256"] = digest
+        provider = env.get("PRIMARY_REVIEW_PROVIDER", "kie")
+        if provider not in ("kie", "anthropic"):
+            result["reason"] = "invalid primary reviewer configuration"
         else:
-            result["reason"] = "backup provider not configured"
-    elif isinstance(primary, dict):
-        result["reason"] = "primary review blocked; fallback not permitted"
+            try:
+                chunks = review_chunks(provider, diff)
+            except ValueError:
+                result["reason"] = "primary review input exceeds safe bounds or is invalid"
+            else:
+                result["segments_expected"] = len(chunks)
+                primary = load(primary_path)
+                if verified_complete(primary, provider, chunks, digest):
+                    result.update(status="PASS", reason=None, reviewer=provider)
+                elif permitted_backup(primary, digest) and primary.get("provider") == provider:
+                    if not all(env.get(name) for name in
+                               ("ALT_REVIEW_API_KEY", "ALT_REVIEW_API_URL", "ALT_REVIEW_MODEL")):
+                        result["reason"] = "backup provider not configured"
+                    else:
+                        try:
+                            backup_chunks = review_chunks("compatible", diff)
+                        except ValueError:
+                            result["reason"] = "backup review input exceeds safe bounds or is invalid"
+                        else:
+                            command = [sys.executable, str(Path(__file__).with_name("independent_review.py")),
+                                       "--provider", "compatible", "--diff", str(diff_path),
+                                       "--output", str(backup_path)]
+                            try:
+                                completed = runner(command, env=env, check=False, timeout=600)
+                                if getattr(completed, "returncode", 2) != 0:
+                                    result["reason"] = "backup reviewer process failed"
+                                else:
+                                    alternate = load(backup_path)
+                                    if verified_complete(alternate, "compatible", backup_chunks, digest):
+                                        result.update(status="PASS", reason=None, reviewer="compatible")
+                                    else:
+                                        result["reason"] = "backup independent review incomplete"
+                            except (OSError, subprocess.TimeoutExpired):
+                                result["reason"] = "backup transport failed"
+                elif isinstance(primary, dict):
+                    result["reason"] = "primary review blocked; fallback not permitted"
+                else:
+                    result["reason"] = "primary independent review incomplete"
+    except (OSError, UnicodeError):
+        result["reason"] = "review input unavailable or not UTF-8"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+    output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Independent review gate: {result['status']} ({result['reason'] or result['reviewer']})")
     return 0 if result["status"] == "PASS" else 2
 

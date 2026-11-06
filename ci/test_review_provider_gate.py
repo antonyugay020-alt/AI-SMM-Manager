@@ -65,6 +65,7 @@ class FallbackTests(unittest.TestCase):
             self.backup.write_text(
                 json.dumps(evidence("compatible", self.diff)), encoding="utf-8"
             )
+            return Mock(returncode=0)
         self.assertEqual(self.check(primary, runner=backup, env=env), 0)
         self.assertEqual(json.loads(self.output.read_text())["reviewer"], "compatible")
 
@@ -95,6 +96,7 @@ class FallbackTests(unittest.TestCase):
             self.assertEqual(command[command.index("--provider")+1], "compatible")
             self.assertEqual(kwargs["timeout"], 600)
             self.backup.write_text(json.dumps(evidence("compatible", self.diff)), encoding="utf-8")
+            return Mock(returncode=0)
         runner = Mock(side_effect=secondary)
         self.assertEqual(self.check(first, runner), 0)
         runner.assert_called_once()
@@ -129,8 +131,35 @@ class FallbackTests(unittest.TestCase):
                     elif mode == "unreviewed": rec["reviews"][0]["verdict"] = REJECT
                     else: rec["reviews"].clear()
                     self.backup.write_text(json.dumps(rec), encoding="utf-8")
+                    return Mock(returncode=0)
                 self.assertEqual(self.check(first, secondary), 2)
                 self.assertEqual(json.loads(self.output.read_text())["status"], "BLOCKED")
+
+    def test_backup_exit_failure_blocks_even_with_stale_valid_report(self):
+        first = evidence("kie", self.diff, status="BLOCKED",
+                         reason="provider HTTP status 502")
+        self.backup.write_text(json.dumps(evidence("compatible", self.diff)), encoding="utf-8")
+        failed = Mock(return_value=Mock(returncode=2))
+        self.assertEqual(self.check(first, failed), 2)
+        self.assertEqual(json.loads(self.output.read_text())["reason"],
+                         "backup reviewer process failed")
+
+    def test_invalid_primary_configuration_writes_blocked_evidence(self):
+        invalid = {**self.env, "PRIMARY_REVIEW_PROVIDER": "untrusted"}
+        runner = Mock()
+        self.assertEqual(self.check(evidence("kie", self.diff), runner, env=invalid), 2)
+        runner.assert_not_called()
+        result = json.loads(self.output.read_text())
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["reason"], "invalid primary reviewer configuration")
+
+    def test_missing_diff_fails_closed_with_evidence(self):
+        self.diff_path.unlink()
+        runner = Mock()
+        self.assertEqual(gate.run_gate(self.diff_path, self.primary, self.backup,
+                                      self.output, env=self.env, runner=runner), 2)
+        runner.assert_not_called()
+        self.assertEqual(json.loads(self.output.read_text())["status"], "BLOCKED")
 
     def test_malformed_cached_primary_must_not_certify(self):
         runner = Mock()
