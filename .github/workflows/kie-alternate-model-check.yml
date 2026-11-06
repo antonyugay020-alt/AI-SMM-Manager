@@ -1,0 +1,38 @@
+name: AI SMM / Alternate Claude via Kie (bounded probe)
+
+# Run once on initial creation; any subsequent probes are manual.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/kie-alternate-model-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alternate-kie-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Verify alternate Claude model transport with one small prompt
+        env:
+          KIE_AI_API_KEY: ${{ secrets.KIE_AI_API_KEY }}
+          # Experimental model ID, NOT claimed to be catalog-verified.
+          KIE_PROBE_MODEL: claude-opus-4-6
+        run: python ci/kie_alternate_model_probe.py
+      - name: Retain sanitized outcome regardless of request result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kie-alternate-model-probe
+          path: ci_evidence/kie_alternate_model.json
+          if-no-files-found: warn
+          retention-days: 7
