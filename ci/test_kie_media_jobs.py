@@ -112,6 +112,42 @@ class KieMediaDurabilityTests(unittest.TestCase):
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM project_files").fetchone()[0],1)
 
+    def test_completed_valid_image_tampering_fails_sha256_receipt(self):
+        ident=prepare(self.db,self.a,self.payload)
+        submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
+               enable_paid=True)
+        status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
+                                  "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
+        def image(_,dest):
+            with Image.new("RGB",(64,64),color=(20,40,60)) as picture:
+                picture.save(dest,"PNG")
+        path=complete(self.db,self.a,ident,lambda _:status,image,self.workspace)
+        before=self.db.execute("SELECT result_sha256 FROM kie_media_tasks WHERE id=?",
+                               (ident,)).fetchone()[0]
+        self.assertEqual(len(before),64)
+        with Image.new("RGB",(64,64),color=(70,90,110)) as picture:
+            picture.save(path,"PNG")
+        with self.assertRaisesRegex(ValueError,"fingerprint mismatch"):
+            complete(self.db,self.a,ident,Mock(),Mock(),self.workspace)
+
+    def test_legacy_task_database_migrates_result_receipt_schema(self):
+        from kie_media_jobs import install
+        self.db.execute("""CREATE TABLE kie_media_tasks (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
+            model TEXT NOT NULL, payload_json TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL, state TEXT NOT NULL,
+            provider_task_id TEXT UNIQUE, output_path TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            error_code TEXT)""")
+        self.db.commit()
+        install(self.db)
+        self.assertIn("result_sha256",{row[1] for row in
+                          self.db.execute("PRAGMA table_info(kie_media_tasks)")})
+        self.db.commit()
+        ident=prepare(self.db,self.a,self.payload)
+        self.assertEqual(self.db.execute("SELECT state FROM kie_media_tasks WHERE id=?",
+                                         (ident,)).fetchone()[0],"prepared")
+
     def test_recovered_download_must_pass_media_integrity_again(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
