@@ -211,9 +211,11 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         replay(db,workspace,project_id=project_id)
         resolved=Path(existing[1])
         root=Path(workspace(project_id))
-        if (resolved.parent!=root/"processed" or resolved.is_symlink()
-                or not resolved.is_file()):
+        from project_file_boundary import require_managed_file
+        require_managed_file(root,resolved,("processed",))
+        if not resolved.is_file():
             raise ValueError("existing media receipt has unsafe location")
+        _validate_media_bytes(resolved,is_video=model.startswith("kling-"))
         db.execute("""UPDATE kie_media_tasks SET state='completed',
             output_path=?,updated_at=? WHERE id=? AND project_id=?
             AND state='submitted'""",(str(resolved),utcnow(),job_id,project_id))
