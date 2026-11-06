@@ -49,13 +49,13 @@ def sanitized_google_message(value):
         secret = os.environ.get(name, "")
         if secret:
             value = value.replace(secret, "[REDACTED]")
-    value = re.sub(r"(?i)\\bBearer\\s+[^\\s,;]+", "Bearer [REDACTED]", value)
-    value = re.sub(r"(?i)\\bAIza[A-Za-z0-9_\\-]{16,}", "[REDACTED]", value)
-    value = re.sub(r"(?i)\\b(?:api[_ -]?key|access[_ -]?token|authorization)"
-                   r"\\s*[:=]\\s*[^\\s,;]+", "[REDACTED]", value)
-    value = re.sub(r"https?://[^\\s<>]+", "[URL REDACTED]", value)
-    value = re.sub(r"[A-Za-z0-9_+\\-]{36,}", "[OPAQUE REDACTED]", value)
-    value = re.sub(r"[\\x00-\\x1f\\x7f]+", " ", value).strip()
+    value = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [REDACTED]", value)
+    value = re.sub(r"(?i)\bAIza[A-Za-z0-9_\-]{16,}", "[REDACTED]", value)
+    value = re.sub(r"(?i)\b(?:api[_ -]?key|access[_ -]?token|authorization)"
+                   r"\s*[:=]\s*[^\s,;]+", "[REDACTED]", value)
+    value = re.sub(r"https?://[^\s<>]+", "[URL REDACTED]", value)
+    value = re.sub(r"[A-Za-z0-9_+\-]{36,}", "[OPAQUE REDACTED]", value)
+    value = re.sub(r"[\x00-\x1f\x7f]+", " ", value).strip()
     return value[:500] if value else None
 
 
