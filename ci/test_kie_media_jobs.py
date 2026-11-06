@@ -12,7 +12,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"AI_SMM_Work_Architect
 from PIL import Image
 from kie_media_client import KieMediaClient
 from kie_media_contracts import nano_banana_pro,kling_omni_reference_to_video
-from kie_media_jobs import prepare,submit,complete,recover_pending
+from kie_media_jobs import prepare,submit,complete,recover_pending,list_project_tasks,abandon_prepared
 
 TASK="task_kie_1234567890"
 URL="https://output.example.com/artifact.png"
@@ -53,6 +53,41 @@ class KieMediaDurabilityTests(unittest.TestCase):
         create.assert_called_once()
         self.assertEqual(recover_pending(self.db,self.a),[(ident,TASK)])
         self.assertEqual(recover_pending(self.db,self.b),[])
+
+    def test_task_listing_is_owner_scoped_and_unpaid_draft_discard_only(self):
+        own=prepare(self.db,self.a,self.payload)
+        other=prepare(self.db,self.b,self.payload)
+        self.assertEqual([x["id"] for x in list_project_tasks(self.db,self.a)], [own])
+        self.assertEqual([x["id"] for x in list_project_tasks(self.db,self.b)], [other])
+        with self.assertRaises(ValueError):
+            abandon_prepared(self.db,self.b,own)
+        abandon_prepared(self.db,self.a,own)
+        self.assertEqual(list_project_tasks(self.db,self.a),[])
+        self.assertEqual(len(list_project_tasks(self.db,self.b)),1)
+
+    def test_paid_task_cannot_be_discarded_after_successful_dispatch(self):
+        ident=prepare(self.db,self.a,self.payload)
+        submit(self.db,self.a,ident,
+               lambda _:{"code":200,"data":{"taskId":TASK}},enable_paid=True)
+        with self.assertRaises(RuntimeError):
+            abandon_prepared(self.db,self.a,ident)
+        self.assertEqual(list_project_tasks(self.db,self.a)[0]["state"],"submitted")
+
+    def test_unknown_submission_cannot_be_deleted_or_replayed(self):
+        ident=prepare(self.db,self.a,self.payload)
+        with self.assertRaises(TimeoutError):
+            submit(self.db,self.a,ident,
+                   lambda _:(_ for _ in ()).throw(TimeoutError("uncertain")),
+                   enable_paid=True)
+        with self.assertRaises(RuntimeError):
+            abandon_prepared(self.db,self.a,ident)
+        self.assertEqual(recover_pending(self.db,self.a),[])
+        self.assertEqual(list_project_tasks(self.db,self.a)[0]["state"],
+                         "submission_unknown")
+
+    def test_empty_fresh_task_database_can_recover_without_table(self):
+        self.assertEqual(recover_pending(self.db,self.a),[])
+        self.assertEqual(list_project_tasks(self.db,self.a),[])
 
     def test_uncertain_response_is_never_automatically_billed_twice(self):
         ident=prepare(self.db,self.a,self.payload)
