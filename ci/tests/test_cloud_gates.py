@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import pytest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from verify_tree import verify, files_snapshot
+from verify_tree import verify, files_snapshot, ordered_snapshot_paths, ROOT
 from run_regression import shard_modules
 from independent_review import parse_verdict
 from aggregate_regression import assess
@@ -19,6 +19,17 @@ def test_source_tree_is_complete_and_mirrored():
 
 def test_source_fingerprint_deterministic():
     assert files_snapshot()[0] == files_snapshot()[0]
+
+
+def test_fingerprint_order_is_case_sensitive_on_every_platform():
+    # Exact Git path spelling determines a source identity, not Windows'
+    # case-insensitive pathlib comparison. These names are intentionally
+    # different under POSIX ordering and Windows casefold ordering.
+    names=['sample/a.py','sample/Z.py','sample/b.py']
+    actual=[p.relative_to(ROOT).as_posix() for p in ordered_snapshot_paths(
+        [ROOT/name for name in names])]
+    assert actual == sorted(names)
+    assert actual != sorted(names,key=str.casefold)
 
 
 def test_four_shards_cover_each_test_once():
