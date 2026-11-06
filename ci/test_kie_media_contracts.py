@@ -73,6 +73,16 @@ class KieMediaContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             kling_omni_transformation("Animate image",IMAGE,None,[IMAGE])
 
+    def test_internal_ip_sources_cannot_be_sent_to_remote_provider(self):
+        for value in ("https://169.254.169.254/credentials",
+                      "https://192.168.1.25/test.png",
+                      "https://[::1]/file.mp4",
+                      "https://localhost/secret",
+                      "https://host.internal/media.png"):
+            with self.subTest(url=value):
+                with self.assertRaises(ValueError):
+                    nano_banana_pro("Edit", [value])
+
     def test_fail_closed_task_envelope_even_when_http_200(self):
         self.assertEqual(extract_task_id({"code":200,"data":{"taskId":"task_kling_123456789"}}),
                          "task_kling_123456789")
@@ -106,8 +116,9 @@ class KieMediaContracts(unittest.TestCase):
                 prefer_multi_shots=True, multi_prompt=shots)
         with self.assertRaises(ValueError):
             kling_omni_reference_to_video(
-                "Product", [IMAGE], duration=6, customize_multi_shots=True,
-                multi_prompt=shots)
+                "Product", [IMAGE], duration=15, customize_multi_shots=True,
+                multi_prompt=[{"prompt":"First", "duration":10},
+                              {"prompt":"Second", "duration":6}])
 
     def test_reference_to_video_source_video_has_strict_audio_and_ratio(self):
         payload=kling_omni_reference_to_video(
