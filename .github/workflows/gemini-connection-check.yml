@@ -1,6 +1,6 @@
 name: AI SMM / Gemini direct connection (one-time)
 
-# Diagnostic check: store allowlisted native error status after persistent HTTP 404.
+# Diagnostic check: redact and retain Google's explanatory error message after HTTP 404.
 # Later ordinary code pushes must not spend Gemini API credits.
 on:
   push:
@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+      - name: Verify diagnostic redaction without secrets or API calls
+        run: python -m unittest discover -s ci -p 'test_gemini_error_safety.py' -v
       - name: Probe Google Gemini Pro direct API (one small synthetic request)
         env:
           ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
