@@ -10,6 +10,12 @@ permissions:
   contents: read
   pull-requests: read
 
+# Prevent concurrent paid calls for successive updates to the same PR.
+# Cancel superseded reviews before they spend credits or publish stale results.
+concurrency:
+  group: independent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   independent-review:
     if: github.event.pull_request.head.repo.full_name == github.repository
