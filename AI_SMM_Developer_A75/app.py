@@ -3491,7 +3491,7 @@ class Studio(QMainWindow):
             budget_text = QLabel(
                 f"Месячный лимит: ${usage['cap_usd']:.2f}; "
                 f"учтено и зарезервировано: ${usage['committed_usd']:.2f}; "
-                f"доступно: ${usage['available_usd']:.2f}")
+                f"доступно: ${usage['available_usd']:.2f}; "f"платные вызовы: {'ЗАБЛОКИРОВАНЫ — проверка списания' if usage['paid_calls_frozen'] else 'только с разрешением и проверенной ценой'}")
             layout.addWidget(budget_text)
             budget_button = QPushButton('Изменить месячный лимит расходов (USD)')
             def update_budget():
@@ -3507,7 +3507,7 @@ class Studio(QMainWindow):
                     budget_text.setText(
                         f"Месячный лимит: ${fresh['cap_usd']:.2f}; "
                         f"учтено и зарезервировано: ${fresh['committed_usd']:.2f}; "
-                        f"доступно: ${fresh['available_usd']:.2f}")
+                        f"доступно: ${fresh['available_usd']:.2f}; "f"платные вызовы: {'ЗАБЛОКИРОВАНЫ — проверка списания' if fresh['paid_calls_frozen'] else 'только с разрешением и проверенной ценой'}")
                 except (OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
                     QMessageBox.warning(dialog, 'Бюджет AI', str(exc))
             budget_button.clicked.connect(update_budget)
