@@ -15,7 +15,8 @@ from PIL import Image
 from kie_media_contracts import (
     _url, VideoMetadata, nano_banana_pro, nano_banana_edit,
     kling_omni_transformation, kling_omni_reference_to_video)
-from kie_media_jobs import prepare, submit, complete, recover_pending
+from kie_media_jobs import (prepare, submit, complete, recover_pending,
+                            list_project_tasks, abandon_prepared)
 
 
 def verified_image(path, *, limit_mb, kling=False):
@@ -151,3 +152,9 @@ class KieMediaGateway:
 
     def recover(self, project_id):
         return recover_pending(self.db,project_id)
+
+    def tasks(self, project_id, *, limit=100):
+        return list_project_tasks(self.db,project_id,limit=limit)
+
+    def discard_unpaid(self, project_id, job_id):
+        return abandon_prepared(self.db,project_id,job_id)
