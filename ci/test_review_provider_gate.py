@@ -50,6 +50,39 @@ class FallbackTests(unittest.TestCase):
         return gate.run_gate(self.diff_path, self.primary, self.backup, self.output,
                              env=self.env if env is None else env, runner=runner)
 
+    def test_direct_anthropic_is_primary_and_does_not_invoke_backup(self):
+        runner = Mock()
+        env = {**self.env, "PRIMARY_REVIEW_PROVIDER": "anthropic"}
+        self.assertEqual(self.check(evidence("anthropic", self.diff), runner, env=env), 0)
+        runner.assert_not_called()
+        self.assertEqual(json.loads(self.output.read_text())["reviewer"], "anthropic")
+
+    def test_anthropic_gateway_outage_allows_full_gemini_review(self):
+        env = {**self.env, "PRIMARY_REVIEW_PROVIDER": "anthropic"}
+        primary = evidence("anthropic", self.diff, status="BLOCKED",
+                           reason="provider HTTP status 503")
+        def backup(command, **kwargs):
+            self.backup.write_text(
+                json.dumps(evidence("compatible", self.diff)), encoding="utf-8"
+            )
+        self.assertEqual(self.check(primary, runner=backup, env=env), 0)
+        self.assertEqual(json.loads(self.output.read_text())["reviewer"], "compatible")
+
+    def test_anthropic_rejection_can_never_be_overridden(self):
+        env = {**self.env, "PRIMARY_REVIEW_PROVIDER": "anthropic"}
+        primary = evidence("anthropic", self.diff, REJECT, status="BLOCKED",
+                           reason="provider HTTP status 503")
+        runner = Mock()
+        self.assertEqual(self.check(primary, runner=runner, env=env), 2)
+        runner.assert_not_called()
+
+    def test_anthropic_provider_identity_mismatch_blocks(self):
+        env = {**self.env, "PRIMARY_REVIEW_PROVIDER": "anthropic"}
+        runner = Mock()
+        self.assertEqual(self.check(evidence("kie", self.diff), runner=runner,
+                                    env=env), 2)
+        runner.assert_not_called()
+
     def test_complete_primary_does_not_run_paid_backup(self):
         runner = Mock()
         self.assertEqual(self.check(evidence("kie", self.diff), runner), 0)
