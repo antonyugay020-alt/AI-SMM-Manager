@@ -91,6 +91,28 @@ def main():
                             evidence["native_endpoint_status"] = "HTTP " + str(native_error.code)
                         except (OSError, ValueError):
                             evidence["native_endpoint_status"] = "BLOCKED"
+                    # One low-token Flash probe isolates Pro tier restrictions.
+                    flash = "gemini-2.5-flash"
+                    if evidence.get("native_endpoint_status") == "HTTP 404" and flash in candidates:
+                        probe = urllib.request.Request(
+                            "https://generativelanguage.googleapis.com/v1beta/models/"
+                            + flash + ":generateContent",
+                            data=json.dumps({"contents": [{"parts": [{
+                                "text": "Reply OK."
+                            }]}], "generationConfig": {"maxOutputTokens": 16}}
+                            ).encode("utf-8"),
+                            headers={"x-goog-api-key": os.environ["ALT_REVIEW_API_KEY"],
+                                     "Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        try:
+                            with urllib.request.urlopen(probe, timeout=40) as response:
+                                response.read(20_000)
+                            evidence["flash_endpoint_status"] = "PASS"
+                        except urllib.error.HTTPError as flash_error:
+                            evidence["flash_endpoint_status"] = "HTTP " + str(flash_error.code)
+                        except (OSError, ValueError):
+                            evidence["flash_endpoint_status"] = "BLOCKED"
                 except urllib.error.HTTPError as inventory_error:
                     evidence["model_inventory_status"] = "HTTP " + str(inventory_error.code)
                 except (OSError, ValueError, KeyError):
