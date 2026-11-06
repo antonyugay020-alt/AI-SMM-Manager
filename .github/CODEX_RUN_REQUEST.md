@@ -24,3 +24,6 @@ Only propose source/test changes. Keep CI workflows, release policy, QA acceptan
 4. Until then keep status **NOT RELEASE / 0 of 10 confirmed Windows E2E**. Do not issue a user release.
 
 Cost/effort: prioritize architecture, reliable bounded model calls and reproducible tests. Do not attempt to bypass access to missing external services or commit credentials.
+
+## Execution note (2026-11-06)
+The initial cloud Codex invocation was blocked by an unsupported `--full-auto` flag (the API key was present). This run must use the repaired `codex exec --sandbox workspace-write` invocation. Do not treat that launcher failure as a defect in project source; focus on the complete P0 architecture task above.
