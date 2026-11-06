@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"AI_SMM_Work_Architecture_A75"))
 from kie_media_contracts import (nano_banana_pro,nano_banana_edit,
-                                 kling_omni_transformation,VideoMetadata,extract_task_id)
+                                 kling_omni_transformation,kling_omni_reference_to_video,VideoMetadata,extract_task_id)
 
 VIDEO="https://files.example.org/input.mp4"
 IMAGE="https://files.example.org/portrait.png"
@@ -82,6 +82,50 @@ class KieMediaContracts(unittest.TestCase):
             with self.subTest(response=response):
                 with self.assertRaises(ValueError):
                     extract_task_id(response)
+
+
+    def test_reference_to_video_from_image_without_video(self):
+        payload = kling_omni_reference_to_video(
+            "Animate this photograph", [IMAGE], duration=5, resolution="720p",
+            aspect_ratio="9:16", audio=True)
+        self.assertEqual(payload["model"], "kling-3.0-omni/reference-to-video")
+        self.assertEqual(payload["input"]["image_urls"], [IMAGE])
+        self.assertNotIn("video_urls", payload["input"])
+        self.assertTrue(payload["input"]["audio"])
+
+    def test_reference_to_video_multi_shot_validation(self):
+        shots=[{"prompt":"Wide product introduction", "duration":2},
+               {"prompt":"Closeup of product", "duration":3}]
+        payload=kling_omni_reference_to_video(
+            "Product showcase", [IMAGE], duration=5, customize_multi_shots=True,
+            multi_prompt=shots)
+        self.assertEqual(len(payload["input"]["multi_prompt"]),2)
+        with self.assertRaises(ValueError):
+            kling_omni_reference_to_video(
+                "Product", [IMAGE], duration=5, customize_multi_shots=True,
+                prefer_multi_shots=True, multi_prompt=shots)
+        with self.assertRaises(ValueError):
+            kling_omni_reference_to_video(
+                "Product", [IMAGE], duration=6, customize_multi_shots=True,
+                multi_prompt=shots)
+
+    def test_reference_to_video_source_video_has_strict_audio_and_ratio(self):
+        payload=kling_omni_reference_to_video(
+            "Improve transitions", video_url=VIDEO, metadata=sample())
+        self.assertFalse(payload["input"]["audio"])
+        self.assertEqual(payload["input"]["aspect_ratio"],"auto")
+        with self.assertRaises(ValueError):
+            kling_omni_reference_to_video(
+                "Improve", video_url=VIDEO, metadata=sample(), audio=True)
+        with self.assertRaises(ValueError):
+            kling_omni_reference_to_video(
+                "Improve", video_url=VIDEO, metadata=sample(),
+                aspect_ratio="9:16")
+        with self.assertRaises(ValueError):
+            kling_omni_reference_to_video(
+                "Improve", video_url=VIDEO, metadata=sample(),
+                customize_multi_shots=True,multi_prompt=[{"prompt":"A", "duration":5}])
+
 
 
 if __name__=="__main__":
