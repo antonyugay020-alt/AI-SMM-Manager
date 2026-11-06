@@ -168,7 +168,15 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
     row=_owned_row(db,project_id,job_id)
     model, _, _, state, provider_id, output_path=row
     if state=="completed":
-        return output_path
+        if not output_path:
+            raise ValueError("completed Kie task has no artifact receipt")
+        from project_file_boundary import require_managed_file
+        dest=Path(output_path)
+        require_managed_file(Path(workspace(project_id)),dest,("processed",))
+        if not dest.is_file():
+            raise ValueError("completed Kie artifact is missing")
+        _validate_media_bytes(dest,is_video=model.startswith("kling-"))
+        return str(dest)
     if state!="submitted" or not provider_id or not TASK_ID.fullmatch(provider_id):
         raise RuntimeError("task has no confirmed remote ID")
     status=query_task(provider_id)
