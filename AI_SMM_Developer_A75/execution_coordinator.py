@@ -74,7 +74,14 @@ class ExecutionCoordinator:
             if names == {'execution_one_running_task', 'execution_one_running_project'}:
                 self._ensure_constraints()
                 return 0
-            return self.recover()
+            # A partially migrated database must not commit execution fencing
+            # while leaving batch claims live if subsequent recovery fails.
+            # Both worker kinds and both UNIQUE indexes share the bootstrap
+            # transaction; any batch trigger/constraint failure rolls it back.
+            from batch_runtime import recover_inflight_batch_receipts
+            changed = self.recover()
+            recover_inflight_batch_receipts(self.db)
+            return changed
 
     def _transaction(self, action):
         from sqlite_transaction_core import compose

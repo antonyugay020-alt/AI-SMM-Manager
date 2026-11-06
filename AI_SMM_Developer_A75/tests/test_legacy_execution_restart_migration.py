@@ -133,6 +133,72 @@ class LegacyExecutionMigrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             engine.verify(old)
 
+    def test_legacy_batch_and_execution_migrate_in_one_transaction(self):
+        attempts, _ = self._legacy_database()
+        raw = sqlite3.connect(self.path)
+        raw.execute("""INSERT INTO batch_runs
+            (id,project_id,prompt,engine_mode,queue_json,total,status,updated_at)
+            VALUES('legacy-batch','alpha','recover',0,'["source.png"]',1,'running','old')""")
+        raw.execute("""INSERT INTO batch_item_receipts
+            (batch_id,position,project_id,source_path,status,attempt_token,updated_at)
+            VALUES('legacy-batch',0,'alpha','source.png','running','stale-token','old')""")
+        raw.execute("""CREATE TRIGGER reject_legacy_batch_fence
+            BEFORE UPDATE OF status ON batch_item_receipts
+            WHEN NEW.status='failed'
+            BEGIN SELECT RAISE(ABORT,'injected batch migration failure'); END""")
+        raw.commit()
+        raw.close()
+        # A batch failure must roll back execution fencing AND index creation.
+        with self.assertRaises(sqlite3.IntegrityError):
+            open_application_database(self.path, self.root)
+        raw = sqlite3.connect(self.path)
+        self.assertEqual(raw.execute(
+            "SELECT COUNT(*) FROM execution_attempts WHERE state='running'").fetchone()[0], 3)
+        self.assertEqual(raw.execute(
+            "SELECT status,attempt_token FROM batch_item_receipts").fetchone(),
+            ('running','stale-token'))
+        self.assertEqual(self._indexes(raw), set())
+        raw.execute('DROP TRIGGER reject_legacy_batch_fence')
+        raw.commit()
+        raw.close()
+        migrated = open_application_database(self.path, self.root)
+        self.addCleanup(migrated.close)
+        self.assertEqual(migrated.execute(
+            "SELECT COUNT(*) FROM execution_attempts WHERE state='interrupted'").fetchone()[0], 3)
+        self.assertEqual(migrated.execute(
+            "SELECT status,attempt_token FROM batch_item_receipts").fetchone(),
+            ('failed',None))
+        self.assertEqual(self._indexes(migrated),
+                         {'execution_one_running_task', 'execution_one_running_project'})
+        for attempt in attempts:
+            with self.assertRaises(ValueError):
+                ExecutionCoordinator(migrated).verify(attempt)
+
+    def test_partially_missing_index_fences_both_worker_kinds(self):
+        db = open_application_database(self.path, self.root)
+        db.execute("INSERT INTO projects(id,name,created_at) VALUES('alpha','Alpha','now')")
+        task = TaskLifecycle(db).activate('alpha','partial-index','question')
+        old = ExecutionCoordinator(db).begin('alpha',task)
+        db.execute("""INSERT INTO batch_runs
+            (id,project_id,prompt,engine_mode,queue_json,total,status,updated_at)
+            VALUES('partial-batch','alpha','recover',0,'["source.png"]',1,'running','old')""")
+        db.execute("""INSERT INTO batch_item_receipts
+            (batch_id,position,project_id,source_path,status,attempt_token,updated_at)
+            VALUES('partial-batch',0,'alpha','source.png','running','stale-token','old')""")
+        db.execute('DROP INDEX execution_one_running_project')
+        db.commit()
+        db.close()
+        migrated = open_application_database(self.path,self.root)
+        self.addCleanup(migrated.close)
+        self.assertEqual(migrated.execute(
+            'SELECT state FROM execution_attempts WHERE attempt_id=?',
+            (old.attempt_id,)).fetchone(),('interrupted',))
+        self.assertEqual(migrated.execute(
+            'SELECT status,attempt_token FROM batch_item_receipts').fetchone(),
+            ('failed',None))
+        self.assertEqual(self._indexes(migrated),
+                         {'execution_one_running_task','execution_one_running_project'})
+
     def test_bootstrap_rollback_if_worker_fence_fails(self):
         attempts, (paused, active, other) = self._legacy_database()
         db = sqlite3.connect(self.path)
