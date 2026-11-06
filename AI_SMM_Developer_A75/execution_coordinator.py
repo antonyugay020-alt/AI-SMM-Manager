@@ -43,6 +43,35 @@ class ExecutionCoordinator:
         self.db.execute('''CREATE INDEX IF NOT EXISTS execution_project_states
           ON execution_attempts(project_id,state)''')
 
+    @staticmethod
+    def _required_indexes():
+        return (
+            ('execution_one_running_task', 'task_id'),
+            ('execution_one_running_project', 'project_id'),
+        )
+
+    def _invalid_constraints(self):
+        """Check the actual UNIQUE/partial predicate, not merely an index name.
+
+        Old or externally migrated SQLite files can contain a non-unique or
+        incorrectly filtered index with the expected name. CREATE IF NOT EXISTS
+        silently accepts that impostor and would allow concurrent workers.
+        A canonical definition is required for the durable ownership contract.
+        """
+        invalid = []
+        for name, column in self._required_indexes():
+            row = self.db.execute(
+                """SELECT sql FROM sqlite_master
+                   WHERE type='index' AND tbl_name='execution_attempts'
+                   AND name=?""", (name,)).fetchone()
+            expected = ("createuniqueindex" + name
+                        + "onexecution_attempts(" + column
+                        + ")wherestate='running'")
+            actual = ''.join(row[0].lower().split()) if row and row[0] else ''
+            if actual != expected:
+                invalid.append((name, bool(row)))
+        return invalid
+
     def _ensure_constraints(self):
         """Enforce both worker ownership invariants at the database boundary."""
         self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_task
@@ -50,6 +79,10 @@ class ExecutionCoordinator:
         # A pre-insert SELECT cannot replace a constraint across connections.
         self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_project
           ON execution_attempts(project_id) WHERE state='running' ''')
+        if self._invalid_constraints():
+            raise sqlite3.DatabaseError(
+                'Execution worker UNIQUE indexes do not enforce the canonical '
+                'project/task running ownership constraints')
 
     def _ensure(self):
         """Normal execution paths fail closed on unmigrated legacy duplicates."""
@@ -67,13 +100,16 @@ class ExecutionCoordinator:
         from sqlite_transaction_core import compose
         with compose(self.db, 'execution_coordinator_migration'):
             self._ensure_base()
-            names = {row[0] for row in self.db.execute(
-                """SELECT name FROM sqlite_master WHERE type='index'
-                   AND name IN ('execution_one_running_task',
-                                'execution_one_running_project')""")}
-            if names == {'execution_one_running_task', 'execution_one_running_project'}:
+            invalid = self._invalid_constraints()
+            if not invalid:
                 self._ensure_constraints()
                 return 0
+            # Name collisions are not proof of UNIQUE ownership. Drop only
+            # noncanonical indexes, within the same rollback-safe migration,
+            # then fence BOTH worker kinds before restoring strict constraints.
+            for name, exists in invalid:
+                if exists:
+                    self.db.execute('DROP INDEX "' + name + '"')
             # A partially migrated database must not commit execution fencing
             # while leaving batch claims live if subsequent recovery fails.
             # Both worker kinds and both UNIQUE indexes share the bootstrap

@@ -199,6 +199,108 @@ class LegacyExecutionMigrationTests(unittest.TestCase):
         self.assertEqual(self._indexes(migrated),
                          {'execution_one_running_task','execution_one_running_project'})
 
+    def test_bootstrap_repairs_nonunique_named_indexes_and_fences_duplicates(self):
+        attempts, (paused, active, _) = self._legacy_database()
+        raw = sqlite3.connect(self.path)
+        raw.execute('CREATE INDEX execution_one_running_task ON execution_attempts(task_id)')
+        raw.execute('CREATE INDEX execution_one_running_project ON execution_attempts(project_id)')
+        raw.commit()
+        raw.close()
+        migrated = open_application_database(self.path, self.root)
+        self.addCleanup(migrated.close)
+        self.assertEqual(migrated.execute(
+            "SELECT count(*) FROM execution_attempts WHERE state='interrupted'").fetchone()[0], 3)
+        indexes = {r[1]: (r[2], r[4]) for r in migrated.execute(
+            "PRAGMA index_list('execution_attempts')")}
+        for name in self._indexes(migrated):
+            self.assertEqual(indexes[name], (1, 1))
+        for attempt in attempts:
+            with self.assertRaises(ValueError):
+                ExecutionCoordinator(migrated).verify(attempt)
+        migrated.execute("""INSERT INTO execution_attempts
+            (attempt_id,project_id,task_id,state,started_at)
+            VALUES('new-one','alpha',?,'running','now')""", (paused,))
+        with self.assertRaises(sqlite3.IntegrityError):
+            migrated.execute("""INSERT INTO execution_attempts
+                (attempt_id,project_id,task_id,state,started_at)
+                VALUES('new-two','alpha',?,'running','now')""", (active,))
+
+    def test_bootstrap_repairs_wrong_partial_predicate_with_expected_names(self):
+        attempts, _ = self._legacy_database()
+        raw = sqlite3.connect(self.path)
+        for name, column in (('execution_one_running_task', 'task_id'),
+                             ('execution_one_running_project', 'project_id')):
+            raw.execute(f"""CREATE UNIQUE INDEX {name}
+                ON execution_attempts({column}) WHERE state='accepted'""")
+        raw.commit()
+        raw.close()
+        migrated = open_application_database(self.path, self.root)
+        self.addCleanup(migrated.close)
+        self.assertEqual(migrated.execute(
+            "SELECT count(*) FROM execution_attempts WHERE state='running'").fetchone()[0], 0)
+        self.assertEqual(ExecutionCoordinator(migrated)._invalid_constraints(), [])
+        for attempt in attempts:
+            with self.assertRaises(ValueError):
+                ExecutionCoordinator(migrated).verify(attempt)
+
+    def test_live_worker_operations_refuse_noncanonical_index_authority(self):
+        db = open_application_database(self.path, self.root)
+        db.execute("INSERT INTO projects(id,name,created_at) VALUES('alpha','Alpha','now')")
+        task = TaskLifecycle(db).activate('alpha', 'index-contract', 'question')
+        for name, column in (('execution_one_running_task', 'task_id'),
+                             ('execution_one_running_project', 'project_id')):
+            db.execute(f'DROP INDEX {name}')
+            db.execute(f'CREATE INDEX {name} ON execution_attempts({column})')
+        db.commit()
+        with self.assertRaises(sqlite3.DatabaseError):
+            ExecutionCoordinator(db).begin('alpha', task)
+        self.assertEqual(db.execute('SELECT count(*) FROM execution_attempts').fetchone()[0], 0)
+        db.close()
+        migrated = open_application_database(self.path, self.root)
+        self.addCleanup(migrated.close)
+        self.assertEqual(ExecutionCoordinator(migrated)._invalid_constraints(), [])
+        fresh = ExecutionCoordinator(migrated).begin('alpha', task)
+        ExecutionCoordinator(migrated).verify(fresh)
+
+    def test_noncanonical_index_and_batch_fence_failure_roll_back_together(self):
+        attempts, _ = self._legacy_database()
+        raw = sqlite3.connect(self.path)
+        raw.execute('CREATE INDEX execution_one_running_task ON execution_attempts(task_id)')
+        raw.execute('CREATE INDEX execution_one_running_project ON execution_attempts(project_id)')
+        raw.execute("""INSERT INTO batch_runs
+            (id,project_id,prompt,engine_mode,queue_json,total,status,updated_at)
+            VALUES('legacy-batch','alpha','recover',0,'["source.png"]',1,'running','old')""")
+        raw.execute("""INSERT INTO batch_item_receipts
+            (batch_id,position,project_id,source_path,status,attempt_token,updated_at)
+            VALUES('legacy-batch',0,'alpha','source.png','running','old-token','old')""")
+        raw.execute("""CREATE TRIGGER reject_batch_fence BEFORE UPDATE OF status
+            ON batch_item_receipts WHEN NEW.status='failed'
+            BEGIN SELECT RAISE(ABORT,'injected batch failure'); END""")
+        raw.commit()
+        raw.close()
+        with self.assertRaises(sqlite3.IntegrityError):
+            open_application_database(self.path, self.root)
+        raw = sqlite3.connect(self.path)
+        self.assertEqual(raw.execute(
+            "SELECT count(*) FROM execution_attempts WHERE state='running'").fetchone()[0], 3)
+        self.assertEqual(raw.execute(
+            'SELECT status,attempt_token FROM batch_item_receipts').fetchone(),
+            ('running', 'old-token'))
+        self.assertEqual({r[1]: r[2] for r in raw.execute(
+            "PRAGMA index_list('execution_attempts')") if r[1].startswith('execution_one_running_')},
+            {'execution_one_running_task': 0, 'execution_one_running_project': 0})
+        raw.execute('DROP TRIGGER reject_batch_fence')
+        raw.commit()
+        raw.close()
+        migrated = open_application_database(self.path, self.root)
+        self.addCleanup(migrated.close)
+        self.assertEqual(ExecutionCoordinator(migrated)._invalid_constraints(), [])
+        self.assertEqual(migrated.execute(
+            'SELECT status,attempt_token FROM batch_item_receipts').fetchone(), ('failed', None))
+        for attempt in attempts:
+            with self.assertRaises(ValueError):
+                ExecutionCoordinator(migrated).verify(attempt)
+
     def test_bootstrap_rollback_if_worker_fence_fails(self):
         attempts, (paused, active, other) = self._legacy_database()
         db = sqlite3.connect(self.path)
