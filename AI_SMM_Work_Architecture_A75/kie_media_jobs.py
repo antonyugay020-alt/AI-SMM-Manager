@@ -280,6 +280,8 @@ def recover_pending(db, project_id):
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
     _project_exists(db,project_id)
+    install(db)
+    db.commit()
     db.execute("""UPDATE kie_media_tasks SET state='submission_unknown',
         error_code='interrupted_paid_submission',updated_at=?
         WHERE project_id=? AND state='submitting'""",(utcnow(),project_id))
@@ -287,3 +289,39 @@ def recover_pending(db, project_id):
     return db.execute("""SELECT id,provider_task_id FROM kie_media_tasks
         WHERE project_id=? AND state='submitted' ORDER BY created_at,id""",
         (project_id,)).fetchall()
+
+
+def list_project_tasks(db, project_id, *, limit=100):
+    """Project-scoped status listing for Qt; never expose keys or signed URLs."""
+    if db.in_transaction:
+        raise RuntimeError("cannot list media jobs in a foreign transaction")
+    if type(limit) is not int or not 1<=limit<=500:
+        raise ValueError("invalid project task query limit")
+    _project_exists(db,project_id)
+    install(db)
+    db.commit()
+    rows=db.execute("""SELECT id,model,state,provider_task_id,output_path,
+        error_code,created_at,updated_at
+        FROM kie_media_tasks WHERE project_id=? ORDER BY created_at DESC,id DESC
+        LIMIT ?""",(project_id,limit)).fetchall()
+    return [{"id":row[0],"model":row[1],"state":row[2],
+             "provider_task_id":row[3],"output_path":row[4],
+             "error_code":row[5],"created_at":row[6],"updated_at":row[7]}
+            for row in rows]
+
+
+def abandon_prepared(db, project_id, job_id):
+    """Discard an unpaid draft only; submitted/unknown tasks cannot be erased."""
+    if db.in_transaction:
+        raise RuntimeError("cannot discard media task in a foreign transaction")
+    _owned_row(db,project_id,job_id)
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        deleted=db.execute("""DELETE FROM kie_media_tasks WHERE id=? AND
+            project_id=? AND state='prepared'""",(job_id,project_id)).rowcount
+        if deleted!=1:
+            raise RuntimeError("paid or uncertain provider task cannot be discarded")
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
