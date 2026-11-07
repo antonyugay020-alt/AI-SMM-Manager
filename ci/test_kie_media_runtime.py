@@ -55,7 +55,7 @@ class ProjectKieMediaTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.gateway.start(self.p1,ident)
         self.post.assert_not_called()
-        self.assertEqual(self.gateway.start(self.p1,ident,explicit_paid_consent=True),
+        self.assertEqual(self.gateway.start(self.p1,ident,explicit_paid_consent=True,quoted_cost_cents=100),
                          "task_kie_123456789")
         self.post.assert_called_once()
         self.assertEqual(self.gateway.recover(self.p1),
