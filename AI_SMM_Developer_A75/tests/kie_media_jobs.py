@@ -97,15 +97,19 @@ def _owned_row(db, project_id, job_id):
 
 
 def submit(db, project_id, job_id, create_task, *, enable_paid=False,
-           payment_reservation=None):
+           payment_reservation=None, cost_gate=None):
     """Attempt one paid provider call; a crash/timeout cannot auto-resubmit."""
     if enable_paid is not True:
         raise RuntimeError("paid Kie media generation must be explicitly enabled")
+    from durable_cost_gate import DurableCostGate
+    if not isinstance(cost_gate, DurableCostGate):
+        raise RuntimeError("durable payment gate required at paid transport boundary")
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
     row=_owned_row(db,project_id,job_id)
     if row[3]!="prepared":
         raise RuntimeError("Kie task already submitted or outcome uncertain")
+    cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
     try:
         db.execute("BEGIN IMMEDIATE")
         updated=db.execute("""UPDATE kie_media_tasks
@@ -118,6 +122,9 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False,
         db.rollback()
         raise
     try:
+        # Revalidate immediately before the provider transport; a grant from
+        # another task, a settled grant or a frozen ledger cannot be reused.
+        cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
         result=create_task(json.loads(row[1]))
         provider_id=extract_task_id(result)
     except Exception:
