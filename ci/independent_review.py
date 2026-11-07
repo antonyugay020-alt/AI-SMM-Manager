@@ -33,6 +33,16 @@ REVIEW_SYSTEM=(
 )
 
 
+
+def review_contract_digest(provider: str, model: str):
+    """Bind reusable reviewer evidence to exact provider/model/instructions."""
+    if provider not in ("anthropic", "kie", "compatible") or not isinstance(model, str) or not model:
+        raise ValueError("unverified reviewer contract")
+    contract = (provider + '\\x00' + REVIEW_SYSTEM + '\\x00'
+                + model + '\\x00review-protocol-v3-full-anthropic-context')
+    return hashlib.sha256(contract.encode("utf-8")).hexdigest()
+
+
 def parse_verdict(raw: str):
     obj=json.loads(raw)
     if not isinstance(obj,dict):raise ValueError('review is not an object')
@@ -205,14 +215,14 @@ def main():
         result['segments_expected'] = len(chunks)
         # Resume only a byte-identical diff reviewed with the same contract
         # and model. An old PASS never certifies a changed PR or prompt.
-        contract_sha = hashlib.sha256(
-            (args.provider + '\\x00' + REVIEW_SYSTEM + '\\x00'
-             + (os.environ.get('KIE_REVIEW_MODEL', 'claude-sonnet-5-5').strip() if args.provider == 'kie' else
-                os.environ.get('ANTHROPIC_MODEL' if args.provider == 'anthropic'
-                               else 'ALT_REVIEW_MODEL', ''))
-             + '\\x00review-protocol-v3-full-anthropic-context').encode('utf-8')
-        ).hexdigest()
-        result['review_contract_sha256'] = contract_sha
+        contract_sha = review_contract_digest(
+            args.provider,
+            os.environ.get('KIE_REVIEW_MODEL', 'claude-sonnet-5-5').strip()
+            if args.provider == 'kie' else
+            os.environ.get('ANTHROPIC_MODEL' if args.provider == 'anthropic'
+                           else 'ALT_REVIEW_MODEL', '')
+        )
+                result['review_contract_sha256'] = contract_sha
         segment_results = []
         if args.output.is_file():
             try:
