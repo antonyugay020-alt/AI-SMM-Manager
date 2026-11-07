@@ -231,8 +231,26 @@ def replay(db,workspace,*,project_id=None,limit=100):
                 if not target.is_file() or _digest(target)!=(sha,size):
                     raise ValueError('Existing destination content conflicts with registered media')
             else:
-                os.link(source,target)
-                _sync_folder(folder)
+                # Never hardlink the managed destination to the recovery spool:
+                # downstream editors may modify published files in place. A
+                # hardlink would corrupt the only crash-recovery source too.
+                # Copy into a private sibling, fsync, then publish without
+                # overwriting another concurrent replay's destination.
+                temporary=require_managed_file(root,folder/('.publish-'+uuid4().hex+'.tmp'),(_KINDS[kind],))
+                try:
+                    digest=hashlib.sha256();copied=0
+                    with source.open('rb') as reader,temporary.open('xb') as writer:
+                        for block in iter(lambda:reader.read(1024*1024),b''):
+                            digest.update(block);copied+=len(block);writer.write(block)
+                        writer.flush();os.fsync(writer.fileno())
+                    if digest.hexdigest()!=sha or copied!=size:
+                        raise ValueError('Recovery spool changed during publication')
+                    try:os.link(temporary,target)
+                    except FileExistsError:
+                        if not target.is_file() or _digest(target)!=(sha,size):
+                            raise ValueError('Concurrent publication destination conflict')
+                    _sync_folder(folder)
+                finally:temporary.unlink(missing_ok=True)
             if _digest(target)!=(sha,size):raise ValueError('Media readback failed')
             db.execute("UPDATE media_ingest_jobs SET state='done',last_error='' WHERE id=? AND project_id=? AND state='pending'",
                        (ident,pid));db.commit();completed+=1
