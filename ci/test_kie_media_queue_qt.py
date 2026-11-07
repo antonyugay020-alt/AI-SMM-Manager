@@ -80,6 +80,47 @@ class KieMediaQueueQtTests(unittest.TestCase):
             "SELECT project_id FROM kie_media_tasks"
         ).fetchone()[0], "project-b")
 
+    def test_preview_draft_is_local_and_does_not_expose_provider_urls(self):
+        from kie_media_jobs import preview_prepared_task
+        payload = nano_banana_pro(
+            "Design campaign banner",
+            ["https://files.example.org/private?signature=secret-token"],
+            aspect_ratio="9:16")
+        task = prepare(self.db,"project-a",payload)
+        metadata = preview_prepared_task(self.db,"project-a",task)
+        self.assertEqual(metadata["reference_count"],1)
+        self.assertEqual(metadata["model"],"nano-banana-pro")
+        self.assertNotIn("signature",str(metadata))
+        self.assertNotIn("secret-token",str(metadata))
+        self.view.refresh()
+        self.view.table.selectRow(0)
+        with patch.object(QMessageBox,"information") as show:
+            self.view.preview_selected()
+        show.assert_called_once()
+        self.assertNotIn("secret-token",str(show.call_args))
+        self.assertNotIn("files.example.org",str(show.call_args))
+
+    def test_preview_blocked_if_selected_project_changed(self):
+        task=prepare(self.db,"project-a",self.payload)
+        self.view.refresh()
+        self.view.table.selectRow(0)
+        self.current="project-b"
+        with patch.object(QMessageBox,"information") as show:
+            self.view.preview_selected()
+        show.assert_not_called()
+        self.assertEqual(self.view.table.rowCount(),0)
+
+    def test_preview_only_unpaid_drafts(self):
+        task=prepare(self.db,"project-a",self.payload)
+        submit(self.db,"project-a",task,
+               lambda _: {"code":200,"data":{"taskId":"task_kie_1234567890"}},
+               enable_paid=True)
+        self.view.refresh()
+        self.view.table.selectRow(0)
+        with patch.object(QMessageBox,"warning") as warning:
+            self.view.preview_selected()
+        warning.assert_called_once()
+
     def test_stale_selection_cannot_delete_foreign_project(self):
         a = prepare(self.db, "project-a", self.payload)
         b = prepare(self.db, "project-b", self.payload)
