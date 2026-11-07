@@ -79,6 +79,18 @@ def install(db):
         db.execute('RELEASE SAVEPOINT media_ingest_schema')
         raise
 
+def _require_owner(db, project_id):
+    """Fail closed on deleted or foreign projects before media I/O.
+
+    Recovery may process an entire queue or one selected project. Neither
+    mode may publish an orphan receipt after its owning project was removed.
+    """
+    if not isinstance(project_id, str) or not re.fullmatch(r'[0-9a-f]{32}', project_id):
+        raise ValueError('Invalid project identity')
+    if db.execute('SELECT 1 FROM projects WHERE id=?', (project_id,)).fetchone() is None:
+        raise ValueError('Project does not exist in SQLite')
+
+
 def _root(workspace,project_id):
     if not re.fullmatch(r'[0-9a-f]{32}',str(project_id)):
         raise ValueError('Invalid project identity')
@@ -178,8 +190,7 @@ class IngestReceipt:
 def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None):
     if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
     if kind not in _KINDS:raise ValueError('Invalid ingest kind')
-    if not db.execute('SELECT 1 FROM projects WHERE id=?',(project_id,)).fetchone():
-        raise ValueError('Project does not exist in SQLite')
+    _require_owner(db,project_id)
     base=_root(workspace,project_id)
     managed_folder=require_managed_folder(base,_KINDS[kind])
     if kind in ('result','video'):managed_folder.mkdir(parents=True,exist_ok=True)
@@ -247,6 +258,8 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
 def replay(db,workspace,*,project_id=None,limit=100):
     if db.in_transaction:raise RuntimeError('Cannot replay import inside a foreign transaction')
     if type(limit) is not int or not 1<=limit<=1000:raise ValueError('Invalid replay limit')
+    if project_id is not None:
+        _require_owner(db,project_id)
     install(db);db.commit()
     query='''SELECT id,project_id,kind,source_sha256,source_size,filename
         FROM media_ingest_jobs WHERE state='pending' '''
@@ -258,6 +271,7 @@ def replay(db,workspace,*,project_id=None,limit=100):
         try:
             if kind not in _KINDS or not _NAME.fullmatch(name):
                 raise ValueError('Corrupt import identity')
+            _require_owner(db,pid)
             root=_root(workspace,pid)
             _,source=_spool(root,sha)
             if _digest(source)!=(sha,size):raise ValueError('Spool bytes are missing or corrupted')
@@ -283,7 +297,12 @@ def replay(db,workspace,*,project_id=None,limit=100):
             if db.in_transaction:db.rollback()
             db.execute("UPDATE media_ingest_jobs SET attempts=attempts+1,last_error=? WHERE id=? AND project_id=? AND state='pending'",
                        (str(exc)[:500],ident,pid));db.commit();failed+=1
-    pending=db.execute("SELECT COUNT(*) FROM media_ingest_jobs WHERE state='pending'").fetchone()[0]
+    pending_sql="SELECT COUNT(*) FROM media_ingest_jobs WHERE state='pending'"
+    pending_args=()
+    if project_id is not None:
+        pending_sql+=" AND project_id=?"
+        pending_args=(project_id,)
+    pending=db.execute(pending_sql,pending_args).fetchone()[0]
     return dict(completed=completed,failed=failed,pending=pending)
 
 
@@ -300,6 +319,7 @@ def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_se
         raise ValueError('Invalid GC limit')
     if type(min_age_seconds) not in (int,float) or min_age_seconds<86400:
         raise ValueError('GC retention must be at least 24 hours')
+    _require_owner(db,project_id)
     root=_root(workspace,project_id)
     folder=require_managed_folder(root,'.ingest_spool')
     if not folder.exists():return {'deleted':0,'retained':0}

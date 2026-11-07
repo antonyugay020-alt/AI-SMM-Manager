@@ -23,6 +23,42 @@ class DurableMediaTests(unittest.TestCase):
 
     def workspace(self,pid):return self.base/'projects'/pid
 
+    def test_scoped_replay_does_not_count_or_publish_other_project(self):
+        import media_ingest_core
+        with patch.object(media_ingest_core,'replay',return_value={'completed':0,'failed':0,'pending':1}):
+            a=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+            b=ingest(self.db,self.workspace,self.src,project_id=self.p2,kind='asset')
+        self.assertFalse(a.published or b.published)
+        result=replay(self.db,self.workspace,project_id=self.p1)
+        self.assertEqual(result,{'completed':1,'failed':0,'pending':0})
+        self.assertTrue(a.final_path.is_file())
+        self.assertFalse(b.final_path.exists())
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM media_ingest_jobs WHERE project_id=?",(self.p2,)
+        ).fetchone()[0],'pending')
+        self.assertEqual(replay(self.db,self.workspace,project_id=self.p2)['completed'],1)
+
+    def test_global_replay_rejects_orphaned_project_receipt(self):
+        import media_ingest_core
+        with patch.object(media_ingest_core,'replay',return_value={'completed':0,'failed':0,'pending':1}):
+            receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+        self.db.execute('DELETE FROM projects WHERE id=?',(self.p1,))
+        self.db.commit()
+        result=replay(self.db,self.workspace)
+        self.assertEqual(result,{'completed':0,'failed':1,'pending':1})
+        self.assertFalse(receipt.final_path.exists())
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM media_ingest_jobs WHERE id=?",(receipt.item_id,)
+        ).fetchone()[0],'pending')
+
+    def test_scoped_replay_unknown_owner_fails_before_filesystem_io(self):
+        unknown='c'*32
+        with self.assertRaisesRegex(ValueError,'Project does not exist'):
+            replay(self.db,self.workspace,project_id=unknown)
+        self.assertFalse(self.workspace(unknown).exists())
+        with self.assertRaises(ValueError):
+            replay(self.db,self.workspace,project_id='../../other')
+
     def test_asset_publication_and_duplicate_are_project_scoped(self):
         first=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
         self.assertTrue(first.committed and first.published)
@@ -182,6 +218,23 @@ class LegacyMediaRecoveryTests(unittest.TestCase):
             finally:db.close()
 
 class MediaSpoolGcTests(unittest.TestCase):
+    def test_deleted_project_cannot_trigger_spool_cleanup(self):
+        import hashlib
+        from media_ingest_core import prune_unreferenced_spool
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);pid='f'*32
+            folder=root/pid/'.ingest_spool';folder.mkdir(parents=True)
+            orphan=folder/hashlib.sha256(b'old').hexdigest()
+            orphan.write_bytes(b'old')
+            db=sqlite3.connect(':memory:')
+            try:
+                db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
+                db.commit()
+                with self.assertRaisesRegex(ValueError,'Project does not exist'):
+                    prune_unreferenced_spool(db,lambda p:root/p,project_id=pid)
+                self.assertEqual(orphan.read_bytes(),b'old')
+            finally:db.close()
+
     def test_only_old_unreferenced_content_is_collected(self):
         import hashlib
         import time
@@ -191,6 +244,8 @@ class MediaSpoolGcTests(unittest.TestCase):
             db=sqlite3.connect(':memory:')
             try:
                 db.execute('CREATE TABLE assets(id TEXT PRIMARY KEY,project_id TEXT,original_name TEXT,stored_path TEXT,sha256 TEXT,imported_at TEXT)')
+                db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
+                db.execute('INSERT INTO projects VALUES(?)',(pid,))
                 folder=root/pid/'.ingest_spool';folder.mkdir(parents=True)
                 orphan=folder/hashlib.sha256(b'orphan').hexdigest()
                 live=folder/hashlib.sha256(b'live').hexdigest()
