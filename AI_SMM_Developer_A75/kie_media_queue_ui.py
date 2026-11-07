@@ -9,7 +9,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
+    QPlainTextEdit, QComboBox,
 )
+from kie_media_contracts import nano_banana_pro
+from kie_media_jobs import prepare
 from kie_media_jobs import list_project_tasks, abandon_prepared
 
 _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID задания", "Результат / ошибка")
@@ -33,6 +36,22 @@ class KieMediaQueuePanel(QWidget):
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
+        draft_row = QHBoxLayout()
+        self.prompt = QPlainTextEdit()
+        self.prompt.setPlaceholderText("Описание изображения для Nano Banana Pro")
+        self.prompt.setMaximumHeight(76)
+        draft_row.addWidget(self.prompt, 1)
+        self.aspect_ratio = QComboBox()
+        self.aspect_ratio.addItems(["1:1", "9:16", "16:9", "4:5", "3:4"])
+        draft_row.addWidget(self.aspect_ratio)
+        self.resolution = QComboBox()
+        self.resolution.addItems(["1K", "2K", "4K"])
+        draft_row.addWidget(self.resolution)
+        create_button = QPushButton("Сохранить черновик")
+        create_button.setToolTip("Только локальная запись в SQLite, без загрузки и генерации")
+        create_button.clicked.connect(self.create_draft)
+        draft_row.addWidget(create_button)
+        layout.addLayout(draft_row)
         toolbar = QHBoxLayout()
         reload_button = QPushButton("Обновить список")
         reload_button.clicked.connect(self.refresh)
@@ -84,6 +103,26 @@ class KieMediaQueuePanel(QWidget):
                 self.table.setItem(index, column, item)
         self.note.setText(f"Сохранено заданий: {len(jobs)}. "
                           "Неизвестные платные отправки нельзя повторять или удалять.")
+
+    def create_draft(self):
+        # Local-only preflight: validation and SQLite write, no API calls.
+        owner = self._owner()
+        if owner is None:
+            self.note.setText("Сначала выберите проект.")
+            return
+        try:
+            payload = nano_banana_pro(
+                self.prompt.toPlainText(), (),
+                aspect_ratio=self.aspect_ratio.currentText(),
+                resolution=self.resolution.currentText())
+            if self._owner() != owner:
+                raise RuntimeError("Проект изменился во время подготовки задания")
+            prepare(self._db, owner, payload)
+        except (ValueError, RuntimeError, OSError) as exc:
+            self.note.setText("Черновик не сохранён: " + str(exc))
+            return
+        self.prompt.clear()
+        self.refresh()
 
     def discard_selected(self):
         # A project switch after rendering must not retarget a stale row.
