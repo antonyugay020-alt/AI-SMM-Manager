@@ -86,6 +86,44 @@ class PaidKieBoundaryTests(unittest.TestCase):
         self.assertEqual(self.gateway.tasks("alpha")[0]["state"],"submission_unknown")
         self.assertEqual(self.remote.call_count,1)
 
+    def test_foreign_transaction_is_rejected_before_any_budget_reservation(self):
+        task=self.draft()
+        token=self.ledger.approve("kie.ai","media:"+task,"2")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            with self.assertRaises(RuntimeError):
+                self.gateway.start("alpha",task,explicit_paid_consent=True,
+                                   approval_token=token)
+        finally:
+            self.db.rollback()
+        self.remote.assert_not_called()
+        self.quote.assert_not_called()
+        self.assertEqual(self.ledger.usage()["committed_usd"],0)
+
+    def test_legacy_unbound_reservation_cannot_authorize_paid_transport(self):
+        task=self.draft()
+        self.ledger.set_monthly_cap("20")
+        with self.ledger._connect() as db:
+            db.execute("""INSERT INTO cost_reservations
+                (id,period,amount,state) VALUES (?,?,?,'reserved')""",
+                ("legacy",self.ledger.period(),1000000))
+        with self.assertRaises(PaymentDenied):
+            self.ledger.assert_reservation("legacy","kie.ai","media:"+task)
+        self.remote.assert_not_called()
+
+    def test_valid_reservation_survives_reopen_but_not_settlement(self):
+        task=self.draft()
+        operation="media:"+task
+        token=self.ledger.approve("kie.ai",operation,"2")
+        reservation=self.ledger.reserve("kie.ai",operation,"2",token=token)
+        reopened=DurableCostGate(self.ledger.database_path)
+        self.assertTrue(reopened.assert_reservation(reservation,"kie.ai",operation))
+        with self.assertRaises(PaymentDenied):
+            reopened.assert_reservation(reservation,"kie.ai","media:another")
+        reopened.settle(reservation,"1")
+        with self.assertRaises(PaymentDenied):
+            reopened.assert_reservation(reservation,"kie.ai",operation)
+
     def test_missing_verified_quote_blocks_even_with_user_consent(self):
         task=self.draft()
         unpriced=KieMediaGateway(
