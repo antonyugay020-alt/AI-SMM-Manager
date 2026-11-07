@@ -97,9 +97,12 @@ class KieMediaGateway:
         return [_url(self.upload_file(image)) for image in validated]
 
     def prepare_image(self, project_id, *, prompt, sources, pro=True,
-                      aspect_ratio="1:1",resolution="1K",output_format=None):
-        """No remote generation yet; uploads may be billed by service."""
+                      aspect_ratio="1:1",resolution="1K",output_format=None,
+                      explicit_upload_consent=False):
+        """No model generation; external source upload requires separate consent."""
         sources=list(sources)
+        if sources and explicit_upload_consent is not True:
+            raise RuntimeError("external source upload requires explicit user consent")
         # Pro supports both text-to-image and image-to-image. Nano Edit
         # requires at least one existing photograph per its OpenAPI contract.
         if len(sources)>(8 if pro else 10) or (not pro and not sources):
@@ -116,9 +119,11 @@ class KieMediaGateway:
     def prepare_video(self, project_id, *, prompt, source_video=None,
                       source_images=(), reference_mode=True,
                       duration=5, resolution="720p",aspect_ratio=None,
-                      audio=None, multi_prompt=()):
+                      audio=None, multi_prompt=(), explicit_upload_consent=False):
         """Reference mode creates from images; transformation edits existing video."""
         images=list(source_images)
+        if (images or source_video is not None) and explicit_upload_consent is not True:
+            raise RuntimeError("external source upload requires explicit user consent")
         if len(images)>(7 if source_video is None else 4):
             raise ValueError("too many Kling reference images")
         if not reference_mode and source_video is None:
