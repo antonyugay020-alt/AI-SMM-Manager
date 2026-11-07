@@ -41,31 +41,43 @@ def _digest(path):
 
 
 def install(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
-        CHECK(kind IN ('asset','reference','result')),source_sha256 TEXT NOT NULL,
-        source_size INTEGER NOT NULL,filename TEXT NOT NULL,
-        state TEXT NOT NULL CHECK(state IN ('pending','done')),
-        attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL)''')
-    # One schema migration for existing installations; rebuild preserves all receipts.
-    sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
-    if "'result'" not in sql:
-        db.execute("""CREATE TABLE media_ingest_jobs_v2 (
-            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
-            CHECK(kind IN ('asset','reference','result')), source_sha256 TEXT NOT NULL,
-            source_size INTEGER NOT NULL, filename TEXT NOT NULL,
-            state TEXT NOT NULL CHECK(state IN ('pending','done')),
-            attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL)""")
-        db.execute("""INSERT INTO media_ingest_jobs_v2
-            SELECT id,project_id,kind,source_sha256,source_size,filename,
-                   state,attempts,last_error,created_at FROM media_ingest_jobs""")
-        db.execute('DROP TABLE media_ingest_jobs')
-        db.execute('ALTER TABLE media_ingest_jobs_v2 RENAME TO media_ingest_jobs')
-    db.execute('''CREATE INDEX IF NOT EXISTS media_ingest_jobs_pending
-        ON media_ingest_jobs(state,project_id,created_at)''')
+    """Atomically install or upgrade media receipts without committing caller SQL.
 
+    A crash during CREATE/COPY/DROP/RENAME must leave the previous schema and
+    its receipts intact. A savepoint also works inside ingest's BEGIN IMMEDIATE.
+    """
+    db.execute('SAVEPOINT media_ingest_schema')
+    try:
+        db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
+            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
+            CHECK(kind IN ('asset','reference','result')),source_sha256 TEXT NOT NULL,
+            source_size INTEGER NOT NULL,filename TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('pending','done')),
+            attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL)''')
+        # One schema migration for existing installations; rebuild preserves all receipts.
+        sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
+        if "'result'" not in sql:
+            db.execute("""CREATE TABLE media_ingest_jobs_v2 (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
+                CHECK(kind IN ('asset','reference','result')), source_sha256 TEXT NOT NULL,
+                source_size INTEGER NOT NULL, filename TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('pending','done')),
+                attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL)""")
+            db.execute("""INSERT INTO media_ingest_jobs_v2
+                SELECT id,project_id,kind,source_sha256,source_size,filename,
+                       state,attempts,last_error,created_at FROM media_ingest_jobs""")
+            db.execute('DROP TABLE media_ingest_jobs')
+            db.execute('ALTER TABLE media_ingest_jobs_v2 RENAME TO media_ingest_jobs')
+        db.execute('''CREATE INDEX IF NOT EXISTS media_ingest_jobs_pending
+            ON media_ingest_jobs(state,project_id,created_at)''')
+
+        db.execute('RELEASE SAVEPOINT media_ingest_schema')
+    except BaseException:
+        db.execute('ROLLBACK TO SAVEPOINT media_ingest_schema')
+        db.execute('RELEASE SAVEPOINT media_ingest_schema')
+        raise
 
 def _root(workspace,project_id):
     if not re.fullmatch(r'[0-9a-f]{32}',str(project_id)):
