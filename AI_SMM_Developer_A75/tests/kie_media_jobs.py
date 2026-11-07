@@ -145,12 +145,20 @@ def _validate_media_bytes(path, *, is_video):
     if path.stat().st_size > (500 if is_video else 60)*1024*1024:
         raise ValueError("downloaded Kie media exceeds maximum size")
     if not is_video:
-        from PIL import Image
+        from PIL import Image, UnidentifiedImageError
         expected="PNG" if path.suffix.lower()==".png" else "JPEG"
-        with Image.open(path) as image:
-            if image.format!=expected:
-                raise ValueError("downloaded photo MIME does not match output")
-            image.verify()
+        try:
+            with Image.open(path) as image:
+                if image.format!=expected:
+                    raise ValueError("downloaded photo MIME does not match output")
+                width,height=image.size
+                if (width<=0 or height<=0 or width>16000 or height>16000
+                        or width*height>40_000_000):
+                    raise ValueError("downloaded photo pixel budget exceeded")
+                # Verify actual decoded pixels, not only the image header.
+                image.load()
+        except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+            raise ValueError("downloaded photo cannot be fully decoded") from exc
     else:
         import subprocess
         try:
