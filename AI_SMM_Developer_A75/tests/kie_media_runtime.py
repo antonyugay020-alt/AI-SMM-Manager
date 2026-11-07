@@ -107,6 +107,16 @@ class KieMediaGateway:
         # requires at least one existing photograph per its OpenAPI contract.
         if len(sources)>(8 if pro else 10) or (not pro and not sources):
             raise ValueError("invalid number of Nano Banana reference sources")
+        # Validate the complete request before transmitting any source bytes.
+        # Preview URLs are never stored or submitted; they exercise the same
+        # public contract as the final provider-upload references.
+        preview_urls=["https://preflight.invalid/source" for _ in sources]
+        if pro:
+            nano_banana_pro(prompt,preview_urls,aspect_ratio,resolution,
+                            output_format or "png")
+        else:
+            nano_banana_edit(prompt,preview_urls,aspect_ratio,
+                             output_format or "png")
         urls=self._upload_image_refs(project_id,sources,limit=30 if pro else 10)
         if pro:
             payload=nano_banana_pro(prompt, urls,aspect_ratio,resolution,
@@ -131,6 +141,18 @@ class KieMediaGateway:
         local=metadata=None
         if source_video is not None:
             local,metadata=verified_video(self._authorized(project_id,source_video))
+        # Fail invalid prompt/model settings before any external upload.
+        preview_images=["https://preflight.invalid/photo" for _ in images]
+        preview_video="https://preflight.invalid/video" if local is not None else None
+        if reference_mode:
+            kling_omni_reference_to_video(
+                prompt,preview_images,video_url=preview_video,metadata=metadata,
+                duration=duration,resolution=resolution,aspect_ratio=aspect_ratio,
+                audio=audio,customize_multi_shots=bool(multi_prompt),
+                multi_prompt=multi_prompt)
+        else:
+            kling_omni_transformation(prompt,preview_video,metadata,
+                                      preview_images,resolution,aspect_ratio)
         urls=self._upload_image_refs(project_id,images,limit=50,kling=True)
         video_url=_url(self.upload_file(local)) if local is not None else None
         if reference_mode:
