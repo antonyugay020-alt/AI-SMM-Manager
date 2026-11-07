@@ -110,6 +110,14 @@ class KieMediaQueueQtTests(unittest.TestCase):
         show.assert_not_called()
         self.assertEqual(self.view.table.rowCount(),0)
 
+    def test_switching_projects_clears_unsubmitted_prompt(self):
+        self.view.refresh()
+        self.view.prompt.setPlainText("Confidential campaign for project A")
+        self.current="project-b"
+        self.view.refresh()
+        self.assertEqual(self.view.prompt.toPlainText(),"")
+        self.assertEqual(self.view.table.rowCount(),0)
+
     def test_preview_only_unpaid_drafts(self):
         task=prepare(self.db,"project-a",self.payload)
         submit(self.db,"project-a",task,
