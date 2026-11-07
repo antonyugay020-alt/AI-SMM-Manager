@@ -80,6 +80,31 @@ class ProjectKieMediaTests(unittest.TestCase):
                                        explicit_upload_consent=1)
         self.upload.assert_not_called()
 
+    def test_invalid_payload_fails_before_image_upload(self):
+        with self.assertRaises(ValueError):
+            self.gateway.prepare_image(self.p1,prompt="",sources=[self.one],
+                                       explicit_upload_consent=True)
+        with self.assertRaises(ValueError):
+            self.gateway.prepare_image(self.p1,prompt="Creative cover",
+                                       sources=[self.one],resolution="INVALID",
+                                       explicit_upload_consent=True)
+        self.upload.assert_not_called()
+        self.assertEqual(self.gateway.tasks(self.p1),[])
+
+    def test_invalid_video_payload_fails_before_image_upload(self):
+        with self.assertRaises(ValueError):
+            self.gateway.prepare_video(self.p1,prompt="",
+                                       source_images=[self.one],
+                                       reference_mode=True,
+                                       explicit_upload_consent=True)
+        with self.assertRaises(ValueError):
+            self.gateway.prepare_video(self.p1,prompt="Animate",
+                                       source_images=[self.one],
+                                       duration=99,
+                                       explicit_upload_consent=True)
+        self.upload.assert_not_called()
+        self.assertEqual(self.gateway.tasks(self.p1),[])
+
     def test_pro_supports_text_to_image_without_source_upload(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Create a brand poster",
                                          sources=[],pro=True,resolution="2K")
