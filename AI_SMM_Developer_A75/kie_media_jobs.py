@@ -125,7 +125,9 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False,
         # Revalidate immediately before the provider transport; a grant from
         # another task, a settled grant or a frozen ledger cannot be reused.
         cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
-        result=create_task(json.loads(row[1]))
+        result=create_task(
+            json.loads(row[1]), payment_reservation=payment_reservation,
+            operation="media:"+job_id, cost_gate=cost_gate)
         provider_id=extract_task_id(result)
     except Exception:
         db.execute("""UPDATE kie_media_tasks SET state='submission_unknown',

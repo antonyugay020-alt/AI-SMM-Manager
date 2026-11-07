@@ -50,10 +50,13 @@ class DurableCostGate:
                     id TEXT PRIMARY KEY, period TEXT NOT NULL,
                     amount INTEGER NOT NULL, actual INTEGER,
                     state TEXT NOT NULL CHECK(state IN ('reserved','settled','released')),
-                    grant_token TEXT
+                    grant_token TEXT,
+                    dispatch_claimed INTEGER NOT NULL DEFAULT 0 CHECK(dispatch_claimed IN (0,1))
                 )""")
                 if "grant_token" not in {row[1] for row in db.execute("PRAGMA table_info(cost_reservations)")}:
                     db.execute("ALTER TABLE cost_reservations ADD COLUMN grant_token TEXT")
+                if "dispatch_claimed" not in {row[1] for row in db.execute("PRAGMA table_info(cost_reservations)")}:
+                    db.execute("ALTER TABLE cost_reservations ADD COLUMN dispatch_claimed INTEGER NOT NULL DEFAULT 0 CHECK(dispatch_claimed IN (0,1))")
                 if "hold" not in {row[1] for row in db.execute("PRAGMA table_info(cost_settings)")}:
                     db.execute("ALTER TABLE cost_settings ADD COLUMN hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))")
                 # Invalidate unused legacy grants instead of silently
@@ -145,38 +148,60 @@ class DurableCostGate:
                 db.rollback()
                 raise
 
-    def assert_reservation(self, reservation, provider, operation):
-        """Reject unmetered or cross-task dispatch at the final paid I/O boundary.
-
-        A legacy reservation with no grant binding is deliberately not usable.
-        An approved grant can be expired after reserve(), but a reservation
-        cannot be carried across the monthly accounting boundary.
-        """
+    def _require_active(self, db, reservation, provider, operation):
+        """Validate the paid grant against one consistent SQLite snapshot."""
         if not isinstance(reservation, str) or not reservation:
             raise PaymentDenied("Durable paid reservation required")
+        period = self.period()
+        row = db.execute("""
+            SELECT r.amount,r.state,r.period,g.provider,g.operation,g.used,
+                   g.maximum,g.period,s.hold,s.cap,r.dispatch_claimed
+            FROM cost_reservations AS r
+            LEFT JOIN cost_grants AS g ON g.token=r.grant_token
+            CROSS JOIN cost_settings AS s
+            WHERE r.id=? AND s.id=1
+        """, (reservation,)).fetchone()
+        committed, _, _ = self._totals(db, period)
+        if (row is None or row[0] is None or row[0] <= 0
+                or row[1] != "reserved" or row[2] != period
+                or row[3] != provider or row[4] != operation
+                or row[5] != 1 or row[6] is None or row[6] < row[0]
+                or row[7] != row[2] or row[8] != 0
+                or committed > row[9] or row[10] != 0):
+            raise PaymentDenied("Paid reservation not active for this exact provider task")
+
+    def assert_reservation(self, reservation, provider, operation):
+        """Preflight only; does not consume the one-use network dispatch right."""
         with self._connect() as db:
             db.execute("BEGIN")
             try:
-                row = db.execute("""
-                    SELECT r.amount,r.state,r.period,g.provider,g.operation,g.used,
-                           g.maximum,g.period,s.hold,s.cap
-                    FROM cost_reservations AS r
-                    LEFT JOIN cost_grants AS g ON g.token=r.grant_token
-                    CROSS JOIN cost_settings AS s
-                    WHERE r.id=? AND s.id=1
-                """, (reservation,)).fetchone()
-                committed, _, _ = self._totals(db, self.period())
+                self._require_active(db, reservation, provider, operation)
                 db.commit()
             except BaseException:
                 db.rollback()
                 raise
-        if (row is None or row[0] is None or row[0] <= 0
-                or row[1] != "reserved" or row[2] != self.period()
-                or row[3] != provider or row[4] != operation
-                or row[5] != 1 or row[6] is None or row[6] < row[0]
-                or row[7] != row[2] or row[8] != 0
-                or committed > row[9]):
-            raise PaymentDenied("Paid reservation not active for this exact provider task")
+        return True
+
+    def claim_dispatch(self, reservation, provider, operation):
+        """Atomically consume the right to make exactly one paid network call.
+
+        The claim survives crashes and ambiguous timeouts. Neither a second
+        process nor a direct client call can replay a paid reservation.
+        """
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                self._require_active(db, reservation, provider, operation)
+                updated = db.execute("""
+                    UPDATE cost_reservations SET dispatch_claimed=1
+                    WHERE id=? AND state='reserved' AND dispatch_claimed=0
+                """, (reservation,)).rowcount
+                if updated != 1:
+                    raise PaymentDenied("Paid dispatch already claimed")
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
         return True
 
     def settle(self, reservation, actual_usd):

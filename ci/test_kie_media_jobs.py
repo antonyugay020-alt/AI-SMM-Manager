@@ -44,18 +44,20 @@ class KieMediaDurabilityTests(unittest.TestCase):
 
     def paid_submit(self, project, job_id, transport, *, enable_paid=False):
         """Offline provider simulator still needs the real paid ledger fence."""
+        def authorized_transport(payload, **_auth):
+            return transport(payload)
         if enable_paid is not True:
-            return submit(self.db,project,job_id,transport,enable_paid=enable_paid)
+            return submit(self.db,project,job_id,authorized_transport,enable_paid=enable_paid)
         from kie_media_jobs import _owned_row
         row=_owned_row(self.db,project,job_id)
         if row[3]!="prepared":
-            return submit(self.db,project,job_id,transport,enable_paid=True,
+            return submit(self.db,project,job_id,authorized_transport,enable_paid=True,
                           cost_gate=DurableCostGate(self.root/"paid-ledger.sqlite"))
         gate=DurableCostGate(self.root/"paid-ledger.sqlite")
         operation="media:"+job_id
         token=gate.approve("kie.ai",operation,"1")
         reservation=gate.reserve("kie.ai",operation,"1",token=token)
-        return submit(self.db,project,job_id,transport,enable_paid=True,
+        return submit(self.db,project,job_id,authorized_transport,enable_paid=True,
                       payment_reservation=reservation,cost_gate=gate)
 
     def test_direct_submit_cannot_bypass_durable_payment_gate(self):
@@ -379,11 +381,23 @@ class KieMediaDurabilityTests(unittest.TestCase):
             sent.append(req)
             return Response(json.dumps({"code":200,"data":{"taskId":TASK}}).encode())
         client=KieMediaClient(api_key="test-secret",enabled=True,opener=opener)
-        self.assertEqual(client.create_task(self.payload)["data"]["taskId"],TASK)
+        gate=DurableCostGate(self.root/"transport-ledger.sqlite")
+        operation="media:transport_test_job"
+        token=gate.approve("kie.ai",operation,"1")
+        reservation=gate.reserve("kie.ai",operation,"1",token=token)
+        self.assertEqual(client.create_task(
+            self.payload,payment_reservation=reservation,operation=operation,
+            cost_gate=gate)["data"]["taskId"],TASK)
         req=sent[0]
         self.assertEqual(req.full_url,"https://api.kie.ai/api/v1/jobs/createTask")
         self.assertEqual(req.get_header("Authorization"),"Bearer test-secret")
         self.assertNotIn("test-secret",req.data.decode())
+        # A valid reservation permits only one network dispatch, even if
+        # someone invokes the low-level transport directly a second time.
+        with self.assertRaises(PaymentDenied):
+            client.create_task(self.payload,payment_reservation=reservation,
+                               operation=operation,cost_gate=gate)
+        self.assertEqual(len(sent),1)
 
     def test_reference_model_is_accepted_by_common_queue(self):
         video=kling_omni_reference_to_video("Animate this",[

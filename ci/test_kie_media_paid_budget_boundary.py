@@ -10,6 +10,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"AI_SMM_Work_Architect
 from durable_cost_gate import DurableCostGate
 from cost_authorization import PaymentDenied
 from kie_media_runtime import KieMediaGateway
+from kie_media_client import KieMediaClient
 
 
 class PaidKieBoundaryTests(unittest.TestCase):
@@ -33,6 +34,64 @@ class PaidKieBoundaryTests(unittest.TestCase):
     def draft(self, owner="alpha"):
         return self.gateway.prepare_image(owner,prompt="Generate a local brand poster",
                                           sources=[],pro=True)
+
+    def test_low_level_transport_denies_enabled_client_without_durable_reservation(self):
+        """Enabling a client is not equivalent to user-approved paid dispatch."""
+        remote=Mock()
+        client=KieMediaClient(api_key="fake-key",enabled=True,opener=remote)
+        task=self.draft()
+        row=self.db.execute("SELECT payload_json FROM kie_media_tasks WHERE id=?",(task,)).fetchone()
+        import json
+        payload=json.loads(row[0])
+        with self.assertRaises(RuntimeError):
+            client.create_task(payload)
+        with self.assertRaises(RuntimeError):
+            client.create_task(payload,operation="media:"+task)
+        remote.assert_not_called()
+
+    def test_low_level_transport_rejects_foreign_and_settled_reservations(self):
+        remote=Mock()
+        client=KieMediaClient(api_key="fake-key",enabled=True,opener=remote)
+        task=self.draft()
+        import json
+        payload=json.loads(self.db.execute(
+            "SELECT payload_json FROM kie_media_tasks WHERE id=?",(task,)).fetchone()[0])
+        operation="media:"+task
+        token=self.ledger.approve("kie.ai",operation,"2")
+        reservation=self.ledger.reserve("kie.ai",operation,"2",token=token)
+        with self.assertRaises(PaymentDenied):
+            client.create_task(payload,payment_reservation=reservation,
+                               operation="media:foreign",cost_gate=self.ledger)
+        self.ledger.settle(reservation,"1")
+        with self.assertRaises(PaymentDenied):
+            client.create_task(payload,payment_reservation=reservation,
+                               operation=operation,cost_gate=self.ledger)
+        remote.assert_not_called()
+
+    def test_direct_transport_one_use_claim_survives_restart(self):
+        import io
+        import json
+        calls=[]
+        def opener(req, timeout):
+            calls.append(req)
+            return io.BytesIO(json.dumps({
+                "code":200,"data":{"taskId":"remote_task_123456789"}}).encode())
+        client=KieMediaClient(api_key="fake-key",enabled=True,opener=opener)
+        task=self.draft()
+        payload=json.loads(self.db.execute(
+            "SELECT payload_json FROM kie_media_tasks WHERE id=?",(task,)).fetchone()[0])
+        operation="media:"+task
+        token=self.ledger.approve("kie.ai",operation,"2")
+        reservation=self.ledger.reserve("kie.ai",operation,"2",token=token)
+        self.assertEqual(client.create_task(
+            payload,payment_reservation=reservation,operation=operation,
+            cost_gate=self.ledger)["data"]["taskId"],"remote_task_123456789")
+        reopened=DurableCostGate(self.ledger.database_path)
+        with self.assertRaises(PaymentDenied):
+            client.create_task(payload,payment_reservation=reservation,
+                               operation=operation,cost_gate=reopened)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(reopened.usage()["pending_usd"],2)
 
     def test_no_explicit_approval_never_calls_paid_provider(self):
         task=self.draft()
