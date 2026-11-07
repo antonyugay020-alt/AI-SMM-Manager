@@ -46,10 +46,10 @@ class KieMediaDurabilityTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             submit(self.db,self.a,ident,create)
         create.assert_not_called()
-        self.assertEqual(submit(self.db,self.a,ident,create,enable_paid=True),TASK)
+        self.assertEqual(submit(self.db,self.a,ident,create,enable_paid=True,quoted_cost_cents=100),TASK)
         create.assert_called_once_with(self.payload)
         with self.assertRaises(RuntimeError):
-            submit(self.db,self.a,ident,create,enable_paid=True)
+            submit(self.db,self.a,ident,create,enable_paid=True,quoted_cost_cents=100)
         create.assert_called_once()
         self.assertEqual(recover_pending(self.db,self.a),[(ident,TASK)])
         self.assertEqual(recover_pending(self.db,self.b),[])
@@ -60,7 +60,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
         for invalid in (1, "true", [True]):
             with self.subTest(value=invalid):
                 with self.assertRaises(RuntimeError):
-                    submit(self.db,self.a,ident,create,enable_paid=invalid)
+                    submit(self.db,self.a,ident,create,enable_paid=invalid,quoted_cost_cents=100)
         create.assert_not_called()
         self.assertEqual(list_project_tasks(self.db,self.a)[0]["state"],"prepared")
 
@@ -78,7 +78,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
     def test_paid_task_cannot_be_discarded_after_successful_dispatch(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,
-               lambda _:{"code":200,"data":{"taskId":TASK}},enable_paid=True)
+               lambda _:{"code":200,"data":{"taskId":TASK}},enable_paid=True,quoted_cost_cents=100)
         with self.assertRaises(RuntimeError):
             abandon_prepared(self.db,self.a,ident)
         self.assertEqual(list_project_tasks(self.db,self.a)[0]["state"],"submitted")
@@ -88,7 +88,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             submit(self.db,self.a,ident,
                    lambda _:(_ for _ in ()).throw(TimeoutError("uncertain")),
-                   enable_paid=True)
+                   enable_paid=True,quoted_cost_cents=100)
         with self.assertRaises(RuntimeError):
             abandon_prepared(self.db,self.a,ident)
         self.assertEqual(recover_pending(self.db,self.a),[])
@@ -103,26 +103,26 @@ class KieMediaDurabilityTests(unittest.TestCase):
         ident=prepare(self.db,self.a,self.payload)
         create=Mock(side_effect=TimeoutError("remote may have accepted task"))
         with self.assertRaises(TimeoutError):
-            submit(self.db,self.a,ident,create,enable_paid=True)
+            submit(self.db,self.a,ident,create,enable_paid=True,quoted_cost_cents=100)
         self.assertEqual(self.db.execute(
             "SELECT state FROM kie_media_tasks WHERE id=?",(ident,)).fetchone()[0],
             "submission_unknown")
         self.assertEqual(recover_pending(self.db,self.a),[])
         with self.assertRaises(RuntimeError):
-            submit(self.db,self.a,ident,create,enable_paid=True)
+            submit(self.db,self.a,ident,create,enable_paid=True,quoted_cost_cents=100)
         create.assert_called_once()
 
     def test_project_ownership_is_immutable_after_selection_changes(self):
         ident=prepare(self.db,self.a,self.payload)
         with self.assertRaises(ValueError):
-            submit(self.db,self.b,ident,Mock(),enable_paid=True)
+            submit(self.db,self.b,ident,Mock(),enable_paid=True,quoted_cost_cents=100)
         self.assertEqual(self.db.execute(
             "SELECT project_id FROM kie_media_tasks WHERE id=?",(ident,)).fetchone()[0],self.a)
 
     def test_result_requires_matching_task_and_model(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         bad=[
             {"code":200,"data":{"taskId":"different_task_12345","model":"nano-banana-pro","state":"success"}},
             {"code":200,"data":{"taskId":TASK,"model":"other-model","state":"success"}},
@@ -139,7 +139,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
     def test_completed_real_png_is_published_to_original_project(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
                                   "state":"success",
                                   "resultJson":json.dumps({"resultUrls":[URL]})}}
@@ -161,7 +161,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,
                lambda _ : {"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
                                    "state":"success",
                                    "resultJson":json.dumps({"resultUrls":[URL]})}}
@@ -194,7 +194,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,
                lambda _: {"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
             "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
         def save_image(_,path):
@@ -223,7 +223,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,
                lambda _: {"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
             "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
         def truncated(_,target):
@@ -243,7 +243,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
     def test_completed_valid_image_tampering_fails_sha256_receipt(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
                                   "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
         def image(_,dest):
@@ -279,7 +279,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
     def test_recovered_download_must_pass_media_integrity_again(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
             "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
         def save_image(_,path):
@@ -319,7 +319,7 @@ class KieMediaDurabilityTests(unittest.TestCase):
     def test_missing_completion_does_not_publish(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
                                   "state":"processing"}}
         self.assertIsNone(complete(self.db,self.a,ident,lambda _:status,
