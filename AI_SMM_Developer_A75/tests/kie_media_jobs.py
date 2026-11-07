@@ -321,6 +321,34 @@ def list_project_tasks(db, project_id, *, limit=100):
             for row in rows]
 
 
+
+def preview_prepared_task(db, project_id, job_id):
+    """Return a safe user-facing review of an unpaid draft, never upload URLs.
+
+    The original canonical provider payload stays private in SQLite. This
+    method exposes only validated human-readable options, without carrying
+    reference URLs or API credentials into Qt status/confirmation dialogs.
+    """
+    if db.in_transaction:
+        raise RuntimeError("cannot preview media task in a foreign transaction")
+    row=_owned_row(db,project_id,job_id)
+    if row[3]!="prepared":
+        raise RuntimeError("only an unpaid media draft may be previewed")
+    payload=json.loads(row[1])
+    options=payload.get("input")
+    if not isinstance(options,dict) or payload.get("model")!=row[0]:
+        raise ValueError("invalid persisted media draft")
+    prompt=options.get("prompt")
+    if not isinstance(prompt,str) or not prompt.strip():
+        raise ValueError("invalid persisted media prompt")
+    allowed=("aspect_ratio","resolution","output_format","duration")
+    return {"model":row[0],"prompt":prompt,
+            "options":{key:options[key] for key in allowed
+                       if key in options and type(options[key]) in (str,int)},
+            "reference_count":sum(len(options.get(field,[]))
+                                  for field in ("image_input","image_urls","video_urls")
+                                  if isinstance(options.get(field,[]),list))}
+
 def abandon_prepared(db, project_id, job_id):
     """Discard an unpaid draft only; submitted/unknown tasks cannot be erased."""
     if db.in_transaction:
