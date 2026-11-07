@@ -67,6 +67,59 @@ class DurableMediaTests(unittest.TestCase):
         self.assertEqual(receipt.final_path.read_bytes(),b'foreign-data')
         self.assertEqual(self.db.execute('SELECT state FROM media_ingest_jobs').fetchone()[0],'pending')
 
+    def test_published_assets_never_share_inode_with_recovery_spool(self):
+        original=self.src.read_bytes()
+        receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+        self.assertTrue(receipt.published)
+        spool=self.workspace(self.p1)/'.ingest_spool'/(_digest(self.src)[0])
+        self.assertTrue(spool.is_file())
+        self.assertFalse(os.path.samefile(spool,receipt.final_path))
+        receipt.final_path.write_bytes(b'changed-by-user')
+        self.assertEqual(spool.read_bytes(),original)
+        self.assertEqual(_digest(spool),(_digest(self.src)[0],len(original)))
+
+    def test_reference_and_result_publication_keep_independent_recovery_bytes(self):
+        original=self.src.read_bytes()
+        for kind in ('reference','result'):
+            with self.subTest(kind=kind):
+                receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind=kind)
+                self.assertTrue(receipt.published)
+                spool=self.workspace(self.p1)/'.ingest_spool'/(_digest(self.src)[0])
+                self.assertFalse(os.path.samefile(spool,receipt.final_path))
+                receipt.final_path.write_bytes(b'user-edited-'+kind.encode())
+                self.assertEqual(spool.read_bytes(),original)
+
+    def test_failed_independent_copy_leaves_pending_intent_and_no_temp_files(self):
+        import media_ingest_core
+        real_link=media_ingest_core.os.link
+        def fail_publish(src,dst,*args,**kwargs):
+            if Path(src).name.startswith('.publish-'):
+                raise OSError('synthetic publication failure')
+            return real_link(src,dst,*args,**kwargs)
+        with patch.object(media_ingest_core.os,'link',side_effect=fail_publish):
+            receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+        self.assertFalse(receipt.published)
+        self.assertFalse(receipt.final_path.exists())
+        self.assertEqual(list(receipt.final_path.parent.glob('.publish-*')),[])
+        self.assertEqual(self.db.execute('SELECT state FROM media_ingest_jobs').fetchone()[0],'pending')
+        self.assertEqual(replay(self.db,self.workspace)['completed'],1)
+        self.assertTrue(receipt.final_path.is_file())
+
+    def test_concurrent_conflicting_publication_does_not_replace_existing_bytes(self):
+        import media_ingest_core
+        real_link=media_ingest_core.os.link
+        def competing_writer(src,dst,*args,**kwargs):
+            if Path(src).name.startswith('.publish-'):
+                Path(dst).write_bytes(b'other-writer')
+                raise FileExistsError('concurrent publication')
+            return real_link(src,dst,*args,**kwargs)
+        with patch.object(media_ingest_core.os,'link',side_effect=competing_writer):
+            receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+        self.assertFalse(receipt.published)
+        self.assertEqual(receipt.final_path.read_bytes(),b'other-writer')
+        self.assertEqual(list(receipt.final_path.parent.glob('.publish-*')),[])
+        self.assertEqual(self.db.execute('SELECT state FROM media_ingest_jobs').fetchone()[0],'pending')
+
     def test_missing_or_corrupt_spool_is_not_accepted(self):
         import media_ingest_core
         with patch.object(media_ingest_core,'replay',return_value={'completed':0,'failed':0,'pending':1}):

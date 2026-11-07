@@ -81,6 +81,38 @@ def _spool(root,sha):
     return folder,require_managed_file(root,folder/sha,('.ingest_spool',))
 
 
+def _publish_independent_copy(root, source, target, sha, size, kind):
+    """Publish fsynced, verified bytes without linking the immutable spool.
+
+    A temporary file in the destination directory is an independent copy.
+    Linking that temporary inode into the final name is atomic and refuses
+    to overwrite a concurrent publication. The temporary name is removed
+    even if verification or publication fails.
+    """
+    folder=require_managed_folder(root,_KINDS[kind])
+    temporary=require_managed_file(
+        root,folder/('.publish-'+uuid4().hex+'.tmp'),(_KINDS[kind],))
+    try:
+        with source.open('rb') as reader, temporary.open('xb') as writer:
+            for block in iter(lambda:reader.read(1024*1024),b''):
+                writer.write(block)
+            writer.flush()
+            os.fsync(writer.fileno())
+        if _digest(temporary)!=(sha,size):
+            raise ValueError('Independent media publication copy failed verification')
+        try:
+            os.link(temporary,target)
+        except FileExistsError:
+            # Another worker may have published the same receipt. Do not
+            # replace it, and never follow a link planted during the race.
+            require_managed_file(root,target,(_KINDS[kind],))
+            if not target.is_file() or _digest(target)!=(sha,size):
+                raise ValueError('Existing destination content conflicts with registered media')
+        _sync_folder(folder)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def stage_source(root,source):
     """Fsync immutable source bytes before accepting any project reference."""
     src=Path(source)
@@ -215,8 +247,7 @@ def replay(db,workspace,*,project_id=None,limit=100):
                 if not target.is_file() or _digest(target)!=(sha,size):
                     raise ValueError('Existing destination content conflicts with registered media')
             else:
-                os.link(source,target)
-                _sync_folder(folder)
+                _publish_independent_copy(root,source,target,sha,size,kind)
             if _digest(target)!=(sha,size):raise ValueError('Media readback failed')
             db.execute("UPDATE media_ingest_jobs SET state='done',last_error='' WHERE id=? AND project_id=? AND state='pending'",
                        (ident,pid));db.commit();completed+=1
