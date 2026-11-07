@@ -208,5 +208,43 @@ class KieMediaQueueQtTests(unittest.TestCase):
         self.assertEqual(self.ledger.usage()["available_usd"],0)
 
 
+    def test_refresh_fences_interrupted_paid_send_without_retry(self):
+        task = prepare(self.db, "project-a", self.payload)
+        self.db.execute("UPDATE kie_media_tasks SET state='submitting' WHERE id=?", (task,))
+        self.db.commit()
+        self.view.refresh()
+        self.assertEqual(self.view.table.item(0, 2).text(), "submission_unknown")
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM kie_media_tasks WHERE id=?", (task,)).fetchone()[0],
+            "submission_unknown")
+
+    def test_unreadable_budget_disables_editing_without_losing_local_drafts(self):
+        with patch.object(self.ledger, "usage", side_effect=OSError("ledger unavailable")):
+            self.view.refresh_budget()
+            self.assertFalse(self.view.monthly_limit.isEnabled())
+            self.assertFalse(self.view.save_budget_button.isEnabled())
+            self.assertIn("Бюджет недоступен", self.view.budget_status.text())
+            self.view.prompt.setPlainText("An offline campaign cover")
+            self.view.create_draft()
+            self.assertEqual(self.view.table.rowCount(), 1)
+
+    def test_composition_ledger_is_the_one_edited_by_qt(self):
+        from application_paid_media import PaidMediaComposition
+        root = Path(self.temp.name)
+        composition = PaidMediaComposition(
+            self.db, lambda pid: root / pid, root / "production-paid-ledger.sqlite3")
+        view = KieMediaQueuePanel(
+            self.db, lambda: self.current, cost_gate=composition.cost_gate)
+        try:
+            composition.cost_gate.set_monthly_cap("18.75")
+            view.refresh_budget()
+            self.assertEqual(view.monthly_limit.value(), 18.75)
+            view.monthly_limit.setValue(16.25)
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+                view.save_budget()
+            self.assertEqual(composition.cost_gate.usage()["cap_usd"], 16.25)
+        finally:
+            view.close()
+
 if __name__ == "__main__":
     unittest.main()

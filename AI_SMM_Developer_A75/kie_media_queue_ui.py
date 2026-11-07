@@ -18,7 +18,8 @@ from kie_media_jobs import prepare
 from durable_cost_gate import DurableCostGate
 from smm_media_router import (TASKS, MediaRequest, select_executor,
                               default_executors)
-from kie_media_jobs import list_project_tasks, abandon_prepared, preview_prepared_task
+from kie_media_jobs import (list_project_tasks, abandon_prepared,
+                            preview_prepared_task, recover_pending)
 
 _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID задания", "Результат / ошибка")
 
@@ -170,8 +171,9 @@ class KieMediaQueuePanel(QWidget):
         # Only the same durable gate used for network dispatch is authoritative.
         # Without an injected shared ledger the budget editor is disabled.
         active=self._cost_gate is not None
-        self.monthly_limit.setEnabled(active)
-        self.save_budget_button.setEnabled(active)
+        # An unreadable or corrupt ledger must never look editable.
+        self.monthly_limit.setEnabled(False)
+        self.save_budget_button.setEnabled(False)
         if not active:
             self.budget_status.setText(
                 "Платный журнал не подключён; лимит здесь не редактируется.")
@@ -187,6 +189,8 @@ class KieMediaQueuePanel(QWidget):
             self.budget_status.setText("Бюджет недоступен: "+str(exc))
             return
         self.monthly_limit.setValue(float(state["cap_usd"]))
+        self.monthly_limit.setEnabled(True)
+        self.save_budget_button.setEnabled(True)
         if unresolved:
             self.budget_status.setText(
                 "Обнаружены старые резервы Kie: платные запросы заблокированы "
@@ -210,6 +214,9 @@ class KieMediaQueuePanel(QWidget):
             self.note.setText("Сначала выберите проект.")
             return
         try:
+            # Reconcile interrupted local dispatch before rendering the queue.
+            # No provider request or automatic paid retry is ever made here.
+            recover_pending(self._db, owner)
             jobs = list_project_tasks(self._db, owner, limit=200)
         except (ValueError, RuntimeError, OSError) as exc:
             self.note.setText("Очередь недоступна: " + str(exc))

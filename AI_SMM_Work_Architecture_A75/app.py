@@ -1319,6 +1319,17 @@ class Studio(QMainWindow):
         from project_workspace_runtime import ProjectWorkspaceResolver
         self.core = ApplicationRuntime(self.db, ProjectWorkspaceResolver(self.db))
         self.core.configure_project_control(ROOT / 'backups')
+        # One stable global ledger shared by the GUI and future verified Kie
+        # adapters. A damaged/unavailable paid ledger must not block offline
+        # project work or silently authorize any paid transport.
+        from application_paid_media import PaidMediaComposition
+        self.paid_media = None
+        self._paid_media_boot_error = None
+        try:
+            self.paid_media = PaidMediaComposition(
+                self.core.db, self.core.workspace, ROOT / 'paid_cost_ledger.sqlite3')
+        except (sqlite3.Error, OSError) as exc:
+            self._paid_media_boot_error = type(exc).__name__
         # One atomic startup fence for text/model and batch worker attempts.
         # No Qt-local interpretation of which incomplete projects to discard.
         self.core.recover_inflight()
@@ -2053,7 +2064,9 @@ class Studio(QMainWindow):
         # Offline Kie task ledger: no provider traffic or paid dispatch from Qt.
         from kie_media_queue_ui import KieMediaQueuePanel
         self.kie_queue_panel = KieMediaQueuePanel(
-            self.core.db, lambda: self.current_project, self)
+            self.core.db, lambda: self.current_project, self,
+            cost_gate=(self.paid_media.cost_gate
+                       if self.paid_media is not None else None))
         self.pub_tabs.addTab(self.kie_queue_panel, 'Kie.ai · задания')
         self.pub_tabs.currentChanged.connect(
             lambda index: self.kie_queue_panel.refresh()
