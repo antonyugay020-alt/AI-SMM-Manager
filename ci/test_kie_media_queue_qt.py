@@ -129,6 +129,25 @@ class KieMediaQueueQtTests(unittest.TestCase):
             self.view.preview_selected()
         warning.assert_called_once()
 
+    def test_monthly_limit_can_change_in_qt_without_paid_requests(self):
+        from kie_media_budget import snapshot
+        self.view.refresh()
+        self.assertEqual(self.view.monthly_limit.value(),20.00)
+        self.view.monthly_limit.setValue(35.50)
+        with patch.object(QMessageBox,"question",return_value=QMessageBox.Yes):
+            self.view.save_budget()
+        self.assertEqual(snapshot(self.db)["limit_cents"],3550)
+        self.assertIn("35.50",self.view.budget_status.text())
+
+    def test_declined_budget_change_keeps_previous_limit(self):
+        from kie_media_budget import snapshot
+        self.view.refresh()
+        self.view.monthly_limit.setValue(1000.00)
+        with patch.object(QMessageBox,"question",return_value=QMessageBox.No):
+            self.view.save_budget()
+        self.assertEqual(snapshot(self.db)["limit_cents"],2000)
+        self.assertEqual(self.view.monthly_limit.value(),20.00)
+
     def test_stale_selection_cannot_delete_foreign_project(self):
         a = prepare(self.db, "project-a", self.payload)
         b = prepare(self.db, "project-b", self.payload)
