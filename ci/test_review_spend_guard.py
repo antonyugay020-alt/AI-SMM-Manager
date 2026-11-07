@@ -74,6 +74,17 @@ class ReviewerSpendGuardTests(unittest.TestCase):
         self.assertIn("vars.AI_SMM_PAID_REVIEW_ENABLED == 'true'", workflow)
         self.assertIn("environment: ai-smm-paid-review", workflow)
         self.assertIn("inputs.expected_head_sha", workflow)
+        # A manual authorization is one dispatch only, from trusted main.
+        # GitHub's rerun button must not repeat a potentially paid call.
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("github.run_attempt == 1", workflow)
+        # A review can take minutes: a PR may move after diff export.
+        # A green reviewer job must re-check the pinned identity at the end.
+        self.assertIn("Confirm reviewed PR is still the authorized head", workflow)
+        self.assertIn("PR changed during independent review", workflow)
+        self.assertIn("PR closed during independent review", workflow)
+        self.assertIn("PR base changed during independent review", workflow)
+        self.assertIn("PR head repository changed", workflow)
         self.assertIn('"$actual" == "$EXPECTED_HEAD_SHA"', workflow)
         self.assertIn("review_cost_preflight.py", workflow)
         self.assertNotIn("github.event.pull_request.number", workflow)
