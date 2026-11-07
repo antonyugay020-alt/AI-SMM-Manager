@@ -54,6 +54,16 @@ class KieMediaDurabilityTests(unittest.TestCase):
         self.assertEqual(recover_pending(self.db,self.a),[(ident,TASK)])
         self.assertEqual(recover_pending(self.db,self.b),[])
 
+    def test_non_boolean_paid_consent_is_rejected_without_transport(self):
+        ident=prepare(self.db,self.a,self.payload)
+        create=Mock()
+        for invalid in (1, "true", [True]):
+            with self.subTest(value=invalid):
+                with self.assertRaises(RuntimeError):
+                    submit(self.db,self.a,ident,create,enable_paid=invalid)
+        create.assert_not_called()
+        self.assertEqual(list_project_tasks(self.db,self.a)[0]["state"],"prepared")
+
     def test_task_listing_is_owner_scoped_and_unpaid_draft_discard_only(self):
         own=prepare(self.db,self.a,self.payload)
         other=prepare(self.db,self.b,self.payload)
