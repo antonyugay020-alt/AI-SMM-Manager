@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "AI_SMM_Work_Archit
 from PySide6.QtWidgets import QApplication, QMessageBox
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare, submit
+from durable_cost_gate import DurableCostGate
 from kie_media_queue_ui import KieMediaQueuePanel
 
 
@@ -70,9 +71,13 @@ class KieMediaQueueQtTests(unittest.TestCase):
 
     def test_submitted_task_cannot_be_discarded(self):
         a = prepare(self.db, "project-a", self.payload)
+        ledger = DurableCostGate(Path(self.temp.name) / "ledger.sqlite")
+        operation = "media:" + a
+        token = ledger.approve("kie.ai", operation, "1")
+        reservation = ledger.reserve("kie.ai", operation, "1", token=token)
         submit(self.db, "project-a", a,
                lambda _: {"code": 200, "data": {"taskId": "task_kie_1234567890"}},
-               enable_paid=True)
+               enable_paid=True, payment_reservation=reservation, cost_gate=ledger)
         self.view.refresh()
         self.view.table.selectRow(0)
         with patch.object(QMessageBox, "warning") as warning:
