@@ -184,6 +184,9 @@ class KieMediaGateway:
         if self.cost_gate is None or self.verified_price_quote is None or not approval_token:
             raise RuntimeError("verified price, durable budget gate and one-use approval required")
         from kie_media_jobs import _owned_row
+        # Reject foreign project transactions before reserving a paid charge.
+        if self.db.in_transaction:
+            raise RuntimeError("foreign SQLite transaction in progress")
         row=_owned_row(self.db,project_id,job_id)
         if row[3]!="prepared":
             raise RuntimeError("Kie media task is not an unpaid draft")
@@ -193,7 +196,8 @@ class KieMediaGateway:
         # If the process dies now, the ledger retains the reservation.
         # Never auto-release on error: the provider may have charged.
         return submit(self.db,project_id,job_id,self.create_task,
-                      enable_paid=True,payment_reservation=reservation)
+                      enable_paid=True,payment_reservation=reservation,
+                      cost_gate=self.cost_gate)
 
     def refresh(self, project_id, job_id):
         return complete(self.db,project_id,job_id,self.query_task,
