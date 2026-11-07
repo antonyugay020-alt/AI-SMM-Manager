@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import stat
 from project_file_boundary import require_managed_folder,require_managed_file
 
 _NAME=re.compile(r'[0-9a-f]{32}\.[a-z0-9]{1,12}\Z')
@@ -40,31 +41,43 @@ def _digest(path):
 
 
 def install(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
-        CHECK(kind IN ('asset','reference','result','video')),source_sha256 TEXT NOT NULL,
-        source_size INTEGER NOT NULL,filename TEXT NOT NULL,
-        state TEXT NOT NULL CHECK(state IN ('pending','done')),
-        attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL)''')
-    # One schema migration for existing installations; rebuild preserves all receipts.
-    sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
-    if "'result'" not in sql or "'video'" not in sql:
-        db.execute("""CREATE TABLE media_ingest_jobs_v2 (
-            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
-            CHECK(kind IN ('asset','reference','result','video')), source_sha256 TEXT NOT NULL,
-            source_size INTEGER NOT NULL, filename TEXT NOT NULL,
-            state TEXT NOT NULL CHECK(state IN ('pending','done')),
-            attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL)""")
-        db.execute("""INSERT INTO media_ingest_jobs_v2
-            SELECT id,project_id,kind,source_sha256,source_size,filename,
-                   state,attempts,last_error,created_at FROM media_ingest_jobs""")
-        db.execute('DROP TABLE media_ingest_jobs')
-        db.execute('ALTER TABLE media_ingest_jobs_v2 RENAME TO media_ingest_jobs')
-    db.execute('''CREATE INDEX IF NOT EXISTS media_ingest_jobs_pending
-        ON media_ingest_jobs(state,project_id,created_at)''')
+    """Atomically install or upgrade media receipts without committing caller SQL.
 
+    A crash during CREATE/COPY/DROP/RENAME must leave the previous schema and
+    its receipts intact. A savepoint also works inside ingest's BEGIN IMMEDIATE.
+    """
+    db.execute('SAVEPOINT media_ingest_schema')
+    try:
+        db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
+            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
+            CHECK(kind IN ('asset','reference','result','video')),source_sha256 TEXT NOT NULL,
+            source_size INTEGER NOT NULL,filename TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('pending','done')),
+            attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL)''')
+        # One schema migration for existing installations; rebuild preserves all receipts.
+        sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
+        if "'result'" not in sql or "'video'" not in sql:
+            db.execute("""CREATE TABLE media_ingest_jobs_v2 (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
+                CHECK(kind IN ('asset','reference','result','video')), source_sha256 TEXT NOT NULL,
+                source_size INTEGER NOT NULL, filename TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('pending','done')),
+                attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL)""")
+            db.execute("""INSERT INTO media_ingest_jobs_v2
+                SELECT id,project_id,kind,source_sha256,source_size,filename,
+                       state,attempts,last_error,created_at FROM media_ingest_jobs""")
+            db.execute('DROP TABLE media_ingest_jobs')
+            db.execute('ALTER TABLE media_ingest_jobs_v2 RENAME TO media_ingest_jobs')
+        db.execute('''CREATE INDEX IF NOT EXISTS media_ingest_jobs_pending
+            ON media_ingest_jobs(state,project_id,created_at)''')
+
+        db.execute('RELEASE SAVEPOINT media_ingest_schema')
+    except BaseException:
+        db.execute('ROLLBACK TO SAVEPOINT media_ingest_schema')
+        db.execute('RELEASE SAVEPOINT media_ingest_schema')
+        raise
 
 def _root(workspace,project_id):
     if not re.fullmatch(r'[0-9a-f]{32}',str(project_id)):
@@ -81,18 +94,65 @@ def _spool(root,sha):
     return folder,require_managed_file(root,folder/sha,('.ingest_spool',))
 
 
+def _publish_independent_copy(root, source, target, sha, size, kind):
+    """Publish fsynced, verified bytes without linking the immutable spool.
+
+    A temporary file in the destination directory is an independent copy.
+    Linking that temporary inode into the final name is atomic and refuses
+    to overwrite a concurrent publication. The temporary name is removed
+    even if verification or publication fails.
+    """
+    folder=require_managed_folder(root,_KINDS[kind])
+    temporary=require_managed_file(
+        root,folder/('.publish-'+uuid4().hex+'.tmp'),(_KINDS[kind],))
+    try:
+        with source.open('rb') as reader, temporary.open('xb') as writer:
+            for block in iter(lambda:reader.read(1024*1024),b''):
+                writer.write(block)
+            writer.flush()
+            os.fsync(writer.fileno())
+        if _digest(temporary)!=(sha,size):
+            raise ValueError('Independent media publication copy failed verification')
+        try:
+            os.link(temporary,target)
+        except FileExistsError:
+            # Another worker may have published the same receipt. Do not
+            # replace it, and never follow a link planted during the race.
+            require_managed_file(root,target,(_KINDS[kind],))
+            if not target.is_file() or _digest(target)!=(sha,size):
+                raise ValueError('Existing destination content conflicts with registered media')
+        _sync_folder(folder)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _source_identity(path):
+    """Regular-file identity, checked on the pathname and opened descriptor."""
+    info=os.stat(path,follow_symlinks=False)
+    if not stat.S_ISREG(info.st_mode):raise ValueError('Source is not a regular file')
+    return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+
+
 def stage_source(root,source):
-    """Fsync immutable source bytes before accepting any project reference."""
+    """Stage a stable source snapshot; reject replacement or mutation while copying."""
     src=Path(source)
-    if not src.is_file() or src.is_symlink():raise ValueError('Source is not a regular file')
+    before=_source_identity(src)
     folder=require_managed_folder(root,'.ingest_spool')
     folder.mkdir(parents=True,exist_ok=True)
     tmp=require_managed_file(root,folder/('.import-'+uuid4().hex+'.tmp'),('.ingest_spool',))
     sha=hashlib.sha256();length=0
     try:
-        with src.open('rb') as reader,tmp.open('xb') as writer:
+        fd=os.open(src,os.O_RDONLY|getattr(os,'O_BINARY',0)|getattr(os,'O_NOFOLLOW',0))
+        with os.fdopen(fd,'rb') as reader,tmp.open('xb') as writer:
+            opened=os.fstat(reader.fileno())
+            if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns)!=before:
+                raise ValueError('Source changed before media staging')
             for block in iter(lambda:reader.read(1024*1024),b''):
                 sha.update(block);length+=len(block);writer.write(block)
+            closed=os.fstat(reader.fileno())
+            if ((closed.st_dev,closed.st_ino,closed.st_size,closed.st_mtime_ns,closed.st_ctime_ns)!=before
+                    or _source_identity(src)!=before or length!=before[2]):
+                raise ValueError('Source changed during media staging')
             writer.flush();os.fsync(writer.fileno())
         _,target=_spool(root,sha.hexdigest())
         try:os.link(tmp,target)
@@ -122,7 +182,7 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
         raise ValueError('Project does not exist in SQLite')
     base=_root(workspace,project_id)
     managed_folder=require_managed_folder(base,_KINDS[kind])
-    if kind=='result':managed_folder.mkdir(parents=True,exist_ok=True)
+    if kind in ('result','video'):managed_folder.mkdir(parents=True,exist_ok=True)
     src=Path(source)
     ext=src.suffix.lower()
     if not re.fullmatch(r'\.[a-z0-9]{1,12}',ext):raise ValueError('Unsupported filename extension')
@@ -131,7 +191,7 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     if not re.fullmatch(r'[a-f0-9]{32}',item_id):raise ValueError('Invalid imported item identity')
     folder=require_managed_folder(base,_KINDS[kind])
     dest=require_managed_file(base,folder/(item_id+ext),(_KINDS[kind],))
-    if kind=='result' and (dest.exists() or dest.is_symlink()):
+    if kind in ('result','video') and (dest.exists() or dest.is_symlink()):
         raise FileExistsError('An imported result cannot overwrite an existing file')
     label=original_name if original_name is not None else src.name
     if not isinstance(label,str) or not label or '\x00' in label:raise ValueError('Invalid source display name')
@@ -215,8 +275,7 @@ def replay(db,workspace,*,project_id=None,limit=100):
                 if not target.is_file() or _digest(target)!=(sha,size):
                     raise ValueError('Existing destination content conflicts with registered media')
             else:
-                os.link(source,target)
-                _sync_folder(folder)
+                _publish_independent_copy(root,source,target,sha,size,kind)
             if _digest(target)!=(sha,size):raise ValueError('Media readback failed')
             db.execute("UPDATE media_ingest_jobs SET state='done',last_error='' WHERE id=? AND project_id=? AND state='pending'",
                        (ident,pid));db.commit();completed+=1
