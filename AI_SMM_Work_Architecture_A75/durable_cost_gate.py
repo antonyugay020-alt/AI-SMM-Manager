@@ -155,19 +155,27 @@ class DurableCostGate:
         if not isinstance(reservation, str) or not reservation:
             raise PaymentDenied("Durable paid reservation required")
         with self._connect() as db:
-            row = db.execute("""
-                SELECT r.amount,r.state,r.period,g.provider,g.operation,g.used,
-                       g.maximum,g.period,s.hold
-                FROM cost_reservations AS r
-                LEFT JOIN cost_grants AS g ON g.token=r.grant_token
-                CROSS JOIN cost_settings AS s
-                WHERE r.id=? AND s.id=1
-            """, (reservation,)).fetchone()
+            db.execute("BEGIN")
+            try:
+                row = db.execute("""
+                    SELECT r.amount,r.state,r.period,g.provider,g.operation,g.used,
+                           g.maximum,g.period,s.hold,s.cap
+                    FROM cost_reservations AS r
+                    LEFT JOIN cost_grants AS g ON g.token=r.grant_token
+                    CROSS JOIN cost_settings AS s
+                    WHERE r.id=? AND s.id=1
+                """, (reservation,)).fetchone()
+                committed, _, _ = self._totals(db, self.period())
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
         if (row is None or row[0] is None or row[0] <= 0
                 or row[1] != "reserved" or row[2] != self.period()
                 or row[3] != provider or row[4] != operation
                 or row[5] != 1 or row[6] is None or row[6] < row[0]
-                or row[7] != row[2] or row[8] != 0):
+                or row[7] != row[2] or row[8] != 0
+                or committed > row[9]):
             raise PaymentDenied("Paid reservation not active for this exact provider task")
         return True
 
