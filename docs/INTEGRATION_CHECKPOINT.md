@@ -1,6 +1,7 @@
 # Controlled integration checkpoint — paid Kie media boundary
 
 Baseline HEAD: `5f7922ddd01fb9d443c29ec833b1609b8d302ac7`, branch `codex/pr4-media-atomic-recovery-20261107`.
+Integrated source commit: `0d28fe66326730b5b36c01dda8a8205c35efdc10`.
 Resulting checkpoint: HEAD of this branch containing this file, with GitHub
 tree evidence. The source commit is **not** an acceptance certificate.
 
@@ -38,3 +39,11 @@ tree evidence. The source commit is **not** an acceptance certificate.
 - Only after explicit CI/API budget authorization: exact-SHA Linux/Windows
   regression shards, aggregate, independent review and 10 Windows Qt E2E.
 - No PR merge, release, or acceptance until all gates are met.
+
+## Post-integration source review
+- The disconnected Qt budget editor is disabled immediately at widget
+  construction, not only after the first refresh.
+- Legacy SQLite reopen test explicitly closes the reopened connection on
+  Windows before temporary-directory removal.
+- GitHub blob identity checks are source-structure verification only; no
+  Windows/Linux Python regression or live GUI acceptance was run.

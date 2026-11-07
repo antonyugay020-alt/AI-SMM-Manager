@@ -190,7 +190,7 @@ class KieMediaQueueQtTests(unittest.TestCase):
     def test_no_paid_gate_disables_misleading_budget_editor(self):
         disconnected=KieMediaQueuePanel(self.db,lambda:self.current)
         try:
-            disconnected.refresh_budget()
+            # Disabled immediately on construction, before first refresh.
             self.assertFalse(disconnected.monthly_limit.isEnabled())
             self.assertFalse(disconnected.save_budget_button.isEnabled())
             self.assertIn("не подключён",disconnected.budget_status.text())

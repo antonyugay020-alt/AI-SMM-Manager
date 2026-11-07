@@ -115,6 +115,9 @@ class KieMediaQueuePanel(QWidget):
         self.note = QLabel("")
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
+        # The editor must never briefly advertise a second, disconnected
+        # paid budget before the user clicks Refresh.
+        self.refresh_budget()
 
     def _owner(self):
         owner = self._current_project()

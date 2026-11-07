@@ -44,6 +44,8 @@ class LegacyKieBudgetTests(unittest.TestCase):
         self.reserve("one","job1",150)
         self.db.close()
         self.db=sqlite3.connect(Path(self.temp.name)/"budget.sqlite")
+        # Windows cannot delete an open SQLite file during TemporaryDirectory cleanup.
+        self.addCleanup(self.db.close)
         set_monthly_limit(self.db,100)
         state=snapshot(self.db)
         self.assertEqual(state["allocated_cents"],150)
