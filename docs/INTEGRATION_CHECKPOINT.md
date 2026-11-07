@@ -67,3 +67,12 @@ resuming. This checkpoint is development evidence, **not** acceptance.
 - After authorized CI capacity is available: full Linux/Windows regression
   shards + aggregate, independent review, and 10 genuine clean-unpack
   Windows Qt E2E PASS before any release. No merge into main.
+
+## Superseding integrated checkout verification — 2026-11-07
+
+Continue from [DEVELOPMENT_STATE.md](DEVELOPMENT_STATE.md), source
+`2a11d3f6d1a7579d06c777120a0f89500e67c273`. The descendant branch history above
+is now preserved in PR #4's integration lineage. Full local checkout regression,
+native media processing, actual Studio composition and Qt result workers have
+now run; the historical NOT RUN entries above refer to their original source.
+Windows/live-provider/independent-model acceptance remains blocked, 0/10 Windows.
