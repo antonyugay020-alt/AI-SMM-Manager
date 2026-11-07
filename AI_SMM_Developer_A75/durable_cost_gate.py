@@ -49,8 +49,11 @@ class DurableCostGate:
                 db.execute("""CREATE TABLE IF NOT EXISTS cost_reservations (
                     id TEXT PRIMARY KEY, period TEXT NOT NULL,
                     amount INTEGER NOT NULL, actual INTEGER,
-                    state TEXT NOT NULL CHECK(state IN ('reserved','settled','released'))
+                    state TEXT NOT NULL CHECK(state IN ('reserved','settled','released')),
+                    grant_token TEXT
                 )""")
+                if "grant_token" not in {row[1] for row in db.execute("PRAGMA table_info(cost_reservations)")}:
+                    db.execute("ALTER TABLE cost_reservations ADD COLUMN grant_token TEXT")
                 if "hold" not in {row[1] for row in db.execute("PRAGMA table_info(cost_settings)")}:
                     db.execute("ALTER TABLE cost_settings ADD COLUMN hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))")
                 # Invalidate unused legacy grants instead of silently
@@ -133,14 +136,40 @@ class DurableCostGate:
                 if spent + estimate > cap:
                     raise PaymentDenied("Monthly limit exceeded")
                 reservation = uuid4().hex
-                db.execute("INSERT INTO cost_reservations(id,period,amount,state) VALUES(?,?,?,'reserved')",
-                           (reservation, period, estimate))
+                db.execute("INSERT INTO cost_reservations(id,period,amount,state,grant_token) VALUES(?,?,?,'reserved',?)",
+                           (reservation, period, estimate, token))
                 db.execute("UPDATE cost_grants SET used=1 WHERE token=?", (token,))
                 db.commit()
                 return reservation
             except BaseException:
                 db.rollback()
                 raise
+
+    def assert_reservation(self, reservation, provider, operation):
+        """Reject unmetered or cross-task dispatch at the final paid I/O boundary.
+
+        A legacy reservation with no grant binding is deliberately not usable.
+        An approved grant can be expired after reserve(), but a reservation
+        cannot be carried across the monthly accounting boundary.
+        """
+        if not isinstance(reservation, str) or not reservation:
+            raise PaymentDenied("Durable paid reservation required")
+        with self._connect() as db:
+            row = db.execute("""
+                SELECT r.amount,r.state,r.period,g.provider,g.operation,g.used,
+                       g.maximum,g.period,s.hold
+                FROM cost_reservations AS r
+                LEFT JOIN cost_grants AS g ON g.token=r.grant_token
+                CROSS JOIN cost_settings AS s
+                WHERE r.id=? AND s.id=1
+            """, (reservation,)).fetchone()
+        if (row is None or row[0] is None or row[0] <= 0
+                or row[1] != "reserved" or row[2] != self.period()
+                or row[3] != provider or row[4] != operation
+                or row[5] != 1 or row[6] is None or row[6] < row[0]
+                or row[7] != row[2] or row[8] != 0):
+            raise PaymentDenied("Paid reservation not active for this exact provider task")
+        return True
 
     def settle(self, reservation, actual_usd):
         actual = units(actual_usd)
