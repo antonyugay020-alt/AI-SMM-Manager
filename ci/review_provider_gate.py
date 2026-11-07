@@ -16,17 +16,17 @@ import re
 import subprocess
 import sys
 
-from independent_review import parse_verdict, review_chunks, split_review_diff
+from independent_review import parse_verdict, review_chunks, split_review_diff, review_contract_digest
 
 TRANSIENT = re.compile(r"^provider HTTP status (?:500|502|503|504)$")
 
 
-def verified_complete(report, provider, chunks, diff_sha):
+def verified_complete(report, provider, chunks, diff_sha, expected_contract):
     if not isinstance(report, dict) or report.get("provider") != provider:
         return False
     if report.get("status") != "PASS" or report.get("diff_sha256") != diff_sha:
         return False
-    if not isinstance(report.get("review_contract_sha256"), str) or len(report["review_contract_sha256"]) != 64:
+    if not expected_contract or report.get("review_contract_sha256") != expected_contract:
         return False
     reviews = report.get("reviews")
     if (type(report.get("segments_expected")) is not int
@@ -49,12 +49,14 @@ def verified_complete(report, provider, chunks, diff_sha):
     return True
 
 
-def permitted_backup(primary, diff_sha):
+def permitted_backup(primary, diff_sha, expected_contract):
     if not isinstance(primary, dict):
         return False
     if primary.get("provider") not in ("kie", "anthropic") or primary.get("diff_sha256") != diff_sha:
         return False
-    if primary.get("status") != "BLOCKED" or not TRANSIENT.fullmatch(str(primary.get("reason"))):
+    if (primary.get("review_contract_sha256") != expected_contract or
+            primary.get("status") != "BLOCKED" or
+            not TRANSIENT.fullmatch(str(primary.get("reason")))):
         return False
     # A substantive objection from any completed chunk blocks substitution.
     reviews = primary.get("reviews")
@@ -100,9 +102,12 @@ def run_gate(diff_path, primary_path, backup_path, output_path, env=None, runner
             else:
                 result["segments_expected"] = len(chunks)
                 primary = load(primary_path)
-                if verified_complete(primary, provider, chunks, digest):
+                model = (env.get("KIE_REVIEW_MODEL", "claude-sonnet-5-5")
+                         if provider == "kie" else env.get("ANTHROPIC_MODEL", ""))
+                expected_contract = review_contract_digest(provider, model) if model else None
+                if verified_complete(primary, provider, chunks, digest, expected_contract):
                     result.update(status="PASS", reason=None, reviewer=provider)
-                elif permitted_backup(primary, digest) and primary.get("provider") == provider:
+                elif permitted_backup(primary, digest, expected_contract) and primary.get("provider") == provider:
                     if not all(env.get(name) for name in
                                ("ALT_REVIEW_API_KEY", "ALT_REVIEW_API_URL", "ALT_REVIEW_MODEL")):
                         result["reason"] = "backup provider not configured"
@@ -121,7 +126,8 @@ def run_gate(diff_path, primary_path, backup_path, output_path, env=None, runner
                                     result["reason"] = "backup reviewer process failed"
                                 else:
                                     alternate = load(backup_path)
-                                    if verified_complete(alternate, "compatible", backup_chunks, digest):
+                                    if verified_complete(alternate, "compatible", backup_chunks, digest,
+                                                         review_contract_digest("compatible", env["ALT_REVIEW_MODEL"])):
                                         result.update(status="PASS", reason=None, reviewer="compatible")
                                     else:
                                         result["reason"] = "backup independent review incomplete"
