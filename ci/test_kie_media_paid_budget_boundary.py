@@ -124,6 +124,17 @@ class PaidKieBoundaryTests(unittest.TestCase):
         with self.assertRaises(PaymentDenied):
             reopened.assert_reservation(reservation,"kie.ai",operation)
 
+    def test_lowered_monthly_limit_blocks_already_reserved_dispatch(self):
+        task=self.draft()
+        operation="media:"+task
+        token=self.ledger.approve("kie.ai",operation,"2")
+        reservation=self.ledger.reserve("kie.ai",operation,"2",token=token)
+        self.ledger.set_monthly_cap("1")
+        with self.assertRaises(PaymentDenied):
+            self.ledger.assert_reservation(reservation,"kie.ai",operation)
+        self.remote.assert_not_called()
+        self.assertEqual(self.ledger.usage()["pending_usd"],2)
+
     def test_missing_verified_quote_blocks_even_with_user_consent(self):
         task=self.draft()
         unpriced=KieMediaGateway(
