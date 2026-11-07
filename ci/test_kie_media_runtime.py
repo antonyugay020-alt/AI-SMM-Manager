@@ -45,7 +45,7 @@ class ProjectKieMediaTests(unittest.TestCase):
 
     def test_pro_image_upload_and_paid_fence(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Product promotion",
-                                         sources=[self.one],pro=True)
+                                         sources=[self.one],pro=True,explicit_upload_consent=True)
         self.upload.assert_called_once_with(self.one)
         stored=json.loads(self.db.execute("SELECT payload_json FROM kie_media_tasks WHERE id=?",
                                           (ident,)).fetchone()[0])
@@ -62,6 +62,24 @@ class ProjectKieMediaTests(unittest.TestCase):
                          [(ident,"task_kie_123456789")])
         self.assertEqual(self.gateway.recover(self.p2),[])
 
+    def test_source_upload_rejected_without_separate_explicit_consent(self):
+        # Preparing a job must never silently transmit local project media.
+        with self.assertRaisesRegex(RuntimeError,"explicit user consent"):
+            self.gateway.prepare_image(self.p1,prompt="Brand photo",
+                                       sources=[self.one],pro=True)
+        with self.assertRaisesRegex(RuntimeError,"explicit user consent"):
+            self.gateway.prepare_video(self.p1,prompt="Animate",source_images=[self.one])
+        self.upload.assert_not_called()
+        self.post.assert_not_called()
+        self.assertEqual(self.gateway.tasks(self.p1),[])
+
+    def test_exact_boolean_consent_required_for_remote_transfer(self):
+        with self.assertRaises(RuntimeError):
+            self.gateway.prepare_image(self.p1,prompt="Brand photo",
+                                       sources=[self.one],pro=True,
+                                       explicit_upload_consent=1)
+        self.upload.assert_not_called()
+
     def test_pro_supports_text_to_image_without_source_upload(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Create a brand poster",
                                          sources=[],pro=True,resolution="2K")
@@ -76,7 +94,7 @@ class ProjectKieMediaTests(unittest.TestCase):
 
     def test_gateway_status_and_unpaid_draft_are_project_scoped(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Campaign cover",
-                                         sources=[self.one],pro=True)
+                                         sources=[self.one],pro=True,explicit_upload_consent=True)
         own=self.gateway.tasks(self.p1)
         self.assertEqual(len(own),1)
         self.assertEqual(own[0]["id"],ident)
@@ -89,7 +107,7 @@ class ProjectKieMediaTests(unittest.TestCase):
 
     def test_edit_model_uses_image_urls(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Fix the background",
-                                         sources=[self.one],pro=False)
+                                         sources=[self.one],pro=False,explicit_upload_consent=True)
         stored=json.loads(self.db.execute("SELECT payload_json FROM kie_media_tasks WHERE id=?",
                                           (ident,)).fetchone()[0])
         self.assertEqual(stored["model"],"google/nano-banana-edit")
@@ -99,7 +117,8 @@ class ProjectKieMediaTests(unittest.TestCase):
     def test_kling_reference_to_video_from_a_still_image(self):
         ident=self.gateway.prepare_video(
             self.p1,prompt="Animate the photo",source_images=[self.one],
-            reference_mode=True,duration=5,aspect_ratio="9:16")
+            reference_mode=True,duration=5,aspect_ratio="9:16",
+            explicit_upload_consent=True)
         stored=json.loads(self.db.execute("SELECT payload_json FROM kie_media_tasks WHERE id=?",
                                           (ident,)).fetchone()[0])
         self.assertEqual(stored["model"],"kling-3.0-omni/reference-to-video")
@@ -114,18 +133,18 @@ class ProjectKieMediaTests(unittest.TestCase):
                         ("d"*32,self.p2,"photo",str(outside),"y","now"))
         self.db.commit()
         with self.assertRaises(ValueError):
-            self.gateway.prepare_image(self.p1,prompt="Edit",sources=[outside])
+            self.gateway.prepare_image(self.p1,prompt="Edit",sources=[outside],explicit_upload_consent=True)
         self.upload.assert_not_called()
         with self.assertRaises(ValueError):
             self.gateway.prepare_video(
-                self.p1,prompt="Animate",source_images=[outside])
+                self.p1,prompt="Animate",source_images=[outside],explicit_upload_consent=True)
         self.upload.assert_not_called()
 
     def test_unregistered_file_is_rejected_even_inside_project_folder(self):
         unregistered=self.one.parent/"untracked.png"
         unregistered.write_bytes(self.one.read_bytes())
         with self.assertRaises(ValueError):
-            self.gateway.prepare_image(self.p1,prompt="Edit",sources=[unregistered])
+            self.gateway.prepare_image(self.p1,prompt="Edit",sources=[unregistered],explicit_upload_consent=True)
         self.upload.assert_not_called()
 
     def test_reference_video_uses_independent_media_validation(self):
@@ -138,7 +157,7 @@ class ProjectKieMediaTests(unittest.TestCase):
         with patch("kie_media_runtime.verified_video",return_value=(video,meta)):
             ident=self.gateway.prepare_video(self.p1,prompt="Recolor the clip",
                                              source_video=video,source_images=[],
-                                             reference_mode=False)
+                                             reference_mode=False,explicit_upload_consent=True)
         stored=json.loads(self.db.execute("SELECT payload_json FROM kie_media_tasks WHERE id=?",
                                           (ident,)).fetchone()[0])
         self.assertEqual(stored["model"],"kling-3.0-omni/transformation")
