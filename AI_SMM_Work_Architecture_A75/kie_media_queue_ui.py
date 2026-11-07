@@ -9,10 +9,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
-    QPlainTextEdit, QComboBox,
+    QPlainTextEdit, QComboBox, QDoubleSpinBox,
 )
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare
+from kie_media_budget import snapshot, set_monthly_limit
 from kie_media_jobs import list_project_tasks, abandon_prepared, preview_prepared_task
 
 _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID задания", "Результат / ошибка")
@@ -36,6 +37,19 @@ class KieMediaQueuePanel(QWidget):
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
+        budget_row = QHBoxLayout()
+        budget_row.addWidget(QLabel("Месячный лимит Kie.ai (USD):"))
+        self.monthly_limit = QDoubleSpinBox()
+        self.monthly_limit.setRange(0, 100000)
+        self.monthly_limit.setDecimals(2)
+        self.monthly_limit.setValue(20.00)
+        budget_row.addWidget(self.monthly_limit)
+        save_budget = QPushButton("Сохранить лимит")
+        save_budget.clicked.connect(self.save_budget)
+        budget_row.addWidget(save_budget)
+        self.budget_status = QLabel("")
+        budget_row.addWidget(self.budget_status,1)
+        layout.addLayout(budget_row)
         draft_row = QHBoxLayout()
         self.prompt = QPlainTextEdit()
         self.prompt.setPlaceholderText("Описание изображения для Nano Banana Pro")
@@ -81,7 +95,34 @@ class KieMediaQueuePanel(QWidget):
             return None
         return owner
 
+    def save_budget(self):
+        proposed=int(round(self.monthly_limit.value()*100))
+        confirmation=QMessageBox.question(
+            self,"Месячный лимит Kie.ai",
+            f"Изменить общий месячный лимит платной генерации на ${proposed/100:.2f}? "
+            "Уже зарезервированные расходы сохранятся.")
+        if confirmation!=QMessageBox.Yes:
+            self.refresh_budget()
+            return
+        try:
+            set_monthly_limit(self._db,proposed)
+        except (ValueError,RuntimeError,OSError) as exc:
+            QMessageBox.warning(self,"Kie.ai",str(exc))
+        self.refresh_budget()
+
+    def refresh_budget(self):
+        try:
+            state=snapshot(self._db)
+        except (ValueError,RuntimeError,OSError) as exc:
+            self.budget_status.setText("Бюджет недоступен: "+str(exc))
+            return
+        self.monthly_limit.setValue(state["limit_cents"]/100)
+        self.budget_status.setText(
+            f'{state["month_utc"]} UTC: резерв ${state["allocated_cents"]/100:.2f}, '
+            f'остаток ${state["remaining_cents"]/100:.2f}')
+
     def refresh(self):
+        self.refresh_budget()
         owner = self._owner()
         if owner != self._visible_project:
             # Unsubmitted prompts must not leak across project selections.
