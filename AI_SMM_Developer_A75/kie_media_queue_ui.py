@@ -5,15 +5,19 @@ routes. It shows verified local task state and can discard unpaid drafts only.
 """
 from __future__ import annotations
 
+import shutil
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
-    QPlainTextEdit, QComboBox, QDoubleSpinBox,
+    QPlainTextEdit, QComboBox, QDoubleSpinBox, QSpinBox, QCheckBox,
 )
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare
 from kie_media_budget import snapshot, set_monthly_limit
+from smm_media_router import (TASKS, MediaRequest, select_executor,
+                              default_executors)
 from kie_media_jobs import list_project_tasks, abandon_prepared, preview_prepared_task
 
 _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID задания", "Результат / ошибка")
@@ -37,6 +41,26 @@ class KieMediaQueuePanel(QWidget):
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
+        route_row=QHBoxLayout()
+        route_row.addWidget(QLabel("SMM-операция:"))
+        self.smm_task=QComboBox()
+        self.smm_task.addItems(sorted(TASKS))
+        route_row.addWidget(self.smm_task,1)
+        route_row.addWidget(QLabel("Исходников:"))
+        self.smm_source_count=QSpinBox()
+        self.smm_source_count.setRange(0,30)
+        self.smm_source_count.setValue(1)
+        route_row.addWidget(self.smm_source_count)
+        self.smm_reference=QCheckBox("Эталон")
+        route_row.addWidget(self.smm_reference)
+        route_button=QPushButton("Проверить маршрут")
+        route_button.clicked.connect(self.preview_route)
+        route_row.addWidget(route_button)
+        layout.addLayout(route_row)
+        self.route_status=QLabel(
+            "Маршрут только планируется: внешние API и платные операции не запускаются.")
+        self.route_status.setWordWrap(True)
+        layout.addWidget(self.route_status)
         budget_row = QHBoxLayout()
         budget_row.addWidget(QLabel("Месячный лимит Kie.ai (USD):"))
         self.monthly_limit = QDoubleSpinBox()
@@ -94,6 +118,29 @@ class KieMediaQueuePanel(QWidget):
         if not isinstance(owner, str) or not owner:
             return None
         return owner
+
+    def preview_route(self):
+        # No provider calls. Availability is based only on observed local
+        # executable presence; cloud adapters must register separately.
+        try:
+            request=MediaRequest(
+                task=self.smm_task.currentText(),
+                source_count=self.smm_source_count.value(),
+                prompt=self.prompt.toPlainText(),
+                has_style_reference=self.smm_reference.isChecked())
+            candidates=default_executors(ffmpeg_ready=bool(shutil.which("ffmpeg")))
+            decision=select_executor(request,candidates)
+        except (ValueError,TypeError) as exc:
+            self.route_status.setText("Маршрут недоступен: "+str(exc))
+            return
+        if decision.state=="ready":
+            self.route_status.setText(
+                "Подходящий исполнитель: "+decision.executor+
+                " (локально). Планирование завершено; исполнение не запускалось.")
+        else:
+            self.route_status.setText(
+                "Нет подтверждённого исполнителя для этой SMM-задачи. "
+                "Неподключённые облачные демо не считаются доступным API.")
 
     def save_budget(self):
         proposed=int(round(self.monthly_limit.value()*100))
