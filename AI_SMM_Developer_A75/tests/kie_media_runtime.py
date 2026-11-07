@@ -27,9 +27,15 @@ def verified_image(path, *, limit_mb, kling=False):
         if photo.format not in (("PNG","JPEG") if kling else ("PNG","JPEG","WEBP")):
             raise ValueError("image source format not supported by model")
         width,height=photo.size
+        if width<=0 or height<=0 or width>16000 or height>16000 or width*height>40_000_000:
+            raise ValueError("local image pixel budget exceeded")
         if kling and (width<300 or height<300 or not .4<=width/height<=2.5):
             raise ValueError("Kling reference image dimensions unsupported")
-        photo.verify()
+        # Decode pixels before upload: a valid-looking header is not sufficient.
+        try:
+            photo.load()
+        except (OSError, Image.DecompressionBombError) as exc:
+            raise ValueError("local image cannot be fully decoded") from exc
     return item
 
 
