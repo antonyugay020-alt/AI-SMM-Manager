@@ -193,6 +193,28 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         return str(dest)
     if state!="submitted" or not provider_id or not TASK_ID.fullmatch(provider_id):
         raise RuntimeError("task has no confirmed remote ID")
+    # Crash-safe reconciliation: a prior run may have durably published the
+    # result and crashed before marking the remote task completed.
+    existing=db.execute("""SELECT kind,path FROM project_files WHERE id=?
+        AND project_id=?""",(job_id,project_id)).fetchone()
+    if existing is not None:
+        expected_kind="video" if model.startswith("kling-") else "result"
+        if existing[0]!=expected_kind:
+            raise ValueError("existing media receipt has wrong content kind")
+        replay(db,workspace,project_id=project_id)
+        resolved=Path(existing[1])
+        root=Path(workspace(project_id))
+        from project_file_boundary import require_managed_file
+        require_managed_file(root,resolved,("processed",))
+        if not resolved.is_file():
+            raise ValueError("existing media receipt has unsafe location")
+        _validate_media_bytes(resolved,is_video=model.startswith("kling-"))
+        db.execute("""UPDATE kie_media_tasks SET state='completed',
+            output_path=?,result_sha256=?,updated_at=? WHERE id=? AND project_id=?
+            AND state='submitted'""",
+            (str(resolved),_digest_file(resolved),utcnow(),job_id,project_id))
+        db.commit()
+        return str(resolved)
     status=query_task(provider_id)
     if not isinstance(status,dict) or status.get("code")!=200:
         raise ValueError("Kie task status not confirmed")
@@ -222,28 +244,6 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
     _url(urls[0])
     from media_ingest_core import ingest, replay
     from project_file_boundary import require_managed_folder
-    # Crash-safe reconciliation: a prior run may have durably published the
-    # result and crashed before marking the remote task completed.
-    existing=db.execute("""SELECT kind,path FROM project_files WHERE id=?
-        AND project_id=?""",(job_id,project_id)).fetchone()
-    if existing is not None:
-        expected_kind="video" if model.startswith("kling-") else "result"
-        if existing[0]!=expected_kind:
-            raise ValueError("existing media receipt has wrong content kind")
-        replay(db,workspace,project_id=project_id)
-        resolved=Path(existing[1])
-        root=Path(workspace(project_id))
-        from project_file_boundary import require_managed_file
-        require_managed_file(root,resolved,("processed",))
-        if not resolved.is_file():
-            raise ValueError("existing media receipt has unsafe location")
-        _validate_media_bytes(resolved,is_video=model.startswith("kling-"))
-        db.execute("""UPDATE kie_media_tasks SET state='completed',
-            output_path=?,result_sha256=?,updated_at=? WHERE id=? AND project_id=?
-            AND state='submitted'""",
-            (str(resolved),_digest_file(resolved),utcnow(),job_id,project_id))
-        db.commit()
-        return str(resolved)
     root=Path(workspace(project_id))
     spool=require_managed_folder(root,".kie_downloads")
     spool.mkdir(parents=True,exist_ok=True)
