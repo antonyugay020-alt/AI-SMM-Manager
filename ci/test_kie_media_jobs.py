@@ -190,6 +190,35 @@ class KieMediaDurabilityTests(unittest.TestCase):
             "SELECT COUNT(*) FROM project_files WHERE id=?",(ident,)
         ).fetchone()[0],1)
 
+    def test_crash_recovery_rejects_valid_but_replaced_media(self):
+        ident=prepare(self.db,self.a,self.payload)
+        submit(self.db,self.a,ident,
+               lambda _: {"code":200,"data":{"taskId":TASK}},
+               enable_paid=True)
+        status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
+            "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
+        def save_image(_,path):
+            with Image.new("RGB",(64,64),color=(5,10,15)) as photo:
+                photo.save(path,"PNG")
+        completed=complete(self.db,self.a,ident,lambda _:status,
+                           save_image,self.workspace)
+        # The outbox retained the authentic source digest, while the model
+        # task's completion receipt is lost in the simulated crash.
+        self.db.execute("""UPDATE kie_media_tasks
+            SET state='submitted',output_path=NULL,result_sha256=NULL
+            WHERE id=?""",(ident,))
+        self.db.commit()
+        with Image.new("RGB",(64,64),color=(50,100,150)) as photo:
+            photo.save(completed,"PNG")
+        with self.assertRaisesRegex(ValueError,
+                                    "differs from ingest receipt"):
+            complete(self.db,self.a,ident,
+                     Mock(side_effect=AssertionError("no network")),
+                     Mock(),self.workspace)
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM kie_media_tasks WHERE id=?",(ident,)
+        ).fetchone()[0],"submitted")
+
     def test_completed_valid_image_tampering_fails_sha256_receipt(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
