@@ -122,7 +122,7 @@ class KieMediaQueueQtTests(unittest.TestCase):
         task=prepare(self.db,"project-a",self.payload)
         submit(self.db,"project-a",task,
                lambda _: {"code":200,"data":{"taskId":"task_kie_1234567890"}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         self.view.refresh()
         self.view.table.selectRow(0)
         with patch.object(QMessageBox,"warning") as warning:
@@ -153,7 +153,7 @@ class KieMediaQueueQtTests(unittest.TestCase):
         a = prepare(self.db, "project-a", self.payload)
         submit(self.db, "project-a", a,
                lambda _: {"code": 200, "data": {"taskId": "task_kie_1234567890"}},
-               enable_paid=True)
+               enable_paid=True,quoted_cost_cents=100)
         self.view.refresh()
         self.view.table.selectRow(0)
         with patch.object(QMessageBox, "warning") as warning:
