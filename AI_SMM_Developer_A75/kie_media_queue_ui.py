@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare
-from kie_media_jobs import list_project_tasks, abandon_prepared, preview_prepared_task, preview_prepared_task
+from kie_media_jobs import list_project_tasks, abandon_prepared, preview_prepared_task
 
 _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID задания", "Результат / ошибка")
 
@@ -53,9 +53,6 @@ class KieMediaQueuePanel(QWidget):
         draft_row.addWidget(create_button)
         layout.addLayout(draft_row)
         toolbar = QHBoxLayout()
-        preview_button = QPushButton("Просмотреть черновик")
-        preview_button.clicked.connect(self.preview_selected)
-        toolbar.addWidget(preview_button)
         preview_button = QPushButton("Просмотреть черновик")
         preview_button.clicked.connect(self.preview_selected)
         toolbar.addWidget(preview_button)
@@ -129,34 +126,6 @@ class KieMediaQueuePanel(QWidget):
             return
         self.prompt.clear()
         self.refresh()
-
-    def preview_selected(self):
-        owner=self._owner()
-        if owner is None or owner!=self._visible_project:
-            self.refresh()
-            return
-        row=self.table.currentRow()
-        if row<0:
-            return
-        item=self.table.item(row,3)
-        if item is None:
-            return
-        try:
-            info=preview_prepared_task(self._db,owner,item.data(Qt.UserRole))
-        except (ValueError,RuntimeError,OSError) as exc:
-            QMessageBox.warning(self,"Kie.ai","Черновик недоступен: "+str(exc))
-            self.refresh()
-            return
-        if self._owner()!=owner:
-            self.refresh()
-            return
-        details="\n".join(f"{key}: {value}" for key,value in info["options"].items())
-        QMessageBox.information(self,"Черновик Kie.ai",
-            "Модель: "+info["model"]+"\n"+
-            "Запрос: "+info["prompt"]+"\n"+
-            "Исходных файлов: "+str(info["reference_count"])+
-            ("\n"+details if details else "")+
-            "\n\nТолько просмотр: оплачиваемый запрос не отправляется.")
 
     def preview_selected(self):
         owner=self._owner()
