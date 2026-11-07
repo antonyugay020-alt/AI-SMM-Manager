@@ -2954,6 +2954,8 @@ class Studio(QMainWindow):
         if not self.current_project:
             self.heading.setText('Выберите проект')
             self._switching_project = False
+            if hasattr(self, 'kie_queue_panel'):
+                self.kie_queue_panel.refresh()
             self.show_section('overview')
             return
         view = destination_view
@@ -2973,6 +2975,8 @@ class Studio(QMainWindow):
             self.append_chat('Вы' if role == 'user' else 'AI', content, created_at)
         # Restore the selected project's own workspace, never another project's content.
         self._switching_project = False
+        if hasattr(self, 'kie_queue_panel'):
+            self.kie_queue_panel.refresh()
         self.show_section(self.project_section_state.get(self.current_project, 'overview'))
         self.update_dashboard()
         QTimer.singleShot(0,self.offer_resume_batch)
