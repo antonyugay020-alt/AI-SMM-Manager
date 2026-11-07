@@ -64,7 +64,8 @@ def verified_video(path):
 
 class KieMediaGateway:
     def __init__(self, db, workspace, *, upload_file, create_task,
-                 query_task, fetch_verified_file=None):
+                 query_task, fetch_verified_file=None,
+                 cost_gate=None, verified_price_quote=None):
         from kie_media_download import download_result
         self.db=db
         self.workspace=workspace
@@ -72,6 +73,8 @@ class KieMediaGateway:
         self.create_task=create_task
         self.query_task=query_task
         self.fetch_verified_file=fetch_verified_file or download_result
+        self.cost_gate=cost_gate
+        self.verified_price_quote=verified_price_quote
 
     def _authorized(self, project_id, filename):
         """Only source assets already registered to the launch project may leave it."""
@@ -176,10 +179,39 @@ class KieMediaGateway:
         return prepare(self.db,project_id,payload)
 
     def start(self, project_id, job_id, *, explicit_paid_consent=False,
-              quoted_cost_cents=None):
+              approval_token=None):
+        """Reserve an independently quoted maximum before any paid network I/O.
+
+        The reservation remains committed until verified provider billing is
+        reconciled. A taskId is NOT evidence of a final provider charge.
+        """
+        if explicit_paid_consent is not True:
+            raise RuntimeError("explicit paid media consent required")
+        if self.cost_gate is None or self.verified_price_quote is None or not approval_token:
+            raise RuntimeError("verified price, durable budget gate and one-use approval required")
+        from kie_media_jobs import _owned_row
+        # Reject foreign project transactions before reserving a paid charge.
+        if self.db.in_transaction:
+            raise RuntimeError("foreign SQLite transaction in progress")
+        row=_owned_row(self.db,project_id,job_id)
+        if row[3]!="prepared":
+            raise RuntimeError("Kie media task is not an unpaid draft")
+        # Historical paid allocations cannot be silently ignored by a
+        # newer, separate durable ledger. Require manual reconciliation.
+        legacy=self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='kie_media_allocations'").fetchone()
+        if legacy and self.db.execute(
+                "SELECT 1 FROM kie_media_allocations LIMIT 1").fetchone():
+            raise RuntimeError("legacy Kie paid allocations require reconciliation")
+        quote=self.verified_price_quote(row[0],json.loads(row[1]))
+        reservation=self.cost_gate.reserve(
+            "kie.ai","media:"+job_id,quote,token=approval_token)
+        # If the process dies now, the ledger retains the reservation.
+        # Never auto-release on error: the provider may have charged.
         return submit(self.db,project_id,job_id,self.create_task,
-                      enable_paid=explicit_paid_consent,
-                      quoted_cost_cents=quoted_cost_cents)
+                      enable_paid=True,payment_reservation=reservation,
+                      cost_gate=self.cost_gate)
 
     def refresh(self, project_id, job_id):
         return complete(self.db,project_id,job_id,self.query_task,

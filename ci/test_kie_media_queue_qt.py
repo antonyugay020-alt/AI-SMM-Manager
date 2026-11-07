@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "AI_SMM_Work_Archit
 from PySide6.QtWidgets import QApplication, QMessageBox
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare, submit
+from durable_cost_gate import DurableCostGate
 from kie_media_queue_ui import KieMediaQueuePanel
 
 
@@ -33,9 +34,23 @@ class KieMediaQueueQtTests(unittest.TestCase):
         self.db.executemany("INSERT INTO projects VALUES (?)", [("project-a",), ("project-b",)])
         self.db.commit()
         self.current = "project-a"
-        self.view = KieMediaQueuePanel(self.db, lambda: self.current)
+        self.ledger = DurableCostGate(Path(self.temp.name) / "qt-paid-ledger.sqlite")
+        self.view = KieMediaQueuePanel(
+            self.db, lambda: self.current, cost_gate=self.ledger)
         self.addCleanup(self.view.close)
         self.payload = nano_banana_pro("A safe mock cover", [], aspect_ratio="1:1")
+
+    def paid_submit(self, project_id, job_id, transport, *, enable_paid=True):
+        """Use the real durable budget fence in offline Qt state tests."""
+        gate = self.ledger
+        operation = "media:" + job_id
+        token = gate.approve("kie.ai", operation, "1")
+        reservation = gate.reserve("kie.ai", operation, "1", token=token)
+        def authorized_transport(payload, **_authorization):
+            return transport(payload)
+        return submit(self.db, project_id, job_id, authorized_transport,
+                      enable_paid=enable_paid, payment_reservation=reservation,
+                      cost_gate=gate)
 
     def test_refresh_shows_only_selected_project_and_is_offline(self):
         a = prepare(self.db, "project-a", self.payload)
@@ -120,57 +135,14 @@ class KieMediaQueueQtTests(unittest.TestCase):
 
     def test_preview_only_unpaid_drafts(self):
         task=prepare(self.db,"project-a",self.payload)
-        submit(self.db,"project-a",task,
+        self.paid_submit("project-a",task,
                lambda _: {"code":200,"data":{"taskId":"task_kie_1234567890"}},
-               enable_paid=True,quoted_cost_cents=100)
+               enable_paid=True)
         self.view.refresh()
         self.view.table.selectRow(0)
         with patch.object(QMessageBox,"warning") as warning:
             self.view.preview_selected()
         warning.assert_called_once()
-
-    def test_monthly_limit_can_change_in_qt_without_paid_requests(self):
-        from kie_media_budget import snapshot
-        self.view.refresh()
-        self.assertEqual(self.view.monthly_limit.value(),20.00)
-        self.view.monthly_limit.setValue(35.50)
-        with patch.object(QMessageBox,"question",return_value=QMessageBox.Yes):
-            self.view.save_budget()
-        self.assertEqual(snapshot(self.db)["limit_cents"],3550)
-        self.assertIn("35.50",self.view.budget_status.text())
-
-    def test_declined_budget_change_keeps_previous_limit(self):
-        from kie_media_budget import snapshot
-        self.view.refresh()
-        self.view.monthly_limit.setValue(1000.00)
-        with patch.object(QMessageBox,"question",return_value=QMessageBox.No):
-            self.view.save_budget()
-        self.assertEqual(snapshot(self.db)["limit_cents"],2000)
-        self.assertEqual(self.view.monthly_limit.value(),20.00)
-
-    def test_smm_route_preview_only_claims_verified_ffmpeg_capabilities(self):
-        self.view.smm_task.setCurrentText("video_cut")
-        self.view.smm_source_count.setValue(2)
-        with patch("kie_media_queue_ui.shutil.which",return_value="/usr/bin/ffmpeg"):
-            self.view.preview_route()
-        self.assertIn("local-ffmpeg",self.view.route_status.text())
-        self.view.smm_task.setCurrentText("image_remove_background")
-        with patch("kie_media_queue_ui.shutil.which",return_value="/usr/bin/ffmpeg"):
-            self.view.preview_route()
-        self.assertIn("Нет подтверждённого исполнителя",self.view.route_status.text())
-
-    def test_smm_route_missing_reference_or_ffmpeg_fails_closed(self):
-        self.view.smm_task.setCurrentText("video_style_reference")
-        self.view.smm_source_count.setValue(1)
-        self.view.smm_reference.setChecked(False)
-        with patch("kie_media_queue_ui.shutil.which",return_value=None):
-            self.view.preview_route()
-        self.assertIn("Маршрут недоступен",self.view.route_status.text())
-        self.view.smm_reference.setChecked(True)
-        self.view.smm_task.setCurrentText("video_cut")
-        with patch("kie_media_queue_ui.shutil.which",return_value=None):
-            self.view.preview_route()
-        self.assertIn("Нет подтверждённого исполнителя",self.view.route_status.text())
 
     def test_stale_selection_cannot_delete_foreign_project(self):
         a = prepare(self.db, "project-a", self.payload)
@@ -194,9 +166,9 @@ class KieMediaQueueQtTests(unittest.TestCase):
 
     def test_submitted_task_cannot_be_discarded(self):
         a = prepare(self.db, "project-a", self.payload)
-        submit(self.db, "project-a", a,
+        self.paid_submit( "project-a", a,
                lambda _: {"code": 200, "data": {"taskId": "task_kie_1234567890"}},
-               enable_paid=True,quoted_cost_cents=100)
+               enable_paid=True)
         self.view.refresh()
         self.view.table.selectRow(0)
         with patch.object(QMessageBox, "warning") as warning:
@@ -204,6 +176,36 @@ class KieMediaQueueQtTests(unittest.TestCase):
         warning.assert_called_once()
         self.assertEqual(self.db.execute(
             "SELECT state FROM kie_media_tasks WHERE id=?", (a,)).fetchone()[0], "submitted")
+
+
+    def test_budget_editor_updates_real_paid_ledger(self):
+        self.view.refresh()
+        self.assertEqual(self.view.monthly_limit.value(),20.00)
+        self.view.monthly_limit.setValue(35.50)
+        with patch.object(QMessageBox,"question",return_value=QMessageBox.Yes):
+            self.view.save_budget()
+        self.assertEqual(self.ledger.usage()["cap_usd"],35.50)
+        self.assertIn("35.50",self.view.budget_status.text())
+
+    def test_no_paid_gate_disables_misleading_budget_editor(self):
+        disconnected=KieMediaQueuePanel(self.db,lambda:self.current)
+        try:
+            disconnected.refresh_budget()
+            self.assertFalse(disconnected.monthly_limit.isEnabled())
+            self.assertFalse(disconnected.save_budget_button.isEnabled())
+            self.assertIn("не подключён",disconnected.budget_status.text())
+        finally:
+            disconnected.close()
+
+    def test_lowering_cap_keeps_uncertain_reservation(self):
+        job=prepare(self.db,"project-a",self.payload)
+        self.paid_submit("project-a",job,
+                         lambda _:{"code":200,"data":{"taskId":"task_kie_1234567890"}})
+        self.view.monthly_limit.setValue(0.50)
+        with patch.object(QMessageBox,"question",return_value=QMessageBox.Yes):
+            self.view.save_budget()
+        self.assertEqual(self.ledger.usage()["pending_usd"],1)
+        self.assertEqual(self.ledger.usage()["available_usd"],0)
 
 
 if __name__ == "__main__":

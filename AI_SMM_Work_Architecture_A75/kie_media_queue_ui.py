@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare
-from kie_media_budget import snapshot, set_monthly_limit
+from durable_cost_gate import DurableCostGate
 from smm_media_router import (TASKS, MediaRequest, select_executor,
                               default_executors)
 from kie_media_jobs import list_project_tasks, abandon_prepared, preview_prepared_task
@@ -26,11 +26,14 @@ _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID з
 class KieMediaQueuePanel(QWidget):
     """Resolve project identity on every read, and freeze it for every action."""
 
-    def __init__(self, db, current_project, parent=None):
+    def __init__(self, db, current_project, parent=None, *, cost_gate=None):
         super().__init__(parent)
         if not callable(current_project):
             raise TypeError("current_project must be callable")
+        if cost_gate is not None and not isinstance(cost_gate, DurableCostGate):
+            raise TypeError("cost_gate must be the shared durable paid ledger")
         self._db = db
+        self._cost_gate = cost_gate
         self._current_project = current_project
         self._visible_project = None
         layout = QVBoxLayout(self)
@@ -68,9 +71,9 @@ class KieMediaQueuePanel(QWidget):
         self.monthly_limit.setDecimals(2)
         self.monthly_limit.setValue(20.00)
         budget_row.addWidget(self.monthly_limit)
-        save_budget = QPushButton("Сохранить лимит")
-        save_budget.clicked.connect(self.save_budget)
-        budget_row.addWidget(save_budget)
+        self.save_budget_button = QPushButton("Сохранить лимит")
+        self.save_budget_button.clicked.connect(self.save_budget)
+        budget_row.addWidget(self.save_budget_button)
         self.budget_status = QLabel("")
         budget_row.addWidget(self.budget_status,1)
         layout.addLayout(budget_row)
@@ -143,6 +146,9 @@ class KieMediaQueuePanel(QWidget):
                 "Неподключённые облачные демо не считаются доступным API.")
 
     def save_budget(self):
+        if self._cost_gate is None:
+            self.refresh_budget()
+            return
         proposed=int(round(self.monthly_limit.value()*100))
         confirmation=QMessageBox.question(
             self,"Месячный лимит Kie.ai",
@@ -152,21 +158,42 @@ class KieMediaQueuePanel(QWidget):
             self.refresh_budget()
             return
         try:
-            set_monthly_limit(self._db,proposed)
-        except (ValueError,RuntimeError,OSError) as exc:
+            self._cost_gate.set_monthly_cap(f"{proposed/100:.2f}")
+        except (ValueError,RuntimeError,OSError,PermissionError) as exc:
             QMessageBox.warning(self,"Kie.ai",str(exc))
         self.refresh_budget()
 
     def refresh_budget(self):
+        # Only the same durable gate used for network dispatch is authoritative.
+        # Without an injected shared ledger the budget editor is disabled.
+        active=self._cost_gate is not None
+        self.monthly_limit.setEnabled(active)
+        self.save_budget_button.setEnabled(active)
+        if not active:
+            self.budget_status.setText(
+                "Платный журнал не подключён; лимит здесь не редактируется.")
+            return
         try:
-            state=snapshot(self._db)
-        except (ValueError,RuntimeError,OSError) as exc:
+            state=self._cost_gate.usage()
+            legacy=self._db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='kie_media_allocations'").fetchone()
+            unresolved=bool(legacy and self._db.execute(
+                "SELECT 1 FROM kie_media_allocations LIMIT 1").fetchone())
+        except (ValueError,RuntimeError,OSError,PermissionError) as exc:
             self.budget_status.setText("Бюджет недоступен: "+str(exc))
             return
-        self.monthly_limit.setValue(state["limit_cents"]/100)
-        self.budget_status.setText(
-            f'{state["month_utc"]} UTC: резерв ${state["allocated_cents"]/100:.2f}, '
-            f'остаток ${state["remaining_cents"]/100:.2f}')
+        self.monthly_limit.setValue(float(state["cap_usd"]))
+        if unresolved:
+            self.budget_status.setText(
+                "Обнаружены старые резервы Kie: платные запросы заблокированы "
+                "до сверки расходов.")
+        else:
+            self.budget_status.setText(
+                f'Резерв ${state["pending_usd"]:.2f}, '
+                f'подтверждено ${state["spent_usd"]:.2f}, '
+                f'остаток ${state["available_usd"]:.2f}' +
+                (" · Платные вызовы заморожены" if state["paid_calls_frozen"] else ""))
 
     def refresh(self):
         self.refresh_budget()

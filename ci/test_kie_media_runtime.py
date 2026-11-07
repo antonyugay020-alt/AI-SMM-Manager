@@ -11,6 +11,7 @@ from PIL import Image
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"AI_SMM_Work_Architecture_A75"))
 from kie_media_contracts import VideoMetadata
 from kie_media_runtime import KieMediaGateway
+from durable_cost_gate import DurableCostGate
 
 class ProjectKieMediaTests(unittest.TestCase):
     def setUp(self):
@@ -39,9 +40,11 @@ class ProjectKieMediaTests(unittest.TestCase):
         self.db.commit()
         self.upload=Mock(return_value="https://files.example.org/verified.png")
         self.post=Mock(return_value={"code":200,"data":{"taskId":"task_kie_123456789"}})
+        self.ledger=DurableCostGate(self.root/'media-budget.sqlite')
         self.gateway=KieMediaGateway(self.db,lambda pid:self.root/pid,
                        upload_file=self.upload,create_task=self.post,
-                       query_task=Mock(),fetch_verified_file=Mock())
+                       query_task=Mock(),fetch_verified_file=Mock(),
+                       cost_gate=self.ledger,verified_price_quote=lambda *_:'1')
 
     def test_pro_image_upload_and_paid_fence(self):
         ident=self.gateway.prepare_image(self.p1,prompt="Product promotion",
@@ -55,9 +58,11 @@ class ProjectKieMediaTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.gateway.start(self.p1,ident)
         self.post.assert_not_called()
-        self.assertEqual(self.gateway.start(self.p1,ident,explicit_paid_consent=True,quoted_cost_cents=100),
+        token=self.ledger.approve('kie.ai','media:'+ident,'1')
+        self.assertEqual(self.gateway.start(self.p1,ident,explicit_paid_consent=True,approval_token=token),
                          "task_kie_123456789")
         self.post.assert_called_once()
+        self.assertEqual(self.ledger.usage()['committed_usd'],1)
         self.assertEqual(self.gateway.recover(self.p1),
                          [(ident,"task_kie_123456789")])
         self.assertEqual(self.gateway.recover(self.p2),[])

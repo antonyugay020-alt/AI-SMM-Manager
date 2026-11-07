@@ -23,7 +23,21 @@ class KieMediaClient:
         self.enabled = enabled
         self._opener = opener if opener is not None else urllib.request.urlopen
 
-    def create_task(self, payload):
+    def create_task(self, payload, *, payment_reservation=None,
+                    operation=None, cost_gate=None):
+        """A direct transport call cannot bypass the durable paid budget fence.
+
+        The orchestration layer supplies the reservation and exact job-scoped
+        operation; a caller that only toggles enabled=True is never authorized.
+        """
+        from durable_cost_gate import DurableCostGate
+        if (not isinstance(cost_gate, DurableCostGate)
+                or not isinstance(operation, str)
+                or not operation.startswith("media:")
+                or len(operation) <= len("media:")):
+            raise RuntimeError("durable job-scoped payment authorization required")
+        cost_gate.assert_reservation(payment_reservation, "kie.ai", operation)
+
         if not self.enabled:
             raise RuntimeError("Kie paid media tasks disabled by default")
         if not isinstance(self._key, str) or not self._key.strip():
@@ -38,6 +52,8 @@ class KieMediaClient:
             headers={"Authorization": "Bearer "+self._key,
                      "Content-Type": "application/json"},
             method="POST")
+        # Final check immediately before the potentially billable network call.
+        cost_gate.claim_dispatch(payment_reservation, "kie.ai", operation)
         try:
             with self._opener(request, timeout=50) as response:
                 body = response.read(120_000)
