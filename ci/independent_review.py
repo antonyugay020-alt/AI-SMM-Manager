@@ -222,7 +222,7 @@ def main():
             os.environ.get('ANTHROPIC_MODEL' if args.provider == 'anthropic'
                            else 'ALT_REVIEW_MODEL', '')
         )
-                result['review_contract_sha256'] = contract_sha
+        result['review_contract_sha256'] = contract_sha
         segment_results = []
         if args.output.is_file():
             try:
