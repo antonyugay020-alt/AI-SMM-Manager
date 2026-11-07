@@ -48,6 +48,38 @@ class KieMediaQueueQtTests(unittest.TestCase):
         self.view.refresh()
         self.assertEqual(self.view.table.item(0, 3).text(), b)
 
+    def test_create_text_image_draft_is_offline_and_project_owned(self):
+        self.view.prompt.setPlainText("Design a clean product campaign image")
+        self.view.aspect_ratio.setCurrentText("9:16")
+        self.view.resolution.setCurrentText("2K")
+        self.view.create_draft()
+        rows = self.db.execute(
+            "SELECT project_id,model,state,payload_json FROM kie_media_tasks"
+        ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][:3], ("project-a", "nano-banana-pro", "prepared"))
+        import json
+        payload = json.loads(rows[0][3])
+        self.assertEqual(payload["input"]["image_input"], [])
+        self.assertEqual(payload["input"]["aspect_ratio"], "9:16")
+        self.assertEqual(payload["input"]["resolution"], "2K")
+        self.assertEqual(self.view.table.rowCount(), 1)
+
+    def test_invalid_draft_does_not_write_or_launch(self):
+        self.view.prompt.setPlainText(" ")
+        self.view.create_draft()
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='kie_media_tasks'"
+        ).fetchone()[0], 0)
+
+    def test_draft_uses_project_selected_at_creation(self):
+        self.view.prompt.setPlainText("A visual for project B")
+        self.current = "project-b"
+        self.view.create_draft()
+        self.assertEqual(self.db.execute(
+            "SELECT project_id FROM kie_media_tasks"
+        ).fetchone()[0], "project-b")
+
     def test_stale_selection_cannot_delete_foreign_project(self):
         a = prepare(self.db, "project-a", self.payload)
         b = prepare(self.db, "project-b", self.payload)
