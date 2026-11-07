@@ -33,7 +33,7 @@ def install(db: sqlite3.Connection):
         model TEXT NOT NULL, payload_json TEXT NOT NULL,
         payload_sha256 TEXT NOT NULL, state TEXT NOT NULL,
         provider_task_id TEXT UNIQUE, output_path TEXT,
-        result_sha256 TEXT,
+        result_sha256 TEXT, cost_reservation_id TEXT,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         error_code TEXT, CHECK (state IN (
         'prepared','submitting','submitted','completed','failed',
@@ -41,6 +41,8 @@ def install(db: sqlite3.Connection):
     columns={row[1] for row in db.execute("PRAGMA table_info(kie_media_tasks)")}
     if "result_sha256" not in columns:
         db.execute("ALTER TABLE kie_media_tasks ADD COLUMN result_sha256 TEXT")
+    if "cost_reservation_id" not in columns:
+        db.execute("ALTER TABLE kie_media_tasks ADD COLUMN cost_reservation_id TEXT")
     db.execute("""CREATE INDEX IF NOT EXISTS kie_media_task_owner
         ON kie_media_tasks(project_id,created_at)""")
 
@@ -94,26 +96,35 @@ def _owned_row(db, project_id, job_id):
     return row
 
 
-def submit(db, project_id, job_id, create_task, *, enable_paid=False):
+def submit(db, project_id, job_id, create_task, *, enable_paid=False,
+           payment_reservation=None, cost_gate=None):
     """Attempt one paid provider call; a crash/timeout cannot auto-resubmit."""
     if enable_paid is not True:
         raise RuntimeError("paid Kie media generation must be explicitly enabled")
+    from durable_cost_gate import DurableCostGate
+    if not isinstance(cost_gate, DurableCostGate):
+        raise RuntimeError("durable payment gate required at paid transport boundary")
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
     row=_owned_row(db,project_id,job_id)
     if row[3]!="prepared":
         raise RuntimeError("Kie task already submitted or outcome uncertain")
+    cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
     try:
         db.execute("BEGIN IMMEDIATE")
         updated=db.execute("""UPDATE kie_media_tasks
-            SET state='submitting',updated_at=? WHERE id=? AND project_id=?
-            AND state='prepared'""",(utcnow(),job_id,project_id)).rowcount
+            SET state='submitting',cost_reservation_id=?,updated_at=?
+            WHERE id=? AND project_id=? AND state='prepared'""",
+            (payment_reservation,utcnow(),job_id,project_id)).rowcount
         if updated!=1:raise RuntimeError("task submission fenced by another worker")
         db.commit()
     except BaseException:
         db.rollback()
         raise
     try:
+        # Revalidate immediately before the provider transport; a grant from
+        # another task, a settled grant or a frozen ledger cannot be reused.
+        cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
         result=create_task(json.loads(row[1]))
         provider_id=extract_task_id(result)
     except Exception:

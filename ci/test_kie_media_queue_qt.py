@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "AI_SMM_Work_Archit
 from PySide6.QtWidgets import QApplication, QMessageBox
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare, submit
+from durable_cost_gate import DurableCostGate
 from kie_media_queue_ui import KieMediaQueuePanel
 
 
@@ -36,6 +37,16 @@ class KieMediaQueueQtTests(unittest.TestCase):
         self.view = KieMediaQueuePanel(self.db, lambda: self.current)
         self.addCleanup(self.view.close)
         self.payload = nano_banana_pro("A safe mock cover", [], aspect_ratio="1:1")
+
+    def paid_submit(self, project_id, job_id, transport, *, enable_paid=True):
+        """Use the real durable budget fence in offline Qt state tests."""
+        gate = DurableCostGate(Path(self.temp.name) / "qt-paid-ledger.sqlite")
+        operation = "media:" + job_id
+        token = gate.approve("kie.ai", operation, "1")
+        reservation = gate.reserve("kie.ai", operation, "1", token=token)
+        return submit(self.db, project_id, job_id, transport,
+                      enable_paid=enable_paid, payment_reservation=reservation,
+                      cost_gate=gate)
 
     def test_refresh_shows_only_selected_project_and_is_offline(self):
         a = prepare(self.db, "project-a", self.payload)
@@ -120,7 +131,7 @@ class KieMediaQueueQtTests(unittest.TestCase):
 
     def test_preview_only_unpaid_drafts(self):
         task=prepare(self.db,"project-a",self.payload)
-        submit(self.db,"project-a",task,
+        self.paid_submit("project-a",task,
                lambda _: {"code":200,"data":{"taskId":"task_kie_1234567890"}},
                enable_paid=True)
         self.view.refresh()
@@ -151,7 +162,7 @@ class KieMediaQueueQtTests(unittest.TestCase):
 
     def test_submitted_task_cannot_be_discarded(self):
         a = prepare(self.db, "project-a", self.payload)
-        submit(self.db, "project-a", a,
+        self.paid_submit( "project-a", a,
                lambda _: {"code": 200, "data": {"taskId": "task_kie_1234567890"}},
                enable_paid=True)
         self.view.refresh()
