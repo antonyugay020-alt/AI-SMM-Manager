@@ -1,25 +1,40 @@
 name: AI SMM / Independent cloud reviews
 
-# SECURITY: pull_request_target runs the review script from the trusted base branch.
-# It never checks out or executes code from the proposed PR, only reads its diff.
+# SECURITY: Never spend reviewer API credits on PR pushes.
+# The trusted default-branch workflow runs only by explicit manual dispatch,
+# with a pinned PR head, a repository opt-in and a conservative per-run quote.
+# Environment protection should also require a human reviewer.
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Existing internal pull request number'
+        required: true
+        type: string
+      expected_head_sha:
+        description: 'Exact 40-character PR head SHA authorized for review'
+        required: true
+        type: string
+      authorize_paid_review:
+        description: 'I authorize this single potentially paid independent review'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   pull-requests: read
-  actions: write  # Required only to persist PR-scoped cache after a failed audit
+  actions: write  # Cache of exact-diff evidence; no checkout of PR code
 
-# Prevent concurrent paid calls for successive updates to the same PR.
-# Cancel superseded reviews before they spend credits or publish stale results.
+# Serialize manually authorized reviews for a PR; never silently re-run a cancelled billable call.
 concurrency:
-  group: independent-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: independent-review-${{ inputs.pr_number }}
+  cancel-in-progress: false
 
 jobs:
   independent-review:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_paid_review == true && vars.AI_SMM_PAID_REVIEW_ENABLED == 'true' }}
+    environment: ai-smm-paid-review
     strategy:
       fail-fast: false
       matrix:
@@ -36,20 +51,40 @@ jobs:
           python-version: '3.14'
       - name: Verify independent reviewer transport and fail-closed contract
         run: python -m unittest discover -s ci -p 'test_*review*.py' -v
-      # No billable preflight: the first missing PR segment is itself the live probe.
-      # The offline contract tests above verify transport formatting without credits.
-      - name: Export PR diff as data, without executing PR code
+      - name: Validate internal PR identity and pin the exact review snapshot
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'BLOCKED: invalid PR number'; exit 2; }
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'BLOCKED: invalid head SHA'; exit 2; }
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          [[ "$(jq -r '.state' <<<"$pr_json")" == "open" ]] || { echo 'BLOCKED: PR not open'; exit 2; }
+          [[ "$(jq -r '.head.repo.full_name' <<<"$pr_json")" == "$GITHUB_REPOSITORY" ]] || { echo 'BLOCKED: external PR'; exit 2; }
+          [[ "$(jq -r '.base.ref' <<<"$pr_json")" == "main" ]] || { echo 'BLOCKED: unexpected base'; exit 2; }
+          [[ "$(jq -r '.head.sha' <<<"$pr_json")" == "$EXPECTED_HEAD_SHA" ]] || { echo 'BLOCKED: PR changed'; exit 2; }
+          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --patch > review_input.diff
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
+          [[ "$actual" == "$EXPECTED_HEAD_SHA" ]] || { echo 'BLOCKED: PR changed during diff export'; exit 2; }
+      - name: Reject unpriced or over-budget reviewer calls before any network request
+        env:
+          REVIEW_LIMIT_USD: ${{ vars.AI_SMM_REVIEW_MAX_USD }}
+          REVIEW_INPUT_USD_PER_M: ${{ vars.AI_SMM_ANTHROPIC_INPUT_USD_PER_M }}
+          REVIEW_OUTPUT_USD_PER_M: ${{ vars.AI_SMM_ANTHROPIC_OUTPUT_USD_PER_M }}
+          REVIEW_MODEL: claude-sonnet-5-5
+        run: |
+          python ci/review_cost_preflight.py --diff review_input.diff --output ci_evidence/review_cost_preflight.json --limit "$REVIEW_LIMIT_USD" --input-rate "$REVIEW_INPUT_USD_PER_M" --output-rate "$REVIEW_OUTPUT_USD_PER_M" --model "$REVIEW_MODEL"
+      # The conservative, explicitly priced per-run ceiling passed above.
       - name: Restore verified partial direct Anthropic evidence
         uses: actions/cache/restore@v4
         with:
           path: ci_evidence/review_anthropic.json
-          key: anthropic-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: anthropic-review-${{ inputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            anthropic-review-${{ github.event.pull_request.number }}-
+            anthropic-review-${{ inputs.pr_number }}-
       - name: Primary direct Anthropic Claude audit (fail-closed)
         id: primary
         continue-on-error: true
@@ -57,21 +92,17 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: claude-sonnet-5-5
         run: python ci/independent_review.py --provider anthropic --diff review_input.diff --output ci_evidence/review_anthropic.json
-      - name: Verify full coverage; optional independent provider only after transient outage
+      - name: Verify full coverage; fail closed without a second paid provider
         env:
           PRIMARY_REVIEW_PROVIDER: anthropic
-          ALT_REVIEW_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ALT_REVIEW_API_URL: ${{ vars.ALT_REVIEW_API_URL }}
-          # Gemini 2.5 Pro returns 404 for newly provisioned accounts.
-          # Google's 404 response recommends gemini-3.1-pro-preview.
-          ALT_REVIEW_MODEL: gemini-3.1-pro-preview
+          # No alternate API key: automatic paid failover is prohibited.
         run: python ci/review_provider_gate.py --diff review_input.diff --primary ci_evidence/review_anthropic.json --backup ci_evidence/review_compatible.json --output ci_evidence/review_gate.json
       - name: Save reviewed direct Anthropic segments for safe continuation
         if: ${{ always() && hashFiles('ci_evidence/review_anthropic.json') != '' }}
         uses: actions/cache/save@v4
         with:
           path: ci_evidence/review_anthropic.json
-          key: anthropic-review-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: anthropic-review-${{ inputs.pr_number }}-${{ github.run_id }}-${{ github.run_attempt }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -80,5 +111,6 @@ jobs:
             ci_evidence/review_anthropic.json
             ci_evidence/review_compatible.json
             ci_evidence/review_gate.json
+            ci_evidence/review_cost_preflight.json
           if-no-files-found: warn
           retention-days: 30

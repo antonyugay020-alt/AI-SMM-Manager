@@ -44,7 +44,12 @@ class KieMediaQueueQtTests(unittest.TestCase):
         operation = "media:" + job_id
         token = gate.approve("kie.ai", operation, "1")
         reservation = gate.reserve("kie.ai", operation, "1", token=token)
-        return submit(self.db, project_id, job_id, transport,
+        # The production boundary forwards scoped authorization kwargs.
+        # Keep the fake provider signature explicit while exercising the
+        # real paid ledger, without invoking a network service.
+        def authorized_transport(payload, **_auth):
+            return transport(payload)
+        return submit(self.db, project_id, job_id, authorized_transport,
                       enable_paid=enable_paid, payment_reservation=reservation,
                       cost_gate=gate)
 
@@ -172,6 +177,57 @@ class KieMediaQueueQtTests(unittest.TestCase):
         warning.assert_called_once()
         self.assertEqual(self.db.execute(
             "SELECT state FROM kie_media_tasks WHERE id=?", (a,)).fetchone()[0], "submitted")
+
+
+    def test_restart_preserves_project_isolation_and_uncertain_paid_intents(self):
+        """Native Qt/SQLite reopen: paid state survives without repeat dispatch."""
+        from kie_media_jobs import recover_pending
+        confirmed = prepare(self.db, "project-a", self.payload)
+        uncertain = prepare(self.db, "project-b", self.payload)
+        unpaid = prepare(self.db, "project-b", self.payload)
+        self.paid_submit("project-a", confirmed,
+            lambda _: {"code": 200, "data": {"taskId": "task_kie_1234567890"}})
+        with self.assertRaises(TimeoutError):
+            self.paid_submit("project-b", uncertain,
+                lambda _: (_ for _ in ()).throw(TimeoutError("unknown provider charge")))
+        self.view.refresh()
+        self.view.prompt.setPlainText("Confidential unsent project A prompt")
+        self.current = "project-b"
+        self.view.refresh()
+        self.assertEqual(self.view.prompt.toPlainText(), "")
+
+        # Simulate actual application teardown and new SQLite/Qt objects.
+        self.view.close()
+        self.db.close()
+        self.db = sqlite3.connect(Path(self.temp.name) / "queue.sqlite")
+        self.addCleanup(self.db.close)
+        self.view = KieMediaQueuePanel(self.db, lambda: self.current)
+        self.addCleanup(self.view.close)
+        self.current = "project-a"
+        self.view.refresh()
+        self.assertEqual(self.view.table.rowCount(), 1)
+        self.assertEqual(self.view.table.item(0, 3).text(), confirmed)
+        self.assertEqual(self.view.table.item(0, 2).text(), "submitted")
+        self.assertEqual(recover_pending(self.db, "project-a"),
+                         [(confirmed, "task_kie_1234567890")])
+        self.current = "project-b"
+        self.view.refresh()
+        self.assertEqual(self.view.table.rowCount(), 2)
+        visible = {self.view.table.item(i, 3).text():
+                   self.view.table.item(i, 2).text()
+                   for i in range(self.view.table.rowCount())}
+        self.assertEqual(visible, {uncertain: "submission_unknown",
+                                   unpaid: "prepared"})
+        self.assertEqual(recover_pending(self.db, "project-b"), [])
+        unknown_row = next(i for i in range(self.view.table.rowCount())
+                           if self.view.table.item(i, 3).text() == uncertain)
+        self.view.table.selectRow(unknown_row)
+        with patch.object(QMessageBox, "warning") as warning:
+            self.view.discard_selected()
+        warning.assert_called_once()
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM kie_media_tasks WHERE id=?",
+            (uncertain,)).fetchone(), ("submission_unknown",))
 
 
 if __name__ == "__main__":
