@@ -82,9 +82,12 @@ class KieMediaQueuePanel(QWidget):
         return owner
 
     def refresh(self):
+        owner = self._owner()
+        if owner != self._visible_project:
+            # Unsubmitted prompts must not leak across project selections.
+            self.prompt.clear()
         self.table.setRowCount(0)
         self._visible_project = None
-        owner = self._owner()
         if owner is None:
             self.note.setText("Сначала выберите проект.")
             return
