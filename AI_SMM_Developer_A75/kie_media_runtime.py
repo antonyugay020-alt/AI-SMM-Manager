@@ -175,9 +175,11 @@ class KieMediaGateway:
                 prompt,video_url,metadata,urls,resolution,aspect_ratio)
         return prepare(self.db,project_id,payload)
 
-    def start(self, project_id, job_id, *, explicit_paid_consent=False):
+    def start(self, project_id, job_id, *, explicit_paid_consent=False,
+              quoted_cost_cents=None):
         return submit(self.db,project_id,job_id,self.create_task,
-                      enable_paid=explicit_paid_consent)
+                      enable_paid=explicit_paid_consent,
+                      quoted_cost_cents=quoted_cost_cents)
 
     def refresh(self, project_id, job_id):
         return complete(self.db,project_id,job_id,self.query_task,
