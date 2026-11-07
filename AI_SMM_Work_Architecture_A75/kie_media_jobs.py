@@ -94,10 +94,15 @@ def _owned_row(db, project_id, job_id):
     return row
 
 
-def submit(db, project_id, job_id, create_task, *, enable_paid=False):
+def submit(db, project_id, job_id, create_task, *, enable_paid=False,
+           quoted_cost_cents=None):
     """Attempt one paid provider call; a crash/timeout cannot auto-resubmit."""
     if enable_paid is not True:
         raise RuntimeError("paid Kie media generation must be explicitly enabled")
+    # Quote must be verified by the caller, not guessed from an undocumented
+    # provider price. No paid network dispatch can bypass this requirement.
+    from kie_media_budget import _valid_cents, reserve_in_transaction
+    _valid_cents(quoted_cost_cents)
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
     row=_owned_row(db,project_id,job_id)
@@ -109,6 +114,8 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False):
             SET state='submitting',updated_at=? WHERE id=? AND project_id=?
             AND state='prepared'""",(utcnow(),job_id,project_id)).rowcount
         if updated!=1:raise RuntimeError("task submission fenced by another worker")
+        reserve_in_transaction(db,project_id=project_id,task_id=job_id,
+                               quote_cents=quoted_cost_cents)
         db.commit()
     except BaseException:
         db.rollback()
