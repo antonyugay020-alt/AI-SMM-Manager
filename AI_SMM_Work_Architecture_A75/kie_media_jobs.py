@@ -96,7 +96,7 @@ def _owned_row(db, project_id, job_id):
 
 def submit(db, project_id, job_id, create_task, *, enable_paid=False):
     """Attempt one paid provider call; a crash/timeout cannot auto-resubmit."""
-    if not enable_paid:
+    if enable_paid is not True:
         raise RuntimeError("paid Kie media generation must be explicitly enabled")
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
