@@ -2050,6 +2050,14 @@ class Studio(QMainWindow):
             blocks.addWidget(pane,1)
         gallery_lay.addLayout(blocks)
         self.pub_tabs.addTab(gallery_page,'Медиатека и блоки')
+        # Offline Kie task ledger: no provider traffic or paid dispatch from Qt.
+        from kie_media_queue_ui import KieMediaQueuePanel
+        self.kie_queue_panel = KieMediaQueuePanel(
+            self.core.db, lambda: self.current_project, self)
+        self.pub_tabs.addTab(self.kie_queue_panel, 'Kie.ai · задания')
+        self.pub_tabs.currentChanged.connect(
+            lambda index: self.kie_queue_panel.refresh()
+            if self.pub_tabs.widget(index) is self.kie_queue_panel else None)
         schedule_page=QWidget();schedule_lay=QVBoxLayout(schedule_page)
         schedule_lay.addWidget(QLabel('ОБЩЕЕ РАСПИСАНИЕ БЛОКА'))
         rules=QHBoxLayout()
