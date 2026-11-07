@@ -157,6 +157,39 @@ class KieMediaDurabilityTests(unittest.TestCase):
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM project_files").fetchone()[0],1)
 
+    def test_crash_after_publication_recovers_offline_without_status_poll(self):
+        ident=prepare(self.db,self.a,self.payload)
+        submit(self.db,self.a,ident,
+               lambda _ : {"code":200,"data":{"taskId":TASK}},
+               enable_paid=True)
+        status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
+                                   "state":"success",
+                                   "resultJson":json.dumps({"resultUrls":[URL]})}}
+        def save_image(_,path):
+            with Image.new("RGB",(64,64),color=(10,20,30)) as image:
+                image.save(path,"PNG")
+        published=complete(self.db,self.a,ident,lambda _:status,
+                           save_image,self.workspace)
+        # Simulate a crash after the durable project publication, but before
+        # the media task's terminal receipt transaction was committed.
+        self.db.execute("""UPDATE kie_media_tasks SET state='submitted',
+            output_path=NULL,result_sha256=NULL WHERE id=?""",(ident,))
+        self.db.commit()
+        no_network=Mock(side_effect=AssertionError("should reconcile locally"))
+        no_download=Mock(side_effect=AssertionError("should not redownload"))
+        self.assertEqual(complete(self.db,self.a,ident,no_network,
+                                  no_download,self.workspace),published)
+        no_network.assert_not_called()
+        no_download.assert_not_called()
+        receipt=self.db.execute(
+            "SELECT state,result_sha256 FROM kie_media_tasks WHERE id=?",
+            (ident,)).fetchone()
+        self.assertEqual(receipt[0],"completed")
+        self.assertEqual(len(receipt[1]),64)
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM project_files WHERE id=?",(ident,)
+        ).fetchone()[0],1)
+
     def test_completed_valid_image_tampering_fails_sha256_receipt(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
