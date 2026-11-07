@@ -23,7 +23,10 @@ def evidence(provider, diff, verdict=APPROVE, status="PASS", reason=None):
     parts = gate.split_review_diff(diff, max_chars=20_000, max_parts=24)
     return {"provider": provider, "status": status, "reason": reason,
             "diff_sha256": hashlib.sha256(diff.encode("utf-8")).hexdigest(),
-            "review_contract_sha256": "1" * 64,
+            "review_contract_sha256": gate.review_contract_digest(
+                provider, {"anthropic": "claude-sonnet-5-5",
+                           "kie": "claude-sonnet-5-5",
+                           "compatible": "independent-model"}[provider]),
             "segments_expected": len(parts), "segments_reviewed": len(parts),
             "reviews": [
                 {"index": i, "sha256": hashlib.sha256(part.encode("utf-8")).hexdigest(),
@@ -42,7 +45,8 @@ class FallbackTests(unittest.TestCase):
         self.backup = self.root / "backup.json"
         self.output = self.root / "gate.json"
         self.diff_path.write_text(self.diff, encoding="utf-8")
-        self.env = {"ALT_REVIEW_API_KEY": "dummy", "ALT_REVIEW_API_URL": "https://example.invalid/chat",
+        self.env = {"ANTHROPIC_MODEL": "claude-sonnet-5-5",
+                    "ALT_REVIEW_API_KEY": "dummy", "ALT_REVIEW_API_URL": "https://example.invalid/chat",
                     "ALT_REVIEW_MODEL": "independent-model"}
 
     def check(self, initial, runner=None, env=None):
@@ -143,6 +147,37 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(self.check(first, failed), 2)
         self.assertEqual(json.loads(self.output.read_text())["reason"],
                          "backup reviewer process failed")
+
+    def test_old_model_approval_cannot_certify_new_review_contract(self):
+        old = evidence("anthropic", self.diff)
+        runner = Mock()
+        env = {**self.env, "PRIMARY_REVIEW_PROVIDER": "anthropic",
+               "ANTHROPIC_MODEL": "claude-opus-5-5"}
+        self.assertEqual(self.check(old, runner, env=env), 2)
+        runner.assert_not_called()
+        self.assertEqual(json.loads(self.output.read_text())["status"], "BLOCKED")
+
+    def test_forged_contract_does_not_approve_or_trigger_paid_fallback(self):
+        stale = evidence("kie", self.diff)
+        stale["review_contract_sha256"] = "0" * 64
+        runner = Mock()
+        self.assertEqual(self.check(stale, runner), 2)
+        runner.assert_not_called()
+        stale["status"] = "BLOCKED"
+        stale["reason"] = "provider HTTP status 502"
+        self.assertEqual(self.check(stale, runner), 2)
+        runner.assert_not_called()
+
+    def test_backup_model_change_invalidates_old_backup_approval(self):
+        first = evidence("kie", self.diff, status="BLOCKED",
+                         reason="provider HTTP status 503")
+        def secondary(command, **kwargs):
+            self.backup.write_text(json.dumps(evidence("compatible", self.diff)),
+                                   encoding="utf-8")
+            return Mock(returncode=0)
+        env = {**self.env, "ALT_REVIEW_MODEL": "different-model"}
+        self.assertEqual(self.check(first, runner=secondary, env=env), 2)
+        self.assertEqual(json.loads(self.output.read_text())["status"], "BLOCKED")
 
     def test_invalid_primary_configuration_writes_blocked_evidence(self):
         invalid = {**self.env, "PRIMARY_REVIEW_PROVIDER": "untrusted"}
