@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   independent-review:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.authorize_paid_review == true && vars.AI_SMM_PAID_REVIEW_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.authorize_paid_review == true && vars.AI_SMM_PAID_REVIEW_ENABLED == 'true' }}
     environment: ai-smm-paid-review
     strategy:
       fail-fast: false
@@ -114,3 +114,21 @@ jobs:
             ci_evidence/review_cost_preflight.json
           if-no-files-found: warn
           retention-days: 30
+
+      # A successful verdict is valid only for the exact reviewed PR head.
+      # Re-check after artifacts: PR updates, closure or retargeting during
+      # a long paid review must not yield a green reviewer job.
+      - name: Confirm reviewed PR is still the authorized head
+        if: ${{ success() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          pr_json="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          [[ "$(jq -r '.state' <<<"$pr_json")" == "open" ]] || { echo 'BLOCKED: PR closed during independent review'; exit 2; }
+          [[ "$(jq -r '.base.ref' <<<"$pr_json")" == "main" ]] || { echo 'BLOCKED: PR base changed during independent review'; exit 2; }
+          [[ "$(jq -r '.head.repo.full_name' <<<"$pr_json")" == "$GITHUB_REPOSITORY" ]] || { echo 'BLOCKED: PR head repository changed'; exit 2; }
+          [[ "$(jq -r '.head.sha' <<<"$pr_json")" == "$EXPECTED_HEAD_SHA" ]] || { echo 'BLOCKED: PR changed during independent review'; exit 2; }
