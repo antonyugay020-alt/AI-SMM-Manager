@@ -28,36 +28,44 @@ def units(value):
 class DurableCostGate:
     def __init__(self, database_path):
         self.database_path = str(database_path)
+        # Serialize schema upgrades across GUI, worker and recovery processes.
+        # SQLite DDL participates in this transaction: a failed migration
+        # cannot leave a half-upgraded database behind.
         with self._connect() as db:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS cost_settings (
-                    id INTEGER PRIMARY KEY CHECK(id=1), cap INTEGER NOT NULL CHECK(cap>=0),
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_settings (
+                    id INTEGER PRIMARY KEY CHECK(id=1),
+                    cap INTEGER NOT NULL CHECK(cap>=0),
                     hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))
-                );
-                INSERT OR IGNORE INTO cost_settings(id,cap) VALUES(1,20000000);
-                CREATE TABLE IF NOT EXISTS cost_grants (
+                )""")
+                db.execute("INSERT OR IGNORE INTO cost_settings(id,cap) VALUES(1,20000000)")
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_grants (
                     token TEXT PRIMARY KEY, provider TEXT NOT NULL,
                     operation TEXT NOT NULL, period TEXT NOT NULL,
                     maximum INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
                     expires_at INTEGER NOT NULL DEFAULT 0
-                );
-                CREATE TABLE IF NOT EXISTS cost_reservations (
+                )""")
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_reservations (
                     id TEXT PRIMARY KEY, period TEXT NOT NULL,
                     amount INTEGER NOT NULL, actual INTEGER,
                     state TEXT NOT NULL CHECK(state IN ('reserved','settled','released'))
-                );
-            """)
-            # Preserve the budget of pre-hold installations during migration.
-            if "hold" not in {row[1] for row in db.execute("PRAGMA table_info(cost_settings)")}:
-                db.execute("ALTER TABLE cost_settings ADD COLUMN hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))")
-            # Existing unused grants are intentionally invalidated on upgrade.
-            if "expires_at" not in {row[1] for row in db.execute("PRAGMA table_info(cost_grants)")}:
-                db.execute("ALTER TABLE cost_grants ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
-            db.execute("""CREATE TABLE IF NOT EXISTS cost_audit (
-                id TEXT PRIMARY KEY, event TEXT NOT NULL,
-                reservation_id TEXT, evidence TEXT NOT NULL,
-                created_utc TEXT NOT NULL
-            )""")
+                )""")
+                if "hold" not in {row[1] for row in db.execute("PRAGMA table_info(cost_settings)")}:
+                    db.execute("ALTER TABLE cost_settings ADD COLUMN hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))")
+                # Invalidate unused legacy grants instead of silently
+                # treating them as permanent payment authorizations.
+                if "expires_at" not in {row[1] for row in db.execute("PRAGMA table_info(cost_grants)")}:
+                    db.execute("ALTER TABLE cost_grants ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_audit (
+                    id TEXT PRIMARY KEY, event TEXT NOT NULL,
+                    reservation_id TEXT, evidence TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                )""")
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
 
     def _connect(self):
         db = sqlite3.connect(self.database_path, timeout=30, isolation_level=None)
@@ -83,6 +91,28 @@ class DurableCostGate:
                 (token, provider, operation, self.period(), units(max_usd), int(time()) + 600))
         return token
 
+    @staticmethod
+    def _totals(db, period):
+        """Exact integer accounting even after multiple unexpected overcharges.
+
+        SQLite SUM() overflows at 2**63-1; a single verified charge is bounded
+        to that range, but the sum of several provider overcharges is not.
+        Never use floating-point total() for money or silently lose evidence.
+        """
+        spent = pending = 0
+        for amount, actual, state in db.execute(
+                "SELECT amount,actual,state FROM cost_reservations WHERE period=?",
+                (period,)):
+            if state == 'settled':
+                if actual is None or actual < 0:
+                    raise PaymentDenied("Corrupt settled provider charge")
+                spent += actual
+            elif state == 'reserved':
+                if amount is None or amount < 0:
+                    raise PaymentDenied("Corrupt pending provider reservation")
+                pending += amount
+        return spent + pending, spent, pending
+
     def reserve(self, provider, operation, estimate_usd, *, token=None):
         estimate = units(estimate_usd)
         if estimate <= 0:
@@ -96,9 +126,7 @@ class DurableCostGate:
                     (token, provider, operation, period, int(time()))).fetchone()
                 if grant is None or estimate > grant[0]:
                     raise PaymentDenied("Explicit matching approval required")
-                spent = db.execute(
-                    "SELECT COALESCE(SUM(CASE WHEN state='settled' THEN actual ELSE amount END),0) "
-                    "FROM cost_reservations WHERE period=? AND state!='released'", (period,)).fetchone()[0]
+                spent, _, _ = self._totals(db, period)
                 cap, hold = db.execute("SELECT cap,hold FROM cost_settings WHERE id=1").fetchone()
                 if hold:
                     raise PaymentDenied("Paid calls frozen: reconcile unexpected provider charge")
@@ -129,12 +157,11 @@ class DurableCostGate:
                 if overage:
                     db.execute("UPDATE cost_settings SET hold=1 WHERE id=1")
                 db.commit()
-                if overage:
-                    raise PaymentDenied("Provider charged above verified quote; actual charge recorded and paid calls frozen")
             except BaseException:
                 db.rollback()
                 raise
-
+        if overage:
+            raise PaymentDenied("Provider charged above verified quote; actual charge recorded and paid calls frozen")
 
     @staticmethod
     def _proof(evidence, confirmed_by_user):
@@ -201,12 +228,7 @@ class DurableCostGate:
             db.execute("BEGIN")
             try:
                 cap, hold = db.execute("SELECT cap,hold FROM cost_settings WHERE id=1").fetchone()
-                used, spent, pending = db.execute(
-                    "SELECT COALESCE(SUM(CASE WHEN state='settled' THEN actual "
-                    "WHEN state='reserved' THEN amount ELSE 0 END),0), "
-                    "COALESCE(SUM(CASE WHEN state='settled' THEN actual ELSE 0 END),0), "
-                    "COALESCE(SUM(CASE WHEN state='reserved' THEN amount ELSE 0 END),0) "
-                    "FROM cost_reservations WHERE period=?", (period,)).fetchone()
+                used, spent, pending = self._totals(db, period)
                 db.commit()
             except BaseException:
                 db.rollback()
