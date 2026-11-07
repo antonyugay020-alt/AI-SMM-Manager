@@ -210,10 +210,21 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         if not resolved.is_file():
             raise ValueError("existing media receipt has unsafe location")
         _validate_media_bytes(resolved,is_video=model.startswith("kling-"))
+        # Do not adopt modified-but-valid media as a new trusted receipt.
+        # The ingest outbox recorded the source digest before publication.
+        original=db.execute("""SELECT source_sha256,source_size,kind,state
+            FROM media_ingest_jobs WHERE id=? AND project_id=?""",
+            (job_id,project_id)).fetchone()
+        if (original is None or original[2]!=expected_kind or
+                original[3]!="done" or resolved.stat().st_size!=original[1]):
+            raise ValueError("published media receipt is not verified")
+        digest=_digest_file(resolved)
+        if digest!=original[0]:
+            raise ValueError("published media content differs from ingest receipt")
         db.execute("""UPDATE kie_media_tasks SET state='completed',
             output_path=?,result_sha256=?,updated_at=? WHERE id=? AND project_id=?
             AND state='submitted'""",
-            (str(resolved),_digest_file(resolved),utcnow(),job_id,project_id))
+            (str(resolved),digest,utcnow(),job_id,project_id))
         db.commit()
         return str(resolved)
     status=query_task(provider_id)
