@@ -46,6 +46,11 @@ class KieMediaDurabilityTests(unittest.TestCase):
         """Offline provider simulator still needs the real paid ledger fence."""
         if enable_paid is not True:
             return submit(self.db,project,job_id,transport,enable_paid=enable_paid)
+        from kie_media_jobs import _owned_row
+        row=_owned_row(self.db,project,job_id)
+        if row[3]!="prepared":
+            return submit(self.db,project,job_id,transport,enable_paid=True,
+                          cost_gate=DurableCostGate(self.root/"paid-ledger.sqlite"))
         gate=DurableCostGate(self.root/"paid-ledger.sqlite")
         operation="media:"+job_id
         token=gate.approve("kie.ai",operation,"1")
