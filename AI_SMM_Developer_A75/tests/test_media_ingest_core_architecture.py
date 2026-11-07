@@ -76,6 +76,31 @@ class DurableMediaTests(unittest.TestCase):
         self.assertEqual(replay(self.db,self.workspace)['failed'],1)
         self.assertFalse(receipt.final_path.exists())
 
+    def test_published_media_is_independent_of_recovery_spool(self):
+        import hashlib
+        receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+        self.assertTrue(receipt.published)
+        sha=hashlib.sha256(b'valid-binary-source').hexdigest()
+        spool=self.workspace(self.p1)/'.ingest_spool'/sha
+        self.assertFalse(os.path.samefile(spool,receipt.final_path))
+        receipt.final_path.write_bytes(b'edited-by-user-after-publication')
+        self.assertEqual(spool.read_bytes(),b'valid-binary-source')
+        self.assertEqual(self.db.execute('SELECT state FROM media_ingest_jobs').fetchone()[0],'done')
+
+    def test_publication_link_failure_leaves_spool_and_pending_intent(self):
+        import media_ingest_core
+        with patch.object(media_ingest_core,'replay',return_value={'completed':0,'failed':0,'pending':1}):
+            receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
+        folder=receipt.final_path.parent
+        with patch.object(media_ingest_core.os,'link',side_effect=OSError('simulated publish failure')):
+            result=replay(self.db,self.workspace)
+        self.assertEqual(result['failed'],1)
+        self.assertFalse(receipt.final_path.exists())
+        self.assertEqual(list(folder.glob('.publish-*')),[])
+        self.assertEqual(self.db.execute('SELECT state FROM media_ingest_jobs').fetchone()[0],'pending')
+        self.assertEqual(replay(self.db,self.workspace)['completed'],1)
+        self.assertTrue(receipt.final_path.exists())
+
     def test_db_rejection_keeps_registered_assets_empty(self):
         self.db.execute("CREATE TRIGGER reject_asset BEFORE INSERT ON assets BEGIN SELECT RAISE(ABORT,'no'); END")
         with self.assertRaises(sqlite3.DatabaseError):
