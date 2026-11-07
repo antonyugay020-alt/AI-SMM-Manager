@@ -50,7 +50,7 @@ def verified_complete(report, provider, chunks, diff_sha, expected_contract):
 
 
 def permitted_backup(primary, diff_sha, expected_contract):
-    if not isinstance(primary, dict):
+    if not expected_contract or not isinstance(primary, dict):
         return False
     if primary.get("provider") not in ("kie", "anthropic") or primary.get("diff_sha256") != diff_sha:
         return False
