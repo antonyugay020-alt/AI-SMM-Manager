@@ -219,6 +219,27 @@ class KieMediaDurabilityTests(unittest.TestCase):
             "SELECT state FROM kie_media_tasks WHERE id=?",(ident,)
         ).fetchone()[0],"submitted")
 
+    def test_truncated_png_never_crosses_publication_boundary(self):
+        ident=prepare(self.db,self.a,self.payload)
+        submit(self.db,self.a,ident,
+               lambda _: {"code":200,"data":{"taskId":TASK}},
+               enable_paid=True)
+        status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
+            "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
+        def truncated(_,target):
+            stream=io.BytesIO()
+            with Image.new("RGB",(256,256),color=(1,10,100)) as picture:
+                picture.save(stream,format="PNG")
+            data=stream.getvalue()
+            Path(target).write_bytes(data[:max(40,len(data)//3)])
+        with self.assertRaises(ValueError):
+            complete(self.db,self.a,ident,lambda _:status,truncated,self.workspace)
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM project_files").fetchone()[0],0)
+        self.assertEqual(self.db.execute(
+            "SELECT state FROM kie_media_tasks WHERE id=?",(ident,)
+        ).fetchone()[0],"submitted")
+
     def test_completed_valid_image_tampering_fails_sha256_receipt(self):
         ident=prepare(self.db,self.a,self.payload)
         submit(self.db,self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
