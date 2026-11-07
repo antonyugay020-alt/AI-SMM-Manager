@@ -193,6 +193,7 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         return str(dest)
     if state!="submitted" or not provider_id or not TASK_ID.fullmatch(provider_id):
         raise RuntimeError("task has no confirmed remote ID")
+    from media_ingest_core import ingest, replay
     # Crash-safe reconciliation: a prior run may have durably published the
     # result and crashed before marking the remote task completed.
     existing=db.execute("""SELECT kind,path FROM project_files WHERE id=?
@@ -242,7 +243,6 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         raise ValueError("Kie task returned no single verified result URL")
     from kie_media_contracts import _url
     _url(urls[0])
-    from media_ingest_core import ingest, replay
     from project_file_boundary import require_managed_folder
     root=Path(workspace(project_id))
     spool=require_managed_folder(root,".kie_downloads")
