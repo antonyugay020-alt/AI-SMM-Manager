@@ -33,7 +33,7 @@ def install(db: sqlite3.Connection):
         model TEXT NOT NULL, payload_json TEXT NOT NULL,
         payload_sha256 TEXT NOT NULL, state TEXT NOT NULL,
         provider_task_id TEXT UNIQUE, output_path TEXT,
-        result_sha256 TEXT,
+        result_sha256 TEXT, cost_reservation_id TEXT,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         error_code TEXT, CHECK (state IN (
         'prepared','submitting','submitted','completed','failed',
@@ -41,6 +41,8 @@ def install(db: sqlite3.Connection):
     columns={row[1] for row in db.execute("PRAGMA table_info(kie_media_tasks)")}
     if "result_sha256" not in columns:
         db.execute("ALTER TABLE kie_media_tasks ADD COLUMN result_sha256 TEXT")
+    if "cost_reservation_id" not in columns:
+        db.execute("ALTER TABLE kie_media_tasks ADD COLUMN cost_reservation_id TEXT")
     db.execute("""CREATE INDEX IF NOT EXISTS kie_media_task_owner
         ON kie_media_tasks(project_id,created_at)""")
 
@@ -94,7 +96,8 @@ def _owned_row(db, project_id, job_id):
     return row
 
 
-def submit(db, project_id, job_id, create_task, *, enable_paid=False):
+def submit(db, project_id, job_id, create_task, *, enable_paid=False,
+           payment_reservation=None):
     """Attempt one paid provider call; a crash/timeout cannot auto-resubmit."""
     if enable_paid is not True:
         raise RuntimeError("paid Kie media generation must be explicitly enabled")
@@ -106,8 +109,9 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False):
     try:
         db.execute("BEGIN IMMEDIATE")
         updated=db.execute("""UPDATE kie_media_tasks
-            SET state='submitting',updated_at=? WHERE id=? AND project_id=?
-            AND state='prepared'""",(utcnow(),job_id,project_id)).rowcount
+            SET state='submitting',cost_reservation_id=?,updated_at=?
+            WHERE id=? AND project_id=? AND state='prepared'""",
+            (payment_reservation,utcnow(),job_id,project_id)).rowcount
         if updated!=1:raise RuntimeError("task submission fenced by another worker")
         db.commit()
     except BaseException:
