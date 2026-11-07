@@ -148,6 +148,30 @@ class KieMediaQueueQtTests(unittest.TestCase):
         self.assertEqual(snapshot(self.db)["limit_cents"],2000)
         self.assertEqual(self.view.monthly_limit.value(),20.00)
 
+    def test_smm_route_preview_only_claims_verified_ffmpeg_capabilities(self):
+        self.view.smm_task.setCurrentText("video_cut")
+        self.view.smm_source_count.setValue(2)
+        with patch("kie_media_queue_ui.shutil.which",return_value="/usr/bin/ffmpeg"):
+            self.view.preview_route()
+        self.assertIn("local-ffmpeg",self.view.route_status.text())
+        self.view.smm_task.setCurrentText("image_remove_background")
+        with patch("kie_media_queue_ui.shutil.which",return_value="/usr/bin/ffmpeg"):
+            self.view.preview_route()
+        self.assertIn("Нет подтверждённого исполнителя",self.view.route_status.text())
+
+    def test_smm_route_missing_reference_or_ffmpeg_fails_closed(self):
+        self.view.smm_task.setCurrentText("video_style_reference")
+        self.view.smm_source_count.setValue(1)
+        self.view.smm_reference.setChecked(False)
+        with patch("kie_media_queue_ui.shutil.which",return_value=None):
+            self.view.preview_route()
+        self.assertIn("Маршрут недоступен",self.view.route_status.text())
+        self.view.smm_reference.setChecked(True)
+        self.view.smm_task.setCurrentText("video_cut")
+        with patch("kie_media_queue_ui.shutil.which",return_value=None):
+            self.view.preview_route()
+        self.assertIn("Нет подтверждённого исполнителя",self.view.route_status.text())
+
     def test_stale_selection_cannot_delete_foreign_project(self):
         a = prepare(self.db, "project-a", self.payload)
         b = prepare(self.db, "project-b", self.payload)
