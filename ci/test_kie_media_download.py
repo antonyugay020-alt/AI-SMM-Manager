@@ -56,6 +56,14 @@ class KieDownloaderTests(unittest.TestCase):
                             opener=lambda *a,**k:FakeResponse(b"data",{"Content-Length":size}))
                     self.assertFalse(target.exists())
 
+    def test_short_body_is_not_published_when_content_length_disagrees(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/"image.png"
+            with self.assertRaisesRegex(ValueError,"content-length mismatch"):
+                dl.download_result("https://cdn.example.org/image.png",target,
+                    opener=lambda *a,**k:FakeResponse(b"short",{"Content-Length":"20"}))
+            self.assertEqual(list(Path(temp).iterdir()),[])
+
     def test_streaming_limit_checked_even_without_content_length(self):
         with tempfile.TemporaryDirectory() as temp:
             target=Path(temp)/"image.png"

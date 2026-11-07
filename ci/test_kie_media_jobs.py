@@ -100,6 +100,34 @@ class KieMediaDurabilityTests(unittest.TestCase):
         self.assertEqual(recover_pending(self.db,self.a),[(ident,TASK)])
         self.assertEqual(recover_pending(self.db,self.b),[])
 
+    def test_recovery_during_dispatch_keeps_confirmed_provider_receipt(self):
+        ident=prepare(self.db,self.a,self.payload)
+        observer=sqlite3.connect(self.root/"state.sqlite")
+        self.addCleanup(observer.close)
+        def dispatch(_):
+            self.assertEqual(recover_pending(observer,self.a),[])
+            return {"code":200,"data":{"taskId":TASK}}
+        self.assertEqual(self.paid_submit(self.a,ident,dispatch,enable_paid=True),TASK)
+        self.assertEqual(recover_pending(observer,self.a),[(ident,TASK)])
+        self.assertIsNone(self.db.execute(
+            "SELECT error_code FROM kie_media_tasks WHERE id=?",(ident,)
+        ).fetchone()[0])
+
+    def test_duplicate_remote_id_is_uncertain_and_cannot_rebill(self):
+        first=prepare(self.db,self.a,self.payload)
+        second=prepare(self.db,self.a,self.payload)
+        response=lambda _: {"code":200,"data":{"taskId":TASK}}
+        self.paid_submit(self.a,first,response,enable_paid=True)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.paid_submit(self.a,second,response,enable_paid=True)
+        self.assertFalse(self.db.in_transaction)
+        state=list_project_tasks(self.db,self.a)
+        self.assertEqual(next(x for x in state if x["id"]==second)["state"],
+                         "submission_unknown")
+        with self.assertRaises(RuntimeError):
+            self.paid_submit(self.a,second,Mock(),enable_paid=True)
+        self.assertEqual(DurableCostGate(self.root/"paid-ledger.sqlite").usage()["committed_usd"],2)
+
     def test_non_boolean_paid_consent_is_rejected_without_transport(self):
         ident=prepare(self.db,self.a,self.payload)
         create=Mock()
@@ -202,6 +230,25 @@ class KieMediaDurabilityTests(unittest.TestCase):
                          published)
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM project_files").fetchone()[0],1)
+
+    def test_killed_download_staging_does_not_block_recovery(self):
+        ident=prepare(self.db,self.a,self.payload)
+        self.paid_submit(self.a,ident,lambda _:{"code":200,"data":{"taskId":TASK}},
+                         enable_paid=True)
+        spool=self.workspace(self.a)/".kie_downloads"
+        spool.mkdir(parents=True)
+        stale=spool/(ident+".png")
+        stale.write_bytes(b"interrupted legacy attempt")
+        status={"code":200,"data":{"taskId":TASK,"model":"nano-banana-pro",
+            "state":"success","resultJson":json.dumps({"resultUrls":[URL]})}}
+        def download(_,path):
+            self.assertNotEqual(path,stale)
+            with Image.new("RGB",(64,64)) as image:
+                image.save(path,"PNG")
+        result=complete(self.db,self.a,ident,lambda _:status,download,self.workspace)
+        self.assertTrue(Path(result).is_file())
+        self.assertEqual(stale.read_bytes(),b"interrupted legacy attempt")
+        self.assertEqual(len(list(spool.iterdir())),1)
 
     def test_crash_after_publication_recovers_offline_without_status_poll(self):
         ident=prepare(self.db,self.a,self.payload)

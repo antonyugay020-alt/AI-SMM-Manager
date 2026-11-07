@@ -1,11 +1,12 @@
-"""Project-scoped Qt view of durable Kie media jobs. Offline only.
+"""Project-scoped Qt view of durable Kie media jobs and explicit background result refresh.
 
-This panel intentionally cannot submit a paid task or guess provider status
-routes. It shows verified local task state and can discard unpaid drafts only.
+Paid submission stays disabled without a verified quote and approval. Result
+refresh uses a separately owned worker and never resubmits a paid task.
 """
 from __future__ import annotations
 
 import shutil
+import sqlite3
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -27,12 +28,14 @@ _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID з
 class KieMediaQueuePanel(QWidget):
     """Resolve project identity on every read, and freeze it for every action."""
 
-    def __init__(self, db, current_project, parent=None, *, cost_gate=None):
+    def __init__(self, db, current_project, parent=None, *, cost_gate=None, result_worker_factory=None):
         super().__init__(parent)
         if not callable(current_project):
             raise TypeError("current_project must be callable")
         if cost_gate is not None and not isinstance(cost_gate, DurableCostGate):
             raise TypeError("cost_gate must be the shared durable paid ledger")
+        self._result_worker_factory = result_worker_factory
+        self._result_worker = None
         self._db = db
         self._cost_gate = cost_gate
         self._current_project = current_project
@@ -40,8 +43,8 @@ class KieMediaQueuePanel(QWidget):
         layout = QVBoxLayout(self)
         explanation = QLabel(
             "Kie.ai · локальная очередь заданий. Платная генерация отключена. "
-            "Загрузка файлов и опрос API ещё не подключены; состояние обновляется "
-            "только из сохранённой базы проекта."
+            "Список читается из базы проекта. Кнопка получения результата "
+            "проверяет только уже подтверждённые задания Kie.ai; повторной оплаты нет."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -101,6 +104,10 @@ class KieMediaQueuePanel(QWidget):
         reload_button = QPushButton("Обновить список")
         reload_button.clicked.connect(self.refresh)
         toolbar.addWidget(reload_button)
+        self.fetch_button = QPushButton("Получить результат Kie.ai")
+        self.fetch_button.setEnabled(callable(result_worker_factory))
+        self.fetch_button.clicked.connect(self.fetch_selected_result)
+        toolbar.addWidget(self.fetch_button)
         discard_button = QPushButton("Удалить неоплаченную заготовку")
         discard_button.clicked.connect(self.discard_selected)
         toolbar.addWidget(discard_button)
@@ -218,7 +225,7 @@ class KieMediaQueuePanel(QWidget):
             # No provider request or automatic paid retry is ever made here.
             recover_pending(self._db, owner)
             jobs = list_project_tasks(self._db, owner, limit=200)
-        except (ValueError, RuntimeError, OSError) as exc:
+        except (ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
             self.note.setText("Очередь недоступна: " + str(exc))
             return
         self._visible_project = owner
@@ -249,7 +256,7 @@ class KieMediaQueuePanel(QWidget):
             if self._owner() != owner:
                 raise RuntimeError("Проект изменился во время подготовки задания")
             prepare(self._db, owner, payload)
-        except (ValueError, RuntimeError, OSError) as exc:
+        except (ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
             self.note.setText("Черновик не сохранён: " + str(exc))
             return
         self.prompt.clear()
@@ -268,7 +275,7 @@ class KieMediaQueuePanel(QWidget):
             return
         try:
             info=preview_prepared_task(self._db,owner,item.data(Qt.UserRole))
-        except (ValueError,RuntimeError,OSError) as exc:
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
             QMessageBox.warning(self,"Kie.ai","Черновик недоступен: "+str(exc))
             self.refresh()
             return
@@ -310,6 +317,69 @@ class KieMediaQueuePanel(QWidget):
             return
         try:
             abandon_prepared(self._db, owner, job_id)
-        except (ValueError, RuntimeError, OSError) as exc:
+        except (ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Kie.ai", str(exc))
         self.refresh()
+
+    def fetch_selected_result(self):
+        if self._result_worker is not None or not callable(self._result_worker_factory):
+            return
+        owner = self._owner()
+        if owner is None or owner != self._visible_project:
+            self.refresh()
+            return
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        item = self.table.item(row, 3)
+        if item is None:
+            return
+        job = item.data(Qt.UserRole)
+        try:
+            worker = self._result_worker_factory(owner, job)
+        except (ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
+            self.note.setText("Результат недоступен: " + type(exc).__name__)
+            return
+        # Factory must not launch work before the frozen owner is checked.
+        if self._owner() != owner:
+            return
+        self._result_worker = worker
+        worker.setParent(self)
+        worker.done.connect(self._result_done)
+        worker.failed.connect(self._result_failed)
+        worker.finished.connect(self._result_finished)
+        # Studio.closeEvent already checks this native-thread ownership list.
+        window = self.window()
+        if not hasattr(window, '_background_workers'):
+            window._background_workers = []
+        window._background_workers.append(worker)
+        self._worker_window = window
+        self.fetch_button.setEnabled(False)
+        worker.start()
+
+    def _result_done(self, owner, job, output):
+        if owner == self._owner():
+            self.refresh()
+            self.note.setText("Результат сохранён и проверен." if output else
+                              "Задание ещё выполняется в Kie.ai.")
+
+    def _result_failed(self, owner, job, code):
+        if owner == self._owner():
+            self.note.setText("Не удалось получить результат: " + code +
+                              ". Повторная платная отправка не выполнялась.")
+
+    def _result_finished(self):
+        worker = self._result_worker
+        if worker is not None:
+            workers = self._worker_window._background_workers
+            if worker in workers:
+                workers.remove(worker)
+            self._result_worker = None
+            worker.deleteLater()
+        self.fetch_button.setEnabled(callable(self._result_worker_factory))
+
+    def closeEvent(self, event):
+        if self._result_worker is not None and self._result_worker.isRunning():
+            event.ignore()
+            return
+        super().closeEvent(event)

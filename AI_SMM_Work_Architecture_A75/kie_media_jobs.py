@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,11 +137,25 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False,
             (utcnow(),job_id,project_id))
         db.commit()
         raise
-    db.execute("""UPDATE kie_media_tasks
-        SET state='submitted',provider_task_id=?,updated_at=?
-        WHERE id=? AND project_id=? AND state='submitting'""",
-        (provider_id,utcnow(),job_id,project_id))
-    db.commit()
+    try:
+        updated=db.execute("""UPDATE kie_media_tasks
+            SET state='submitted',provider_task_id=?,error_code=NULL,updated_at=?
+            WHERE id=? AND project_id=? AND (state='submitting' OR
+            (state='submission_unknown' AND error_code='interrupted_paid_submission'))""",
+            (provider_id,utcnow(),job_id,project_id)).rowcount
+        if updated!=1:
+            raise RuntimeError("confirmed provider task could not be recorded")
+        db.commit()
+    except BaseException:
+        db.rollback()
+        # A confirmed response can still collide with an existing provider ID.
+        # Preserve the allocation and prevent any second paid dispatch.
+        db.execute("""UPDATE kie_media_tasks SET state='submission_unknown',
+            error_code='provider_receipt_unconfirmed',updated_at=?
+            WHERE id=? AND project_id=? AND state='submitting'""",
+            (utcnow(),job_id,project_id))
+        db.commit()
+        raise
     return provider_id
 
 
@@ -185,7 +200,8 @@ def _validate_media_bytes(path, *, is_video):
         if not any(item.get("codec_type")=="video"
                    for item in metadata.get("streams",[]) if isinstance(item,dict)):
             raise ValueError("downloaded media has no video stream")
-        if float(metadata.get("format",{}).get("duration",0))<=0:
+        duration=float(metadata.get("format",{}).get("duration",0))
+        if not math.isfinite(duration) or duration<=0:
             raise ValueError("downloaded video duration invalid")
 
 
@@ -282,18 +298,27 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
     fmt=json.loads(row[1])["input"].get("output_format","png")
     ext=".mp4" if model.startswith("kling-") else (
         ".jpg" if fmt in ("jpg","jpeg") else ".png")
-    staged=spool/(job_id+ext)
-    if staged.exists() or staged.is_symlink():
-        raise ValueError("stale media staging file requires reconciliation")
+    # Each attempt owns its staging file. A killed downloader or another
+    # polling worker cannot block recovery or have its file unlinked by us.
+    staged=spool/(job_id+"-"+uuid4().hex+ext)
     try:
         fetch_verified_file(urls[0],staged)
         if not staged.is_file() or staged.is_symlink() or staged.stat().st_size==0:
             raise ValueError("downloaded Kie result missing or invalid")
         _validate_media_bytes(staged, is_video=model.startswith("kling-"))
         kind="video" if model.startswith("kling-") else "result"
-        receipt=ingest(db,workspace,staged,project_id=project_id,
-                       kind=kind,original_name="kie-"+job_id+ext,
-                       item_id=job_id)
+        try:
+            receipt=ingest(db,workspace,staged,project_id=project_id,
+                           kind=kind,original_name="kie-"+job_id+ext,
+                           item_id=job_id)
+        except (sqlite3.IntegrityError, FileExistsError):
+            # Another polling process may have committed this exact identity
+            # after our initial lookup. Reconcile through the authenticated
+            # ingest receipt; never accept an arbitrary conflicting file.
+            if not db.execute("SELECT 1 FROM project_files WHERE id=? AND project_id=?",
+                              (job_id,project_id)).fetchone():
+                raise
+            return complete(db,project_id,job_id,query_task,fetch_verified_file,workspace)
         if not receipt.published:
             raise RuntimeError("media result committed but publication pending")
         db.execute("""UPDATE kie_media_tasks SET state='completed',

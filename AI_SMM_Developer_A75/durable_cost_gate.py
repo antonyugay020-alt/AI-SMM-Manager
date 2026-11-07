@@ -5,6 +5,7 @@ provider charge. Never release a reservation after an ambiguous network failure:
 the charge may have succeeded. Reconcile it manually/provider-side instead.
 """
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from decimal import Decimal
 from time import time
@@ -31,7 +32,7 @@ class DurableCostGate:
         # Serialize schema upgrades across GUI, worker and recovery processes.
         # SQLite DDL participates in this transaction: a failed migration
         # cannot leave a half-upgraded database behind.
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 db.execute("""CREATE TABLE IF NOT EXISTS cost_settings (
@@ -84,14 +85,14 @@ class DurableCostGate:
 
     def set_monthly_cap(self, amount_usd):
         cap = units(amount_usd)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("UPDATE cost_settings SET cap=? WHERE id=1", (cap,))
 
     def approve(self, provider, operation, max_usd):
         if not provider or not operation:
             raise PaymentDenied("Missing provider or operation")
         token = uuid4().hex
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute(
                 "INSERT INTO cost_grants(token,provider,operation,period,maximum,expires_at) VALUES(?,?,?,?,?,?)",
                 (token, provider, operation, self.period(), units(max_usd), int(time()) + 600))
@@ -124,7 +125,7 @@ class DurableCostGate:
         if estimate <= 0:
             raise PaymentDenied("A paid operation needs a positive verified maximum quote")
         period = self.period()
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 grant = db.execute(
@@ -172,7 +173,7 @@ class DurableCostGate:
 
     def assert_reservation(self, reservation, provider, operation):
         """Preflight only; does not consume the one-use network dispatch right."""
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN")
             try:
                 self._require_active(db, reservation, provider, operation)
@@ -188,7 +189,7 @@ class DurableCostGate:
         The claim survives crashes and ambiguous timeouts. Neither a second
         process nor a direct client call can replay a paid reservation.
         """
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 self._require_active(db, reservation, provider, operation)
@@ -206,7 +207,7 @@ class DurableCostGate:
 
     def settle(self, reservation, actual_usd):
         actual = units(actual_usd)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute("SELECT amount,state FROM cost_reservations WHERE id=?", (reservation,)).fetchone()
@@ -242,7 +243,7 @@ class DurableCostGate:
         """
         reference = self._proof(evidence, confirmed_by_user)
         actual = units(actual_usd)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute("SELECT amount,state FROM cost_reservations WHERE id=?",
@@ -267,7 +268,7 @@ class DurableCostGate:
     def clear_paid_hold(self, *, evidence, confirmed_by_user=False):
         """Explicitly clear an overcharge hold only after all uncertain calls are resolved."""
         reference = self._proof(evidence, confirmed_by_user)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 outstanding = db.execute(
@@ -286,7 +287,7 @@ class DurableCostGate:
 
     def usage(self, period=None):
         period = period or self.period()
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN")
             try:
                 cap, hold = db.execute("SELECT cap,hold FROM cost_settings WHERE id=1").fetchone()

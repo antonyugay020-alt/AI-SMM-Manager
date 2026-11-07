@@ -68,6 +68,8 @@ def download_result(url, target, *, opener=None):
                 os.fsync(stream.fileno())
         if total==0:
             raise ValueError("Kie result download empty")
+        if length is not None and total!=int(length):
+            raise ValueError("Kie result content-length mismatch")
         if path.exists() or path.is_symlink():
             raise ValueError("Kie result destination created concurrently")
         os.link(temporary,path)

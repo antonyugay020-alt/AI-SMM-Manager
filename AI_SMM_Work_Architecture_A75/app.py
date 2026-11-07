@@ -2061,12 +2061,14 @@ class Studio(QMainWindow):
             blocks.addWidget(pane,1)
         gallery_lay.addLayout(blocks)
         self.pub_tabs.addTab(gallery_page,'Медиатека и блоки')
-        # Offline Kie task ledger: no provider traffic or paid dispatch from Qt.
+        # Kie ledger and explicit result refresh; no paid dispatch at startup.
         from kie_media_queue_ui import KieMediaQueuePanel
         self.kie_queue_panel = KieMediaQueuePanel(
             self.core.db, lambda: self.current_project, self,
             cost_gate=(self.paid_media.cost_gate
-                       if self.paid_media is not None else None))
+                       if self.paid_media is not None else None),
+            result_worker_factory=(self.paid_media.result_worker
+                                   if self.paid_media is not None else None))
         self.pub_tabs.addTab(self.kie_queue_panel, 'Kie.ai · задания')
         self.pub_tabs.currentChanged.connect(
             lambda index: self.kie_queue_panel.refresh()
