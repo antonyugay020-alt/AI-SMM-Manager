@@ -59,12 +59,18 @@ jobs:
   review-transport-contract:
     name: Independent reviewer / offline protocol contract
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+      - name: Install Qt Linux runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0
       - name: Verify provider failover cannot bypass independent review
         run: python -m unittest discover -s ci -p 'test_*review*.py' -v
       - name: Install media and Qt dependencies for offline contracts
