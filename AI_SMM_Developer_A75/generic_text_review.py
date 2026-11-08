@@ -148,6 +148,9 @@ def list_installed_ollama_models(endpoint='http://127.0.0.1:11434/api/tags'):
         lowered = name.casefold()
         if name and not any(token in lowered for token in ('embed', 'embedding', 'rerank', 'whisper', 'clip', 'tts')):
             names.append(name)
+    if os.environ.get('AI_SMM_QA_LOCAL_ONLY')=='1':
+        allowed=json.loads(os.environ.get('AI_SMM_QA_ALLOWED_MODELS','[]'))
+        names=[name for name in names if name in allowed]
     return list(dict.fromkeys(names))
 
 

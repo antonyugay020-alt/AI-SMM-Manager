@@ -15,7 +15,7 @@ import time
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--profiles',required=True);parser.add_argument('--profile',required=True);parser.add_argument('--cancel',action='store_true');parser.add_argument('--corrupt-paid-ledger',action='store_true')
+    parser=argparse.ArgumentParser();parser.add_argument('--profiles',required=True);parser.add_argument('--profile',required=True);parser.add_argument('--cancel',action='store_true');parser.add_argument('--corrupt-paid-ledger',action='store_true');parser.add_argument('--lifecycle',action='store_true')
     args=parser.parse_args()
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'AI_SMM_Work_Architecture_A75'))
     os.environ['AI_SMM_GENERATIVE_CONFIG']=str(Path(args.profiles).resolve());os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -33,6 +33,7 @@ def main():
         profile=profiles()[args.profile];manifest=verify_bundle(profile)
         video=profile['engine']=='animatediff_v2v'
         if profile['engine'] not in ('instruct_pix2pix','animatediff_v2v'):raise ValueError('This isolated smoke exercises instruction/video topology; all engines require Windows acceptance plan')
+        if args.lifecycle:os.environ['AI_SMM_QA_LOCAL_ONLY']='1';os.environ['AI_SMM_QA_ALLOWED_MODELS']='[]'
         qapp=QApplication.instance() or QApplication([]);window=Studio();window.show()
         if args.corrupt_paid_ledger:assert window.paid_media is None
         owner=window.core.projects.create(root/'projects','Real local generation','Other','Isolated inference smoke',now());window.current_project=owner
@@ -78,8 +79,12 @@ def main():
                     with Image.open(row[2]) as image:assert image.size==(64,64)
                 execution=json.loads(receipt)
             assert digest(imported.final_path)==original
+            lifecycle_proof=None
+            if args.lifecycle and not args.cancel:
+                from media_lifecycle_acceptance import exercise
+                lifecycle_proof=exercise(window,panel,qapp,owner,row[0],root/'lifecycle')
             print(json.dumps({'status':'PASS','scope':'actual Qt GUI, separate offline Diffusers process, SQLite, original integrity and shutdown',
-                'real_neural_inference':not args.cancel,'video':video,'cancelled':args.cancel,'paid_ledger_corrupt':args.corrupt_paid_ledger,'elapsed_seconds':round(time.monotonic()-started,2),'execution':execution,
+                'lifecycle':lifecycle_proof,'real_neural_inference':not args.cancel,'video':video,'cancelled':args.cancel,'paid_ledger_corrupt':args.corrupt_paid_ledger,'elapsed_seconds':round(time.monotonic()-started,2),'execution':execution,
                 'test_only_model':manifest['provenance'].get('test_only',False),'semantic_quality_accepted':False,'windows_e2e':False,'paid_api_calls':0}))
         finally:
             if panel._result_worker is not None:

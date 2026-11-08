@@ -126,8 +126,10 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline):
         output=result.images[0]
         if task=='image_inpaint':output=Image.composite(output,first,image(inputs[1],width,height,mask=True))
         output.save(target,'PNG')
-    receipt={'engine':profile['engine'],'manifest_sha256':profile['manifest_sha256'],
-        'device':profile['device'],'dtype':str(dtype),'torch_version':torch.__version__,'diffusers_version':__import__('diffusers').__version__ if pipeline_loader is load_pipeline else 'fixture','peak_cuda_bytes':torch.cuda.max_memory_allocated(0) if profile['device']=='cuda' else None,'seed':seed,'frames':request.get('frames') if task=='video_generative' else None}
+    from importlib.metadata import version
+    runtime_versions={name:version(name) for name in ('torch','diffusers','transformers','accelerate','safetensors')} if pipeline_loader is load_pipeline else {'fixture':True}
+    receipt={'runtime_versions':runtime_versions,'engine':profile['engine'],'manifest_sha256':profile['manifest_sha256'],
+        'device':profile['device'],'dtype':str(dtype),'torch_version':torch.__version__,'diffusers_version':__import__('diffusers').__version__ if pipeline_loader is load_pipeline else 'fixture','peak_cuda_bytes':torch.cuda.max_memory_allocated(0) if profile['device']=='cuda' else None,'peak_cuda_reserved_bytes':torch.cuda.max_memory_reserved(0) if profile['device']=='cuda' else None,'seed':seed,'frames':request.get('frames') if task=='video_generative' else None}
     (target.parent/'generation_receipt.json').write_text(json.dumps(receipt),encoding='utf-8')
 
 

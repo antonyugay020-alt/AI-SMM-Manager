@@ -233,6 +233,7 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
               environ=None, payment=None):
     from cooperative_cancellation import check_cancelled
     check_cancelled()
+    if os.environ.get('AI_SMM_QA_LOCAL_ONLY')=='1' or (environ or {}).get('AI_SMM_QA_LOCAL_ONLY')=='1':raise RuntimeError('All external model APIs disabled in local Windows QA')
     parsed = parse_cloud_model(model)
     if parsed is None:
         raise ValueError('Неизвестный формат облачной модели')

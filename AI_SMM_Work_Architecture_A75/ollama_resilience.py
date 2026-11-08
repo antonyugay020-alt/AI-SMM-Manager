@@ -257,6 +257,10 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
     model = str(payload.get('model') or '').strip()
     from text_providers import parse_cloud_model
     cloud_model = parse_cloud_model(model)
+    if __import__('os').environ.get('AI_SMM_QA_LOCAL_ONLY')=='1':
+        allowed=json.loads(__import__('os').environ.get('AI_SMM_QA_ALLOWED_MODELS','[]'))
+        from text_providers import is_ollama_cloud_tag
+        if cloud_model is not None or is_ollama_cloud_tag(model) or model not in allowed:raise RuntimeError('QA forbids unapproved/cloud model transport')
     req = None
     if cloud_model is None:
         req = urllib.request.Request(endpoint,

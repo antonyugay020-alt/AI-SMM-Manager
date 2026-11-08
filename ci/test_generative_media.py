@@ -166,6 +166,7 @@ class GenerativeContracts(unittest.TestCase):
         source_hash=digest(video);job=jobs.create_job(self.db,OWNER,request)
         class ProcessFixture:
             returncode=0
+            pid=999999
             def __init__(self,command,**options):
                 self.stdin=io.BytesIO();payload=json.loads(Path(command[-1]).read_text());target=Path(payload['target'])
                 frames=target.parent/'output_frames';frames.mkdir()
@@ -177,6 +178,8 @@ class GenerativeContracts(unittest.TestCase):
         with patch.object(runtime,'subprocess',SimpleNamespace(Popen=ProcessFixture,PIPE=subprocess.PIPE)):
             output=jobs.execute_job(self.db,self.workspace,OWNER,job)
         duration,audio=jobs._probe(output)
+        from local_media_quality import compare_audio
+        self.assertGreater(compare_audio(video,output,0,.5)['best_correlation'],.9)
         self.assertTrue(audio);self.assertAlmostEqual(duration,.5,delta=.15);self.assertEqual(digest(video),source_hash)
         self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('completed',))
 

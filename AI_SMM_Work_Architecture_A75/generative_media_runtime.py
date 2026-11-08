@@ -37,6 +37,8 @@ def render_generation(request,sources,target,check,*,tool,probe):
             stdin=subprocess.PIPE,stdout=log,stderr=log,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         deadline=time.monotonic()+7200
         try:
+            from durable_json import atomic_write_json
+            atomic_write_json(target.parent/'generation_process.json',{'pid':process.pid,'parent_pid':os.getpid(),'started_at':time.time()})
             while process.poll() is None:
                 check()
                 if time.monotonic()>deadline:raise TimeoutError('Offline generative deadline exceeded')

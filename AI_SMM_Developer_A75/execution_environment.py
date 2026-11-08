@@ -19,6 +19,7 @@ _RUNTIME_FLAGS = frozenset({
     'AI_SMM_ENABLE_OLLAMA_CLOUD_ACCEPTANCE',
     'AI_SMM_REVIEW_QUALIFICATIONS',
     'AI_SMM_REVIEW_QUALIFICATION_CERTIFICATES',
+    'AI_SMM_GENERATIVE_CONFIG','AI_SMM_MODEL','AI_SMM_LOCAL_DIALOGUE_MODEL','AI_SMM_DIALOGUE_MODE',
 })
 
 
@@ -33,7 +34,7 @@ def isolated_contract_test_environment(source: Mapping[str, str]) -> dict[str, s
     result = {}
     for key, value in source.items():
         upper = str(key).upper()
-        if (upper in _RUNTIME_FLAGS or
+        if (upper in _RUNTIME_FLAGS or upper.startswith('AI_SMM_QA_') or
                 upper.startswith(('OPENAI_', 'ANTHROPIC_', 'GROQ_', 'TOGETHER_',
                                   'FIREWORKS_', 'DEEPSEEK_', 'CEREBRAS_')) or
                 upper.endswith(_SECRET_SUFFIXES) or

@@ -570,10 +570,11 @@ class KieMediaQueuePanel(QWidget):
             except sqlite3.Error:continue
             for path,name in rows:
                 from pathlib import Path
-                if Path(path).suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.mp4','.mov'):continue
+                from project_media_sources import IMAGE_EXTENSIONS,VIDEO_EXTENSIONS
+                if Path(path).suffix.lower() not in IMAGE_EXTENSIONS|VIDEO_EXTENSIONS:continue
                 item=QListWidgetItem(str(name));item.setData(Qt.UserRole,path)
                 self.sources.addItem(item);item.setSelected(path in selected)
-                if Path(path).suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
+                if Path(path).suffix.lower() in IMAGE_EXTENSIONS:
                     self.local_auxiliary.addItem(str(name),path)
         index=self.local_auxiliary.findData(auxiliary)
         if index>=0:self.local_auxiliary.setCurrentIndex(index)
