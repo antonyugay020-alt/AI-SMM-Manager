@@ -90,7 +90,7 @@ class LocalVision:
         verdict=self.chat(json.dumps({'task':case['prompt'],'image_order':labels,'objective_metrics':metrics,
             'evaluate':'Check actual requested style/background/objects/details, subject preservation, reference/mask adherence and temporal coherence when applicable. Do not accept unchanged, blank, corrupted or unrelated output. State visible evidence, not model assurances.'}),images,schema)
         required=('instruction','preservation')+ (('reference_or_mask',) if len(case['sources'])>1 else ())+ (('temporal',) if video else ())
-        valid=set(verdict)==set(schema['required']) and verdict.get('verdict')=='PASS' and all(verdict.get(k)=='PASS' for k in required) and isinstance(verdict.get('observations'),str) and 10<=len(verdict['observations'].strip())<=4000
+        valid=set(verdict)==set(schema['required']) and verdict.get('verdict')=='PASS' and all(verdict.get(k)=='PASS' for k in required) and all(verdict.get(k) in ('PASS','NOT_APPLICABLE') for k in ('instruction','preservation','reference_or_mask','temporal')) and isinstance(verdict.get('observations'),str) and 10<=len(verdict['observations'].strip())<=4000
         return {'status':'PASS' if valid else 'BLOCKED','model':self.model,'digest':self.digest,'verdict':verdict,
             'scope':'qualified local model judgement plus objective metrics; human review may still identify quality defects'}
 

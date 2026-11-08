@@ -27,6 +27,13 @@ from generative_contract import GEN_TASKS,output_kind,source_kind
 
 
 
+class LocalToolError(RuntimeError):
+    public_code='LOCAL_MEDIA_TOOL_FAILED'
+    def __init__(self,command,code,error):
+        self.diagnostic={'tool':Path(command[0]).name,'exit_code':code,'stderr':(error or b'').decode('utf-8','replace')[-8192:]}
+        super().__init__(self.public_code)
+
+
 class LocalMediaStopped(Exception):
     pass
 
@@ -125,7 +132,7 @@ def _tool(command,check,*,timeout=1200):
             if time.monotonic()>deadline:raise TimeoutError('Local media tool deadline exceeded')
             try:
                 _,error=process.communicate(timeout=.1)
-                if process.returncode:raise RuntimeError('Local media tool failed')
+                if process.returncode:raise LocalToolError(command,process.returncode,error)
                 return
             except subprocess.TimeoutExpired:continue
     finally:
@@ -366,7 +373,7 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
     except BaseException as exc:
         if db.in_transaction:db.rollback()
         state='cancelled' if isinstance(exc,LocalMediaStopped) else 'failed'
-        if request['task'] in GEN_TASKS and hasattr(exc,'diagnostic'):
+        if hasattr(exc,'diagnostic'):
             db.execute('INSERT OR REPLACE INTO local_generation_diagnostics VALUES(?,?,?)',(job,owner,json.dumps(exc.diagnostic,ensure_ascii=False)))
         db.execute("UPDATE local_media_jobs SET state=?,error_code=?,updated_at=? WHERE id=? AND project_id=? AND claim=? AND state='running'",
                    (state,getattr(exc,'public_code',type(exc).__name__),now(),job,owner,claim));_event(db,owner,job,state);db.commit()

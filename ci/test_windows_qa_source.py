@@ -148,7 +148,7 @@ class QualityTests(unittest.TestCase):
             base={'verdict':'PASS','instruction':'PASS','preservation':'PASS','reference_or_mask':'PASS','temporal':'NOT_APPLICABLE','observations':'Visible evidence from supplied pixels'}
             vision.chat=lambda *args:base
             self.assertEqual(vision.review(case,paths[1],temporary,{})['status'],'PASS')
-            for patch_value in ({'verdict':'UNCERTAIN'},{'reference_or_mask':'NOT_APPLICABLE'},{'observations':''},{'instruction':'FAIL'}):
+            for patch_value in ({'verdict':'UNCERTAIN'},{'reference_or_mask':'NOT_APPLICABLE'},{'observations':''},{'instruction':'FAIL'},{'temporal':'FAIL'},{'temporal':'UNCERTAIN'}):
                 vision.chat=lambda *args,value=patch_value:{**base,**value}
                 self.assertEqual(vision.review(case,paths[1],temporary,{})['status'],'BLOCKED')
 
@@ -227,3 +227,22 @@ class SetupWizardTests(unittest.TestCase):
             self.assertTrue(all(c['profile']=='real-profile' and c['sources']==[str(photo)] for c in cases))
             self.assertEqual(files.askopenfilename.call_count,2);ui.destroy.assert_called_once()
             self.assertEqual(session.read_config(root/'settings.json'),config)
+
+
+class NativeDiagnosticsTests(unittest.TestCase):
+    def test_actual_tool_failure_retains_exit_code_and_bounded_stderr(self):
+        import local_media_jobs as jobs
+        with self.assertRaises(jobs.LocalToolError) as result:
+            jobs._tool([sys.executable,'-c','import sys;sys.stderr.write("codec diagnostic fixture");sys.exit(3)'],lambda:None)
+        self.assertEqual(result.exception.public_code,'LOCAL_MEDIA_TOOL_FAILED')
+        self.assertEqual(result.exception.diagnostic['exit_code'],3)
+        self.assertIn('codec diagnostic fixture',result.exception.diagnostic['stderr'])
+
+
+class MemoryEvidenceTests(unittest.TestCase):
+    def test_unavailable_or_impossible_vram_is_not_an_actual_sample(self):
+        self.assertTrue(valid_vram_sample({'exit_code':0,'samples':['GPU-123, NVIDIA GeForce RTX 2080 SUPER, 8192, 2300, 50']}))
+        for item in ({'exit_code':1,'samples':['GPU-123, GPU, 8192, 2300, 50']},
+            {'exit_code':0,'samples':['GPU-123, GPU, 8192, N/A, 50']},
+            {'exit_code':0,'samples':['GPU-123, GPU, 8192, 9000, 50']},
+            {'exit_code':0,'samples':[]}):self.assertFalse(valid_vram_sample(item))

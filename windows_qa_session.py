@@ -20,7 +20,7 @@ import uuid
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT/'AI_SMM_Work_Architecture_A75'))
 from windows_qa_contract import (source_snapshot,verify_snapshot,sha,write_json,hardware_matches,
-    assess_source_report,record_run,local_only_environment,ROLES)
+    assess_source_report,record_run,local_only_environment,valid_vram_sample,ROLES)
 
 
 def output_root():
@@ -159,6 +159,13 @@ def execute(config,role,session,state):
     for module in ('PySide6','PIL','gradio_client','pytest','pytest_subtests','psutil'):
         if importlib.util.find_spec(module) is None:raise RuntimeError('Missing QA dependency: '+module+'; install requirements-qa.txt once')
     if not shutil.which('ffmpeg') or not shutil.which('ffprobe') or not shutil.which('nvidia-smi'):raise RuntimeError('FFmpeg, ffprobe and NVIDIA driver/nvidia-smi must already be installed')
+    memory=subprocess.run(['nvidia-smi','--query-gpu=uuid,name,memory.total,memory.used,utilization.gpu','--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=15)
+    memory_report={'exit_code':memory.returncode,'samples':memory.stdout.strip().splitlines(),'error':memory.stderr[-2000:]}
+    write_json(session/'vram_preflight.json',memory_report)
+    if not valid_vram_sample(memory_report):raise RuntimeError('Actual NVIDIA VRAM measurements unavailable; see vram_preflight.json')
+    encoders=subprocess.run(['ffmpeg','-hide_banner','-encoders'],capture_output=True,text=True,timeout=30)
+    (session/'ffmpeg_encoders.txt').write_text(encoders.stdout+'\n'+encoders.stderr,encoding='utf-8')
+    if encoders.returncode or not {'libx264','aac'}<={line.split()[1] for line in encoders.stdout.splitlines() if len(line.split())>=2}:raise RuntimeError('Installed FFmpeg must support libx264 and AAC; no download attempted')
     from generative_models import profiles
     from local_media_quality import LocalVision
     reviewer=LocalVision(config['vision_model']);reviewer.installed()
@@ -250,7 +257,7 @@ def execute(config,role,session,state):
             code=2;write_json(run/'runner_error.json',{'error':type(exc).__name__,'reason':str(exc),'traceback':traceback.format_exc()})
         finally:stop.set();monitor.join(timeout=12)
         samples=[json.loads(line) for line in (run/'vram_samples.jsonl').read_text().splitlines()]
-        if monitor.is_alive() or not any(item.get('exit_code')==0 and item.get('samples') for item in samples):
+        if monitor.is_alive() or not any(valid_vram_sample(item) for item in samples):
             code=2;write_json(run/'vram_error.json',{'error':'No completed actual NVIDIA VRAM samples'})
         reason=record_run(state,report,fingerprint=fingerprint['fingerprint'],role=role,exit_code=code)
         state.setdefault('runs',[]).append({'run':index,'exit_code':code,'reason':reason,'report':str(report_folder/'acceptance.json')})

@@ -102,3 +102,14 @@ def local_only_environment(source,allowed_models):
        NO_PROXY='localhost,127.0.0.1,::1',no_proxy='localhost,127.0.0.1,::1',PYTHONUTF8='1',PYTHONIOENCODING='utf-8',PYTHONFAULTHANDLER='1')
     result.pop('QT_QPA_PLATFORM',None)
     return result
+
+
+def valid_vram_sample(item):
+    import csv
+    if not isinstance(item,dict) or item.get('exit_code')!=0:return False
+    for line in item.get('samples',[]):
+        try:
+            fields=next(csv.reader([line]));total=int(fields[2]);used=int(fields[3])
+            if len(fields)==5 and fields[0].strip().startswith('GPU-') and total>=6*1024 and 0<=used<=total:return True
+        except (ValueError,TypeError,IndexError,StopIteration):continue
+    return False
