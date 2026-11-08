@@ -5,7 +5,7 @@ must never block selection/creation of unrelated projects.
 """
 
 WORKER_FIELDS = (
-    'task_worker', 'dialogue_worker', 'worker', 'video_worker', 'generator', 'cloud_worker',
+    'task_worker', 'dialogue_worker', 'worker', 'video_worker', 'media_worker', 'generator', 'cloud_worker',
     'modern_worker', 'edit_worker', 'download_worker', 'report_worker',
 )
 

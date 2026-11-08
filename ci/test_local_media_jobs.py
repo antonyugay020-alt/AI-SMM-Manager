@@ -90,7 +90,7 @@ class LocalMediaJobsTests(unittest.TestCase):
         job=jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))
         output=jobs.execute_job(self.db,self.workspace,OWNER,job)
         self.db.execute("UPDATE local_media_jobs SET state='running',output_path=NULL,result_sha256=NULL WHERE id=?",(job,));self.db.commit()
-        jobs.recover_jobs(self.db,OWNER)
+        jobs.recover_jobs(self.db,self.workspace,OWNER)
         with patch.object(jobs,'_render',side_effect=AssertionError('no second render')):
             self.assertEqual(jobs.execute_job(self.db,self.workspace,OWNER,job),output)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],1)
@@ -116,6 +116,50 @@ class LocalMediaJobsTests(unittest.TestCase):
             with self.assertRaises(ValueError):jobs.execute_job(self.db,self.workspace,OTHER,job)
             with self.assertRaises(ValueError):jobs.execute_job(self.db,self.workspace,OWNER,job)
         render.assert_not_called()
+
+    def test_valid_but_wrong_image_output_cannot_cross_publication_boundary(self):
+        job=jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))
+        def wrong(request,sources,target,check):
+            with Image.new('RGB',(64,64)) as image:image.save(target,'PNG')
+        with patch.object(jobs,'_render',side_effect=wrong):
+            with self.assertRaisesRegex(ValueError,'dimensions differ'):jobs.execute_job(self.db,self.workspace,OWNER,job)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],0)
+
+    def test_dialogue_receipt_hash_rejects_changed_source_before_first_render(self):
+        request=self.request('image_resize',[self.image]);request['expected_sha256']=[jobs.digest_file(self.image)]
+        job=jobs.create_job(self.db,OWNER,request)
+        with Image.new('RGB',(160,120),(200,100,50)) as image:image.save(self.image,'PNG')
+        with patch.object(jobs,'_render') as render:
+            with self.assertRaisesRegex(ValueError,'dialogue receipt'):jobs.execute_job(self.db,self.workspace,OWNER,job)
+        render.assert_not_called()
+
+    def test_recovery_skips_live_process_owner_then_recovers_after_process_death(self):
+        job=jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))
+        self.db.execute("UPDATE local_media_jobs SET state='running' WHERE id=?",(job,));self.db.commit()
+        code="""import sys,time
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from local_media_jobs import _job_lock
+with _job_lock(lambda owner:Path(sys.argv[2]),sys.argv[3],sys.argv[4]) as acquired:
+    assert acquired
+    print('locked',flush=True)
+    time.sleep(30)
+"""
+        process=subprocess.Popen([sys.executable,'-c',code,str(Path(jobs.__file__).parent),
+            str(self.workspace(OWNER)),OWNER,job],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(process.stdout.readline().strip(),'locked')
+            jobs.recover_jobs(self.db,self.workspace,OWNER)
+            self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('running',))
+            with self.assertRaisesRegex(RuntimeError,'live owner'):
+                jobs.execute_job(self.db,self.workspace,OWNER,job)
+            process.terminate();process.wait(timeout=5)
+            jobs.recover_jobs(self.db,self.workspace,OWNER)
+            self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('interrupted',))
+            self.assertTrue(Path(jobs.execute_job(self.db,self.workspace,OWNER,job)).is_file())
+        finally:
+            if process.poll() is None:process.kill();process.wait(timeout=5)
+            process.stdout.close();process.stderr.close()
 
     def test_owned_subprocess_is_terminated_when_stop_is_requested(self):
         processes=[];native=jobs.subprocess.Popen

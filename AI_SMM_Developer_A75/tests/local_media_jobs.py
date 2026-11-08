@@ -3,7 +3,10 @@
 No AI capability or cloud fallback is inferred. Inputs must be registered to the
 project, are snapshotted before execution, and retain hashes across recovery.
 """
+from contextlib import contextmanager
 from datetime import datetime,timezone
+import errno
+import os
 import hashlib
 import json
 import math
@@ -19,8 +22,8 @@ from project_file_boundary import require_managed_folder,require_managed_file
 from project_media_sources import registered_source
 from media_artifact_validation import digest_file,validate_media_bytes
 from media_ingest_core import ingest,replay
+from local_media_contract import TASKS,validate_local_request as _validate
 
-TASKS=frozenset(('image_resize','video_cut','video_format','video_montage','video_from_images'))
 
 
 class LocalMediaStopped(Exception):
@@ -62,29 +65,6 @@ def _owner(db,owner):
         raise ValueError('Local media project owner not found')
 
 
-def _validate(request):
-    if not isinstance(request,dict) or set(request)-{'task','sources','width','height','start','end','seconds_per_image'}:
-        raise ValueError('Invalid local media request')
-    task=request.get('task');sources=request.get('sources')
-    if task not in TASKS or not isinstance(sources,list) or not 1<=len(sources)<=30:
-        raise ValueError('Invalid local media task or sources')
-    if any(not isinstance(path,str) or not path for path in sources):raise ValueError('Local source path required')
-    if task in ('image_resize','video_cut','video_format') and len(sources)!=1:raise ValueError('Operation requires one source')
-    if task=='video_montage' and len(sources)<2:raise ValueError('Montage requires at least two videos')
-    width=request.get('width',720);height=request.get('height',1280)
-    if type(width) is not int or type(height) is not int or not 64<=width<=4096 or not 64<=height<=4096:
-        raise ValueError('Local output dimensions invalid')
-    if task!='image_resize' and (width%2 or height%2):raise ValueError('Video dimensions must be even')
-    if task=='video_cut':
-        start=request.get('start',0);end=request.get('end')
-        if type(start) not in (int,float) or type(end) not in (int,float) or not math.isfinite(start) or not math.isfinite(end) or not 0<=start<end or end-start>300:
-            raise ValueError('Invalid local trim interval')
-    if task=='video_from_images':
-        seconds=request.get('seconds_per_image',3)
-        if type(seconds) not in (int,float) or not math.isfinite(seconds) or not .25<=seconds<=30 or seconds*len(sources)>300:
-            raise ValueError('Invalid slide duration')
-
-
 def create_job(db,owner,request,*,dialogue_turn_id=None):
     if db.in_transaction:raise RuntimeError('Foreign transaction owns local task creation')
     _owner(db,owner);_validate(request)
@@ -119,7 +99,7 @@ def _row(db,owner,job):
     return row
 
 
-def _probe(path):
+def _probe(path,*,full=False):
     result=subprocess.run(['ffprobe','-v','error','-show_entries',
         'stream=codec_type,width,height:format=duration','-of','json',str(path)],capture_output=True,check=True,timeout=20,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     data=json.loads(result.stdout)
@@ -129,7 +109,8 @@ def _probe(path):
         raise ValueError('Invalid local video source')
     if not 0<int(video.get('width',0))<=8192 or not 0<int(video.get('height',0))<=8192:
         raise ValueError('Local video dimensions invalid')
-    return duration,any(row.get('codec_type')=='audio' for row in data.get('streams',[]))
+    audio=any(row.get('codec_type')=='audio' for row in data.get('streams',[]))
+    return (duration,audio,(int(video['width']),int(video['height']))) if full else (duration,audio)
 
 
 def _tool(command,check,*,timeout=1200):
@@ -199,6 +180,32 @@ def _render(request,sources,target,check):
     _tool(command,check)
 
 
+def _verify_output(request,sources,target):
+    """Independent tool readback checks the actual requested output properties."""
+    task=request['task']
+    width,height=request.get('width',720),request.get('height',1280)
+    if task=='image_resize':
+        with Image.open(target) as image:
+            if image.size!=(width,height):raise ValueError('Local image dimensions differ from request')
+        return
+    duration,audio,geometry=_probe(target,full=True)
+    source_audio=False
+    if task=='video_from_images':
+        expected=request.get('seconds_per_image',3)*len(sources)
+    elif task=='video_montage':
+        expected=sum(_probe(path)[0] for path in sources);source_audio=True
+    else:
+        original,source_audio,original_geometry=_probe(sources[0],full=True)
+        expected=request['end']-request.get('start',0) if task=='video_cut' else original
+        if task=='video_cut' and 'width' not in request and 'height' not in request:
+            width,height=tuple(value+(value%2) for value in original_geometry)
+    tolerance=max(.15,len(sources)/30+.05)
+    if geometry!=(width,height):raise ValueError('Local video dimensions differ from request')
+    if abs(duration-expected)>tolerance:raise ValueError('Local video duration differs from request')
+    if source_audio and not audio:raise ValueError('Local video lost its expected audio track')
+    if task=='video_from_images' and audio:raise ValueError('Unexpected audio in photo-only local video')
+
+
 def _adopt_receipt(db,workspace,owner,job,is_video):
     existing=db.execute('SELECT kind,path FROM project_files WHERE id=? AND project_id=?',(job,owner)).fetchone()
     if existing is None:return None
@@ -218,7 +225,53 @@ def _adopt_receipt(db,workspace,owner,job,is_video):
     return str(path)
 
 
+@contextmanager
+def _job_lock(workspace,owner,job):
+    """OS-owned lock survives UI changes and is released on process death.
+
+    Keep the lock file: unlinking it could give another process a different
+    inode while the first process still owns its lock.
+    """
+    if not isinstance(job,str) or len(job)!=32 or any(c not in '0123456789abcdef' for c in job):
+        raise ValueError('Invalid local task lock identity')
+    folder=require_managed_folder(Path(workspace(owner)),'drafts/local_media_locks')
+    folder.mkdir(parents=True,exist_ok=True)
+    path=require_managed_file(Path(workspace(owner)),folder/(job+'.lock'),('drafts/local_media_locks',))
+    with path.open('a+b') as handle:
+        if path.stat().st_size==0:handle.write(b'0');handle.flush()
+        handle.seek(0);acquired=False
+        try:
+            try:
+                if os.name=='nt':
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+                acquired=True
+            except OSError as exc:
+                if exc.errno not in (errno.EACCES,errno.EAGAIN,errno.EDEADLK):raise
+            yield acquired
+        finally:
+            if acquired:
+                handle.seek(0)
+                if os.name=='nt':
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(),msvcrt.LK_UNLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(),fcntl.LOCK_UN)
+
+
 def execute_job(db,workspace,owner,job,*,cancel_check=None):
+    if db.in_transaction:raise RuntimeError('Foreign transaction owns local execution')
+    _owner(db,owner);_row(db,owner,job)
+    with _job_lock(workspace,owner,job) as acquired:
+        if not acquired:raise RuntimeError('Local media task still has a live owner')
+        return _execute_locked(db,workspace,owner,job,cancel_check=cancel_check)
+
+
+def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
     if db.in_transaction:raise RuntimeError('Foreign transaction owns local execution')
     row=_row(db,owner,job);request=json.loads(row[0]);_validate(request)
     is_video=request['task']!='image_resize'
@@ -249,7 +302,11 @@ def execute_job(db,workspace,owner,job,*,cancel_check=None):
                     if image.width*image.height>40_000_000:raise ValueError('Local source pixel budget exceeded')
                     image.load()
             else:_probe(path)
-            registered.append(path);receipts.append({'path':str(path),'sha256':digest_file(path)})
+            actual=digest_file(path)
+            expected=request.get('expected_sha256')
+            if expected is not None and expected[len(receipts)] is not None and expected[len(receipts)]!=actual:
+                raise ValueError('Local source differs from the dialogue receipt')
+            registered.append(path);receipts.append({'path':str(path),'sha256':actual})
         serialized=json.dumps(receipts,sort_keys=True,separators=(',',':'))
         if row[5] and row[5]!=serialized:raise ValueError('Local input changed since first execution')
         db.execute('UPDATE local_media_jobs SET input_receipts_json=? WHERE id=? AND claim=?',(serialized,job,claim));db.commit()
@@ -264,6 +321,7 @@ def execute_job(db,workspace,owner,job,*,cancel_check=None):
             target=temp/('output.mp4' if is_video else 'output.png')
             _render(request,sources,target,check);check()
             validate_media_bytes(target,is_video=is_video)
+            _verify_output(request,sources,target)
             check()
             receipt=ingest(db,workspace,target,project_id=owner,kind='video' if is_video else 'result',
                            item_id=job,original_name=request['task']+target.suffix,authorize=check)
@@ -296,10 +354,19 @@ def stop_job(db,owner,job):
     except BaseException:db.rollback();raise
 
 
-def recover_jobs(db,owner):
+def recover_jobs(db,workspace,owner):
     if db.in_transaction:raise RuntimeError('Foreign transaction owns local recovery')
     _owner(db,owner);install(db)
-    db.execute("UPDATE local_media_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' ELSE 'interrupted' END,updated_at=? WHERE project_id=? AND state='running'",(now(),owner));db.commit()
+    candidates=db.execute("SELECT id FROM local_media_jobs WHERE project_id=? AND state='running'",(owner,)).fetchall()
+    for (job,) in candidates:
+        with _job_lock(workspace,owner,job) as acquired:
+            if not acquired:continue
+            try:
+                db.execute('BEGIN IMMEDIATE')
+                changed=db.execute("UPDATE local_media_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' ELSE 'interrupted' END,updated_at=? WHERE id=? AND project_id=? AND state='running'",(now(),job,owner)).rowcount
+                if changed:_event(db,owner,job,'orphan_recovered')
+                db.commit()
+            except BaseException:db.rollback();raise
 
 
 def list_jobs(db,owner):

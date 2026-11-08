@@ -14,7 +14,7 @@ from uuid import uuid4
 from durable_json import atomic_write_json
 
 OPERATIONS=('respond','clarify','inspect','cancel_pending','create_bundle','create_text','revise_saved','resume',
-            'answer_clarification','open_document','rename_document','project_control','image_edit','video_trim')
+            'answer_clarification','open_document','rename_document','project_control','image_edit','video_trim','local_media')
 KINDS=('none','bundle','strategy','calendar','plans','tasks','analytics')
 FIELDS=('operation','artifact_kind','target_ids','source_id','message_ids','reply','reason',
         'include_current_instruction','new_title','control_scope','use_reference','start','end','offset','length','schedule','requested_media','reuse_structure')
@@ -103,7 +103,7 @@ def dialogue_snapshot(db,project_id,*,selected_id=None,ui_context=None,current_m
         raise ValueError('Не найдено исходное сообщение текущего диалога')
     return {'schema_version':1,'project_id':project_id,'current_message_id':current,'project':dict(zip(('name','category','description'),row)),
         'documents':documents,'messages':messages,'sources':sources,'selected_id':selected_id if selected_id in documents else None,
-        'ui_context':dict(ui_context or {})}
+        'ui_context':dict(ui_context or {}),'media':__import__('project_media_sources').media_catalog(db,project_id)}
 
 
 @dataclass(frozen=True)
@@ -138,11 +138,14 @@ class DialogueContract:
         if suffix in ('.png','.jpg','.jpeg','.webp','.bmp','.tif','.tiff') and any(caps.get(key) for key in ('image_local_legacy','image_cloud_optional','advanced_local_image_edit')):
             allowed.add('image_edit')
         if suffix in ('.mp4','.mov','.mkv','.avi','.webm') and caps.get('video_trim_ffmpeg') is True:allowed.add('video_trim')
+        from local_media_contract import available_local_tasks
+        if available_local_tasks(snap.get('media',{}),caps):
+            allowed.add('local_media')
         return tuple(op for op in OPERATIONS if op in allowed)
 
     def schema(self):
         snap=self.snapshot;ids=list(snap['documents']);message_ids=list(snap['messages'])
-        return {'type':'object','additionalProperties':False,'required':list(FIELDS),'properties':{
+        result={'type':'object','additionalProperties':False,'required':list(FIELDS),'properties':{
             'operation':{'type':'string','enum':list(self.available_operations())},
             'artifact_kind':{'type':'string','enum':list(KINDS),
                 'description':'Раздел отдельного создаваемого текста; create_bundle уже определяет комплект, его kind выводит программа.'},
@@ -157,6 +160,19 @@ class DialogueContract:
                 'properties':{'weeks':{'type':'integer','minimum':1,'maximum':26},'per_week':{'type':'integer','minimum':1,'maximum':7},'total':{'type':'integer','minimum':1,'maximum':182}}},
             'requested_media':{'type':'boolean','description':'Нужны ли отдельные готовые медиафайлы как результат. Текст, сценарии, раскадровка и описание визуала являются текстовыми документами, а не отрендеренными файлами.'},'reuse_structure':{'type':'boolean'},
             'offset':{'type':'integer','minimum':0},'length':{'type':'integer','minimum':1,'maximum':20000}}}
+        if 'local_media' in self.available_operations():
+            from local_media_contract import available_local_tasks
+            tasks=list(available_local_tasks(snap.get('media',{}),snap.get('ui_context',{}).get('capabilities',{})))
+            result['required'].append('media')
+            result['properties']['media']={'type':['object','null'],'additionalProperties':False,
+                'required':['task','source_ids','width','height','start','end','seconds_per_image'],
+                'properties':{'task':{'type':'string','enum':tasks},
+                    'source_ids':{'type':'array','items':{'type':'string','enum':list(snap.get('media',{}))},'minItems':1,'maxItems':30,'uniqueItems':True},
+                    'width':{'type':['integer','null'],'minimum':64,'maximum':4096},
+                    'height':{'type':['integer','null'],'minimum':64,'maximum':4096},
+                    'start':{'type':['number','null'],'minimum':0},'end':{'type':['number','null'],'minimum':0},
+                    'seconds_per_image':{'type':['number','null'],'minimum':.25,'maximum':30}}}
+        return result
     def context(self):
         s=self.snapshot
         return {'project_id':s['project_id'],'project':s['project'],'selected_document_id':s['selected_id'],
@@ -167,13 +183,17 @@ class DialogueContract:
                 'characters':len(m['content']),
                 'excerpt_only':len(m['content'])>(1600 if index>=len(s['messages'])-12 else 160)}
                 for index,m in enumerate(s['messages'].values())],
+            'media_sources':[{key:item[key] for key in ('id','label','kind')} for item in s.get('media',{}).values()],
             'request_sources':{key:({**value,'request':value['request'][:1600],
                 'request_characters':len(value['request']),'excerpt_only':len(value['request'])>1600} if value else None)
                 for key,value in s['sources'].items()},'ui':s['ui_context']}
     def validate(self,value):
-        if not isinstance(value,dict) or set(value)!=set(FIELDS):raise ValueError('Неполный структурированный план диалога')
+        if not isinstance(value,dict) or set(value) not in (set(FIELDS),set(FIELDS)|{'media'}):raise ValueError('Неполный структурированный план диалога')
         value=copy.deepcopy(value)
         s=self.snapshot;op=value['operation'];normalizations=[]
+        if op!='local_media':
+            if value.get('media') is not None:raise ValueError('Media parameters belong only to the selected media tool')
+            value.pop('media',None)
         if any(not isinstance(value[k],str) for k in ('operation','artifact_kind','source_id')) or op not in OPERATIONS or value['artifact_kind'] not in KINDS or value['source_id'] not in s['sources']:
             raise ValueError('Неизвестное действие или источник задания')
         if op not in self.available_operations():raise ValueError('Действие недоступно в текущем состоянии проекта: '+op)
@@ -261,6 +281,15 @@ class DialogueContract:
             if value['source_id']!='current':texts.append(s['sources'][value['source_id']]['request'])
             if any(value['offset']>len(text) for text in texts):raise ValueError('Диапазон чтения вне выбранного ресурса')
         if op=='video_trim' and (value['start'] is None or value['end'] is None or value['start']>=value['end']):raise ValueError('Не указан полный интервал монтажа')
+        if op=='local_media':
+            media=value.get('media')
+            local_media_request(s,media)
+            if value['artifact_kind']!='none':
+                normalizations.append({'field':'artifact_kind','from':value['artifact_kind'],'to':'none','basis':'local_media_is_not_a_text_artifact'})
+                value['artifact_kind']='none'
+            if value['requested_media'] is not True:
+                normalizations.append({'field':'requested_media','from':False,'to':True,'basis':'selected_local_media_operation'})
+                value['requested_media']=True
         return DialoguePlan(s['project_id'],self.message,self.turn_id,s,dict(value),tuple(normalizations))
     def inspect(self,plan):
         result=[]
@@ -293,7 +322,31 @@ TOOL_DESCRIPTIONS={
  'open_document':'Открыть выбранный документ.', 'rename_document':'Переименовать выбранный документ.',
  'project_control':'Запросить подтверждаемое удаление выбранных объектов текущего проекта. Сам AI ничего не удаляет.',
  'image_edit':'Передать текущую инструкцию выбранному графическому инструменту. use_reference задаёт необходимость выбранного эталона.',
- 'video_trim':'Передать выбранное видео с явно определённым интервалом инструменту монтажа.'}
+ 'video_trim':'Передать выбранное видео с явно определённым интервалом инструменту монтажа.',
+ 'local_media':'Выполнить подтверждённую локальную операцию с media_sources по их ID: монтаж, обрезка, формат, ролик из фото или размер изображения. Заполни media; не подставляй пути, не называй это генеративной стилизацией.'}
+
+
+def local_media_request(snapshot,media):
+    from local_media_contract import available_local_tasks,validate_local_request
+    fields={'task','source_ids','width','height','start','end','seconds_per_image'}
+    if not isinstance(media,dict) or set(media)!=fields:raise ValueError('Full structured local media parameters required')
+    task=media['task'];ids=media['source_ids'];catalog=snapshot.get('media',{})
+    caps=(snapshot.get('ui_context') or {}).get('capabilities') or {}
+    if not isinstance(task,str) or task not in available_local_tasks(catalog,caps):
+        raise ValueError('Local media executor is not verified available')
+    if not isinstance(ids,list) or not ids or any(not isinstance(ident,str) or ident not in catalog for ident in ids) or len(ids)!=len(set(ids)):
+        raise ValueError('Local media uses only issued unique source IDs')
+    expected='image' if task in ('image_resize','video_from_images') else 'video'
+    if any(catalog[ident]['kind']!=expected for ident in ids):raise ValueError('Media source kind does not match selected executor')
+    request={'task':task,'sources':[catalog[ident]['path'] for ident in ids],
+             'expected_sha256':[catalog[ident].get('sha256') for ident in ids]}
+    allowed={'width','height'}|({'start','end'} if task=='video_cut' else {'seconds_per_image'} if task=='video_from_images' else set())
+    for key in fields-{'task','source_ids'}:
+        if media[key] is not None:
+            if key not in allowed:raise ValueError('Unused media options must be null')
+            request[key]=media[key]
+    validate_local_request(request)
+    return request
 
 
 def understand_dialogue(message,snapshot,*,model,report=None,turn_id=None):

@@ -1319,7 +1319,7 @@ class Studio(QMainWindow):
             workspace_root=self.core.workspace(project_id))
 
     def __setattr__(self, name, value):
-        if name in ('task_worker', 'dialogue_worker', 'report_worker', 'video_worker',
+        if name in ('task_worker', 'dialogue_worker', 'report_worker', 'video_worker', 'media_worker',
                     'cloud_worker', 'modern_worker', 'edit_worker', 'smart_mask_worker',
                     'neural_worker', 'generator', 'worker', 'cuda_install_worker',
                     'download_worker', 'smart_worker', 'vision_worker', 'neural_install', 'opencv_install'):
@@ -1369,6 +1369,8 @@ class Studio(QMainWindow):
         self._semantic_media_project=None
         self.report_worker = None
         self.video_worker = None
+        self.media_worker = None
+        self._semantic_local_identity=None
         self.edit_worker = None
         self.generator = None
         self._generator_owner = None
@@ -3995,7 +3997,16 @@ class Studio(QMainWindow):
 
     def cancel_text_task(self):
         worker=getattr(self,'task_worker',None)
-        if worker is None or not worker.isRunning():return
+        if worker is None or not worker.isRunning():
+            media=getattr(self,'media_worker',None) or getattr(self,'video_worker',None)
+            if media is None or getattr(media,'operation',None)!='local' or not media.isRunning():return
+            if media.project_id!=self.current_project:return
+            try:
+                accepted=self.local_media.stop(media.project_id,media.job_id)
+                if accepted:media.requestInterruption()
+                self.append_chat('Система','Локальное медиа-задание остановлено.' if accepted else 'Результат уже зафиксирован; отмена не удаляет сохранённые файлы.')
+            except (ValueError,RuntimeError,sqlite3.Error) as exc:self.append_chat('Система','Остановка не сохранена: '+type(exc).__name__)
+            return
         if getattr(self,'task_project_id',None)!=self.current_project:return
         if self.db.in_transaction:
             self.append_chat('Система','Остановка ожидает завершения операции хранения.');return
@@ -4779,6 +4790,10 @@ class Studio(QMainWindow):
                 else:
                     self._fail_dialogue_intake(plan.project_id,plan.turn_id)
                 return
+            elif op=='local_media':
+                self.start_semantic_local_media(plan)
+                self._record_dialogue_projection(workspace,plan.turn_id,status='tool_dispatched',completion_verified=False)
+                return
             elif op in ('image_edit','video_trim'):
                 if str(self.source.path or '')!=str(plan.snapshot['ui_context'].get('source_path') or ''):
                     raise ValueError('Исходный файл изменился во время анализа')
@@ -5485,7 +5500,57 @@ class Studio(QMainWindow):
             self.append_chat('AI-менеджер',response if failure_saved else
                 'Сохранение ошибки ожидает восстановления. '+response)
 
+    def start_semantic_local_media(self,plan):
+        if self.media_worker is not None:raise RuntimeError('A semantic media worker still owns the slot')
+        from dialogue_runtime import local_media_request
+        request=local_media_request(plan.snapshot,plan.action['media'])
+        worker=self.local_media.worker(plan.project_id,request=request,dialogue_turn_id=plan.turn_id)
+        kind='image' if request['task']=='image_resize' else 'video'
+        self._semantic_local_identity=(plan.project_id,plan.turn_id,kind,worker.job_id)
+        self.media_worker=worker
+        worker.done.connect(self.semantic_local_done)
+        worker.failed.connect(self.semantic_local_failed)
+        worker.stopped.connect(self.semantic_local_stopped)
+        worker.finished.connect(self.semantic_local_finished)
+        self._track_background(worker)
+        self.projects.setEnabled(False)
+        self.ai_status.setText('Локальная обработка медиа…')
+        self.append_chat('AI-менеджер','Медиа-задание сохранено и выполняется локально. Исходники сохраняются.')
+        worker.start()
+
+    def semantic_local_done(self,owner,job,path):
+        identity=self._semantic_local_identity
+        if not identity or identity[0]!=owner or identity[3]!=job:return
+        try:
+            self.core.publish_result(owner,identity[2],path,active_project_id=owner,
+                operation_id='dialogue:'+owner+':'+identity[1]+':'+identity[2],dialogue_turn_id=identity[1])
+            self._record_dialogue_projection(self.core.workspace(owner),identity[1],status='applied',completion_verified=True)
+            self._semantic_local_identity=None
+            if owner==self.current_project:
+                self.register_ready_result(path,project_id=owner)
+                self.append_chat('Система','Медиа-результат проверен и сохранён в проекте.')
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.record_project_diagnostic('local_media_admission_failed',{'error_code':type(exc).__name__},owner)
+
+    def semantic_local_failed(self,owner,job,code):
+        self.record_project_diagnostic('local_media_execution_failed',{'job_id':job,'error_code':code},owner)
+        if owner==self.current_project:self.append_chat('Система','Локальное медиа-задание не завершено: '+code+'. Его можно повторить из очереди медиа.')
+
+    def semantic_local_stopped(self,owner,job):
+        if owner==self.current_project:self.append_chat('Система','Локальное медиа-задание остановлено. Исходные файлы сохранены.')
+
+    def semantic_local_finished(self):
+        if self.sender() is not self.media_worker:return
+        identity=self._semantic_local_identity
+        if identity is not None:
+            self._record_dialogue_projection(self.core.workspace(identity[0]),identity[1],status='tool_incomplete',completion_verified=False)
+        self._semantic_local_identity=None
+        self.media_worker=None
+        self.projects.setEnabled(True)
+        self.ai_status.setText('Готов')
+
     def start_local_video_trim(self,owner,source,start,end,*,dialogue_turn_id=None):
+        if self.video_worker is not None:raise RuntimeError('A video worker still owns the slot')
         worker=self.local_media.worker(owner,request={'task':'video_cut','sources':[source],'start':start,'end':end},
                                        dialogue_turn_id=dialogue_turn_id)
         self.video_worker=worker
@@ -5522,6 +5587,7 @@ class Studio(QMainWindow):
             self.statusBar().showMessage('Видео не принято: ' + str(exc), 15000)
 
     def video_finished(self):
+        if self.sender() is not None and self.sender() is not self.video_worker:return
         self.video_worker=None
         self.ai_status.setText('Готов')
 

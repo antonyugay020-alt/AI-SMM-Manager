@@ -65,7 +65,8 @@ def validate_task_plan(value):
     return dict(value)
 
 def available_tools():
-    return {'text': True, 'image_local_legacy': True, 'image_cloud_optional': True,
+    return {'local_media_tasks':['image_resize']+(['video_cut','video_format','video_montage','video_from_images'] if shutil.which('ffmpeg') and shutil.which('ffprobe') else []),
+            'text': True, 'image_local_legacy': True, 'image_cloud_optional': True,
             'video_trim_ffmpeg': bool(shutil.which('ffmpeg')),
             'voice_transcription': __import__('os').name=='nt', 'voice_input_backend':'Windows voice typing in composer', 'advanced_local_image_edit': False}
 

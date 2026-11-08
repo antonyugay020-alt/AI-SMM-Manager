@@ -309,11 +309,16 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
         record_model_event('model_transport_request',stage=stage,attempt=attempt,role=role,payload=payload)
         try:
             if cloud_model is None:
-                with urllib.request.urlopen(req, timeout=call_timeout) as response:
-                    raw_response=response.read()
-                    record_model_event('model_transport_body',stage=stage,attempt=attempt,
-                        body=raw_response.decode('utf-8','replace'))
-                    result=json.loads(raw_response)
+                from local_text_runtime import configured_for,request_local
+                if configured_for(model):
+                    result=request_local(payload,timeout=call_timeout)
+                    record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
+                else:
+                    with urllib.request.urlopen(req, timeout=call_timeout) as response:
+                        raw_response=response.read()
+                        record_model_event('model_transport_body',stage=stage,attempt=attempt,
+                            body=raw_response.decode('utf-8','replace'))
+                        result=json.loads(raw_response)
             else:
                 from text_providers import call_text
                 options = payload.get('options') if isinstance(payload.get('options'), dict) else {}

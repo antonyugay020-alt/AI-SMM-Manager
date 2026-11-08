@@ -442,6 +442,7 @@ class KieMediaQueuePanel(QWidget):
         self._launch_worker(worker)
 
     def _launch_worker(self,worker):
+        if self._result_worker is not None:raise RuntimeError('A media worker still owns this queue')
         self._result_worker = worker
         worker.setParent(self)
         worker.done.connect(self._result_done)

@@ -54,4 +54,4 @@ class LocalMediaDispatcher:
 
     def tasks(self,owner):return list_jobs(self.db,owner)
     def stop(self,owner,job):return stop_job(self.db,owner,job)
-    def recover(self,owner):return recover_jobs(self.db,owner)
+    def recover(self,owner):return recover_jobs(self.db,self.workspace,owner)

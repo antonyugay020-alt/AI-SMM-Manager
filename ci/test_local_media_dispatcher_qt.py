@@ -92,7 +92,7 @@ class LocalQueueQtTests(unittest.TestCase):
         restarted.recover(OWNER)
         self.assertEqual(restarted.tasks(OWNER)[0]['state'],'cancelled')
 
-    def test_recovery_fences_old_worker_and_explicit_retry_uses_same_task(self):
+    def test_recovery_does_not_interrupt_a_live_native_worker(self):
         entered=threading.Event();release=threading.Event();original=jobs._render
         def delayed(request,sources,target,check):
             entered.set()
@@ -100,12 +100,23 @@ class LocalQueueQtTests(unittest.TestCase):
             check();return original(request,sources,target,check)
         with patch.object(jobs,'_render',side_effect=delayed):
             self.view.execute_local();self.assertTrue(entered.wait(5))
-            self.service.recover(OWNER);release.set();self.drain()
+            self.service.recover(OWNER)
+            self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs').fetchone(),('running',))
+            release.set();self.drain()
         job,state=self.db.execute('SELECT id,state FROM local_media_jobs').fetchone()
-        self.assertEqual(state,'interrupted')
-        self.view.table.selectRow(0);self.view.execute_local();self.drain()
+        self.assertEqual(state,'completed')
         self.assertEqual(self.db.execute('SELECT id,state FROM local_media_jobs').fetchall(),[(job,'completed')])
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],1)
+
+    def test_orphan_recovery_and_explicit_retry_keep_the_same_task_identity(self):
+        with patch.object(jobs,'_render',side_effect=RuntimeError('fixture failure')):
+            self.view.execute_local();self.drain()
+        job=self.db.execute('SELECT id FROM local_media_jobs').fetchone()[0]
+        self.db.execute("UPDATE local_media_jobs SET state='running' WHERE id=?",(job,));self.db.commit()
+        self.service.recover(OWNER);self.view.refresh()
+        self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs').fetchone(),('interrupted',))
+        self.view.table.selectRow(0);self.view.execute_local();self.drain()
+        self.assertEqual(self.db.execute('SELECT id,state FROM local_media_jobs').fetchall(),[(job,'completed')])
 
     def test_stop_inside_ingest_preflight_prevents_database_publication(self):
         original=jobs.ingest
