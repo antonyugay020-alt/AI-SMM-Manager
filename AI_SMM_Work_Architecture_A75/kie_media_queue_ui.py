@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
     QPlainTextEdit, QComboBox, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QListWidget,QListWidgetItem,QLineEdit,QInputDialog,
+    QListWidget,QListWidgetItem,QLineEdit,QInputDialog,QFileDialog,
 )
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare
@@ -83,6 +83,27 @@ class KieMediaQueuePanel(QWidget):
         self.local_button.clicked.connect(self.execute_local)
         local_row.addWidget(self.local_button)
         layout.addLayout(local_row)
+        generation_row=QHBoxLayout()
+        self.local_profile=QComboBox()
+        self.local_auxiliary=QComboBox();self.local_auxiliary.addItem('Без эталона / маски',None)
+        self.local_auxiliary.setToolTip('Отдельный зарегистрированный эталон; для inpainting — маска: белое меняется, чёрное сохраняется.')
+        self.local_steps=QSpinBox();self.local_steps.setRange(2,50);self.local_steps.setValue(20)
+        self.local_seed=QSpinBox();self.local_seed.setRange(0,2147483647)
+        self.local_strength=QDoubleSpinBox();self.local_strength.setRange(.05,1);self.local_strength.setValue(.65)
+        self.local_frames=QSpinBox();self.local_frames.setRange(4,16);self.local_frames.setValue(16)
+        self.local_fps=QSpinBox();self.local_fps.setRange(1,12);self.local_fps.setValue(8)
+        for label,widget in [('Локальная модель',self.local_profile),('Эталон / маска',self.local_auxiliary),('Шаги',self.local_steps),('Seed',self.local_seed),('Сила',self.local_strength),('Кадры',self.local_frames),('FPS',self.local_fps)]:
+            generation_row.addWidget(QLabel(label));generation_row.addWidget(widget)
+        layout.addLayout(generation_row)
+        self.local_generation_button=QPushButton('Генеративная обработка локально')
+        self.local_generation_button.setToolTip('Один выбранный исходник + отдельный эталон/маска. Только заранее установленные веса; CUDA/качество требуют проверки. Видео — короткий фрагмент с позиции «От».')
+        profile_button=QPushButton('Подключить локальные профили…')
+        profile_button.clicked.connect(self.load_local_profiles)
+        layout.addWidget(profile_button)
+        self.local_generation_button.clicked.connect(self.execute_generation)
+        layout.addWidget(self.local_generation_button)
+        self.local_profile.currentIndexChanged.connect(self._generation_profile_changed)
+        self._generation_profiles={}
         self.route_status=QLabel(
             "Маршрут только планируется: внешние API и платные операции не запускаются.")
         self.route_status.setWordWrap(True)
@@ -118,7 +139,7 @@ class KieMediaQueuePanel(QWidget):
         layout.addWidget(self.sources)
         draft_row = QHBoxLayout()
         self.prompt = QPlainTextEdit()
-        self.prompt.setPlaceholderText("Описание изображения для Nano Banana Pro")
+        self.prompt.setPlaceholderText("Инструкция для генеративной обработки; для inpainting опишите желаемое содержимое белой области маски")
         self.prompt.setMaximumHeight(76)
         draft_row.addWidget(self.prompt, 1)
         self.aspect_ratio = QComboBox()
@@ -453,7 +474,7 @@ class KieMediaQueuePanel(QWidget):
         if not hasattr(window,'_background_workers'):window._background_workers=[]
         window._background_workers.append(worker)
         self._worker_window=weakref.ref(window)
-        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button,self.local_button):button.setEnabled(False)
+        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button,self.local_button,self.local_generation_button):button.setEnabled(False)
         if worker.project_id==self._owner():
             for row in range(self.table.rowCount()):
                 if self.table.item(row,3).data(Qt.UserRole)==worker.job_id:
@@ -464,6 +485,12 @@ class KieMediaQueuePanel(QWidget):
         if owner == self._owner():
             self.refresh()
             operation=getattr(self._result_worker,'operation','refresh')
+            window=self._worker_window() if self._worker_window is not None else None
+            if output and window is not None and hasattr(window,'register_ready_result'):
+                try:window.register_ready_result(output,project_id=owner)
+                except (ValueError,RuntimeError,OSError,sqlite3.Error):
+                    self.note.setText('Результат сохранён; подготовка в медиатеку ожидает восстановления.')
+                    return
             if operation=='local':self.note.setText('Локальная обработка завершена, результат проверен и сохранён в проекте.')
             elif operation=='draft':
                 if self.prompt.toPlainText()==self._result_worker.request.get('prompt'):self.prompt.clear()
@@ -495,6 +522,7 @@ class KieMediaQueuePanel(QWidget):
         self.generate_button.setEnabled(self._media_service is not None)
         self.create_button.setEnabled(True)
         self.local_button.setEnabled(self._local_service is not None)
+        self.local_generation_button.setEnabled(bool(self._generation_profiles) and self._local_service is not None)
 
     def closeEvent(self, event):
         if self._result_worker is not None and self._result_worker.isRunning():
@@ -522,6 +550,19 @@ class KieMediaQueuePanel(QWidget):
     def _load_sources(self,owner):
         selected={item.data(Qt.UserRole) for item in self.sources.selectedItems()} if owner==self._visible_project else set()
         self.sources.clear()
+        auxiliary=self.local_auxiliary.currentData() if owner==self._visible_project else None
+        self.local_auxiliary.clear();self.local_auxiliary.addItem('Без эталона / маски',None)
+        from generative_models import profiles
+        previous=self.local_profile.currentData()
+        self.local_profile.blockSignals(True);self.local_profile.clear()
+        try:self._generation_profiles=profiles()
+        except (ValueError,TypeError,OSError):self._generation_profiles={}
+        for name,profile in self._generation_profiles.items():self.local_profile.addItem(name+' · '+profile['engine']+' · '+profile['device'],name)
+        restored=self.local_profile.findData(previous)
+        if restored>=0:self.local_profile.setCurrentIndex(restored)
+        self.local_profile.blockSignals(False)
+        if previous is None or restored<0:self._generation_profile_changed()
+        self.local_generation_button.setEnabled(bool(self._generation_profiles) and self._local_service is not None and self._result_worker is None)
         if not owner:return
         for table,column,label in [('assets','stored_path','original_name'),('project_files','path','display_name')]:
             if not self._db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():continue
@@ -532,6 +573,10 @@ class KieMediaQueuePanel(QWidget):
                 if Path(path).suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.mp4','.mov'):continue
                 item=QListWidgetItem(str(name));item.setData(Qt.UserRole,path)
                 self.sources.addItem(item);item.setSelected(path in selected)
+                if Path(path).suffix.lower() in ('.png','.jpg','.jpeg','.webp'):
+                    self.local_auxiliary.addItem(str(name),path)
+        index=self.local_auxiliary.findData(auxiliary)
+        if index>=0:self.local_auxiliary.setCurrentIndex(index)
 
     def _selection(self):
         owner=self._owner()
@@ -654,3 +699,47 @@ class KieMediaQueuePanel(QWidget):
             self.note.setText('Локальный запуск недоступен: '+str(exc));return
         self.refresh()
         self._launch_worker(worker)
+
+    def _generation_profile_changed(self):
+        profile=self._generation_profiles.get(self.local_profile.currentData())
+        if profile:
+            side=256 if profile['engine']=='animatediff_v2v' else 512
+            self.local_width.setValue(side);self.local_height.setValue(side)
+
+    def execute_generation(self):
+        if self._local_service is None or self._result_worker is not None:return
+        owner=self._owner()
+        if owner is None:return
+        try:
+            from generative_contract import ENGINES
+            name=self.local_profile.currentData();profile=self._generation_profiles.get(name)
+            if profile is None:raise ValueError('Сначала установите локальный профиль и проверенные веса')
+            task=next(task for task,engine in ENGINES.items() if engine==profile['engine'])
+            sources=[item.data(Qt.UserRole) for item in self.sources.selectedItems()]
+            if len(sources)!=1:raise ValueError('Выберите ровно один основной исходник')
+            auxiliary=self.local_auxiliary.currentData()
+            if auxiliary is not None:sources.append(auxiliary)
+            request={'task':task,'sources':sources,'prompt':self.prompt.toPlainText().strip(),'generation':dict(profile),
+                'width':self.local_width.value(),'height':self.local_height.value(),'steps':self.local_steps.value(),
+                'seed':self.local_seed.value(),'strength':self.local_strength.value(),'guidance':7.5}
+            if task=='video_generative':request.update(frames=self.local_frames.value(),fps=self.local_fps.value(),start=self.local_start.value())
+            worker=self._local_service.worker(owner,request=request)
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.note.setText('Генеративный запуск недоступен: '+str(exc));return
+        self.refresh();self._launch_worker(worker)
+
+    def load_local_profiles(self):
+        if self._result_worker is not None or self._db.in_transaction:return
+        path,_=QFileDialog.getOpenFileName(self,'Подключить проверенные локальные модели','','JSON (*.json)')
+        if not path:return
+        try:
+            from generative_models import profiles
+            import os
+            if not profiles({'AI_SMM_GENERATIVE_CONFIG':path}):raise ValueError('В профиле нет локальных моделей')
+            self._db.execute('CREATE TABLE IF NOT EXISTS local_generative_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
+            self._db.execute("INSERT OR REPLACE INTO local_generative_settings VALUES('config_path',?)",(path,));self._db.commit()
+            os.environ['AI_SMM_GENERATIVE_CONFIG']=path
+            self.refresh()
+            self.note.setText('Профили подключены. Веса проверяются перед запуском; GPU/качество ещё не подтверждены.')
+        except (ValueError,TypeError,OSError,sqlite3.Error) as exc:
+            self._db.rollback();self.note.setText('Профили не подключены: '+str(exc))

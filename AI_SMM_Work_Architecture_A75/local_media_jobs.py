@@ -18,11 +18,12 @@ from tempfile import TemporaryDirectory
 import time
 from uuid import uuid4
 from PIL import Image,ImageOps
-from project_file_boundary import require_managed_folder,require_managed_file
+from project_file_boundary import require_managed_folder,require_managed_file,reject_path_link
 from project_media_sources import registered_source
 from media_artifact_validation import digest_file,validate_media_bytes
 from media_ingest_core import ingest,replay
 from local_media_contract import TASKS,validate_local_request as _validate
+from generative_contract import GEN_TASKS,output_kind,source_kind
 
 
 
@@ -40,6 +41,8 @@ def install(db):
         ('prepared','running','completed','interrupted','failed','cancelled')),
         stop_requested INTEGER NOT NULL DEFAULT 0,claim TEXT,input_receipts_json TEXT,
         output_path TEXT,result_sha256 TEXT,error_code TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS local_generation_diagnostics(job_id TEXT PRIMARY KEY,project_id TEXT NOT NULL,diagnostic_json TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS local_generation_receipts (job_id TEXT PRIMARY KEY,project_id TEXT NOT NULL,receipt_json TEXT NOT NULL,output_sha256 TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS local_media_events (
         id TEXT PRIMARY KEY,job_id TEXT NOT NULL,project_id TEXT NOT NULL,
         event TEXT NOT NULL,created_at TEXT NOT NULL)''')
@@ -84,7 +87,7 @@ def create_job(db,owner,request,*,dialogue_turn_id=None):
             (id,project_id,request_json,request_sha256,state,created_at,updated_at)
             VALUES(?,?,?,?,'prepared',?,?)''',(ident,owner,text,hashlib.sha256(text.encode()).hexdigest(),now(),now()))
         if dialogue_turn_id is not None:
-            db.execute('INSERT INTO local_media_dialogue_links VALUES(?,?,?,?)',(ident,owner,dialogue_turn_id,'image' if request['task']=='image_resize' else 'video'))
+            db.execute('INSERT INTO local_media_dialogue_links VALUES(?,?,?,?)',(ident,owner,dialogue_turn_id,output_kind(request)))
         _event(db,owner,ident,'prepared');db.commit()
     except BaseException:db.rollback();raise
     return ident
@@ -135,6 +138,9 @@ def _tool(command,check,*,timeout=1200):
 
 def _render(request,sources,target,check):
     task=request['task'];width=request.get('width',720);height=request.get('height',1280)
+    if task in GEN_TASKS:
+        from generative_media_runtime import render_generation
+        return render_generation(request,sources,target,check,tool=_tool,probe=_probe)
     if task=='image_resize':
         with Image.open(sources[0]) as image:
             image.load();image=ImageOps.exif_transpose(image).convert('RGB')
@@ -183,14 +189,17 @@ def _render(request,sources,target,check):
 def _verify_output(request,sources,target):
     """Independent tool readback checks the actual requested output properties."""
     task=request['task']
-    width,height=request.get('width',720),request.get('height',1280)
-    if task=='image_resize':
+    width,height=request.get('width',512 if task in GEN_TASKS else 720),request.get('height',512 if task in GEN_TASKS else 1280)
+    if output_kind(request)=='image':
         with Image.open(target) as image:
             if image.size!=(width,height):raise ValueError('Local image dimensions differ from request')
         return
     duration,audio,geometry=_probe(target,full=True)
     source_audio=False
-    if task=='video_from_images':
+    if task=='video_generative':
+        expected=request.get('frames',16)/request.get('fps',8)
+        source_audio=_probe(sources[0])[1]
+    elif task=='video_from_images':
         expected=request.get('seconds_per_image',3)*len(sources)
     elif task=='video_montage':
         expected=sum(_probe(path)[0] for path in sources);source_audio=True
@@ -219,6 +228,12 @@ def _adopt_receipt(db,workspace,owner,job,is_video):
     if not receipt or receipt[2]!='done' or not path.is_file() or path.stat().st_size!=receipt[1] or digest_file(path)!=receipt[0]:
         raise ValueError('Local output receipt is not verified')
     validate_media_bytes(path,is_video=is_video)
+    request=json.loads(_row(db,owner,job)[0])
+    if request['task'] in GEN_TASKS:
+        generation=db.execute('SELECT receipt_json,output_sha256 FROM local_generation_receipts WHERE job_id=? AND project_id=?',(job,owner)).fetchone()
+        if generation is None or generation[1]!=receipt[0]:raise ValueError('Generative receipt lost after publication')
+        proof=json.loads(generation[0])
+        if any(proof.get(key)!=request['generation'][key] for key in ('engine','manifest_sha256','device')) or proof.get('seed')!=request.get('seed',0):raise ValueError('Generative receipt identity changed')
     _finish_linked(db,workspace,owner,job,str(path))
     db.execute("UPDATE local_media_jobs SET state='completed',output_path=?,result_sha256=?,error_code=NULL,updated_at=? WHERE id=? AND project_id=?",
                (str(path),receipt[0],now(),job,owner));_event(db,owner,job,'recovered_publication');db.commit()
@@ -268,13 +283,20 @@ def execute_job(db,workspace,owner,job,*,cancel_check=None):
     _owner(db,owner);_row(db,owner,job)
     with _job_lock(workspace,owner,job) as acquired:
         if not acquired:raise RuntimeError('Local media task still has a live owner')
+        folder=require_managed_folder(Path(workspace(owner)),'.local_media_work')
+        if folder.exists():
+            for orphan in folder.glob(job+'-*'):
+                reject_path_link(orphan)
+                if not orphan.is_dir():raise ValueError('Unexpected local task work entry')
+                for entry in orphan.rglob('*'):reject_path_link(entry)
+                shutil.rmtree(orphan)
         return _execute_locked(db,workspace,owner,job,cancel_check=cancel_check)
 
 
 def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
     if db.in_transaction:raise RuntimeError('Foreign transaction owns local execution')
     row=_row(db,owner,job);request=json.loads(row[0]);_validate(request)
-    is_video=request['task']!='image_resize'
+    is_video=output_kind(request)=='video'
     # A committed ingest receipt is the publication boundary, even after crash.
     result=_adopt_receipt(db,workspace,owner,job,is_video)
     if result:return result
@@ -294,14 +316,15 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
         if cancel_check is not None:cancel_check()
     try:
         check();registered=[];receipts=[]
-        for name in request['sources']:
+        for index,name in enumerate(request['sources']):
             check();path=registered_source(db,workspace,owner,name)
             if not 0<path.stat().st_size<=500*1024*1024:raise ValueError('Local source byte budget exceeded')
-            if request['task'] in ('image_resize','video_from_images'):
+            if (request['task'] in GEN_TASKS and source_kind(request,index)=='image') or request['task'] in ('image_resize','video_from_images'):
                 with Image.open(path) as image:
                     if image.width*image.height>40_000_000:raise ValueError('Local source pixel budget exceeded')
                     image.load()
             else:_probe(path)
+            if request['task'] in GEN_TASKS and any(path.samefile(previous) for previous in registered):raise ValueError('Source and reference/mask refer to the same file')
             actual=digest_file(path)
             expected=request.get('expected_sha256')
             if expected is not None and expected[len(receipts)] is not None and expected[len(receipts)]!=actual:
@@ -311,7 +334,7 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
         if row[5] and row[5]!=serialized:raise ValueError('Local input changed since first execution')
         db.execute('UPDATE local_media_jobs SET input_receipts_json=? WHERE id=? AND claim=?',(serialized,job,claim));db.commit()
         root=Path(workspace(owner));folder=require_managed_folder(root,'.local_media_work');folder.mkdir(parents=True,exist_ok=True)
-        with TemporaryDirectory(dir=folder) as temporary:
+        with TemporaryDirectory(prefix=job+'-',dir=folder) as temporary:
             temp=Path(temporary);sources=[]
             for index,path in enumerate(registered):
                 check();snapshot=temp/(str(index)+path.suffix.lower())
@@ -322,6 +345,15 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
             _render(request,sources,target,check);check()
             validate_media_bytes(target,is_video=is_video)
             _verify_output(request,sources,target)
+            if request['task'] in GEN_TASKS:
+                receipt_path=temp/'generation_receipt.json'
+                if not receipt_path.is_file() or receipt_path.stat().st_size>8192:raise ValueError('Missing local generation receipt')
+                generation=json.loads(receipt_path.read_text(encoding='utf-8'))
+                for key in ('engine','manifest_sha256','device'):
+                    if generation.get(key)!=request['generation'][key]:raise ValueError('Generation receipt differs from durable request')
+                if generation.get('seed')!=request.get('seed',0):raise ValueError('Generation seed differs from durable request')
+                db.execute('INSERT OR REPLACE INTO local_generation_receipts VALUES(?,?,?,?)',
+                    (job,owner,json.dumps(generation,sort_keys=True),digest_file(target)));db.commit()
             check()
             receipt=ingest(db,workspace,target,project_id=owner,kind='video' if is_video else 'result',
                            item_id=job,original_name=request['task']+target.suffix,authorize=check)
@@ -334,8 +366,10 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
     except BaseException as exc:
         if db.in_transaction:db.rollback()
         state='cancelled' if isinstance(exc,LocalMediaStopped) else 'failed'
+        if request['task'] in GEN_TASKS and hasattr(exc,'diagnostic'):
+            db.execute('INSERT OR REPLACE INTO local_generation_diagnostics VALUES(?,?,?)',(job,owner,json.dumps(exc.diagnostic,ensure_ascii=False)))
         db.execute("UPDATE local_media_jobs SET state=?,error_code=?,updated_at=? WHERE id=? AND project_id=? AND claim=? AND state='running'",
-                   (state,type(exc).__name__,now(),job,owner,claim));_event(db,owner,job,state);db.commit()
+                   (state,getattr(exc,'public_code',type(exc).__name__),now(),job,owner,claim));_event(db,owner,job,state);db.commit()
         raise
 
 
@@ -372,6 +406,6 @@ def recover_jobs(db,workspace,owner):
 def list_jobs(db,owner):
     if db.in_transaction:raise RuntimeError('Foreign transaction owns local listing')
     _owner(db,owner);install(db);db.commit()
-    return [{'id':row[0],'model':'local/pillow' if json.loads(row[1])['task']=='image_resize' else 'local/ffmpeg',
+    return [{'id':row[0],'model':('local/'+json.loads(row[1])['generation']['engine']) if json.loads(row[1])['task'] in GEN_TASKS else 'local/pillow' if json.loads(row[1])['task']=='image_resize' else 'local/ffmpeg',
              'state':row[2],'local_stop_requested':bool(row[3]),'output_path':row[4],'error_code':row[5],'created_at':row[6]}
             for row in db.execute('SELECT id,request_json,state,stop_requested,output_path,error_code,created_at FROM local_media_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 200',(owner,))]

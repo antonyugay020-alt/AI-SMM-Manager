@@ -722,6 +722,20 @@ if __name__=='__main__':
             record('live_gui_full_workflow',None,reason='Only checked on Windows host')
     except BaseException as e:
         record('verifier_exception',False,error=repr(e))
+    # Only actual target Windows/CUDA/Qt execution plus interactive visual
+    # review can satisfy local generative media acceptance. Never fixtures.
+    if os.environ.get('AI_SMM_TEST_PROFILE','full').strip().casefold()=='full':
+        plan=os.environ.get('AI_SMM_GENERATIVE_ACCEPTANCE_PLAN')
+        if os.name!='nt' or not plan:
+            record('local_generative_media',None,reason='Requires Windows RTX 2080 Super, installed profiles, explicit fixture plan and actual visual review')
+        else:
+            try:
+                from generative_acceptance import run_cases
+                proof=run_cases(plan,OUT/'generative_media',review=True)
+                record('local_generative_media',proof.get('status')=='PASS' and proof.get('windows_executed') is True and proof.get('semantic_quality')=='OPERATOR_VERIFIED',
+                       log='generative_media/generative_results.json',scope='Actual target CUDA/Qt generation plus operator visual review')
+            except Exception as exc:
+                record('local_generative_media',False,error=type(exc).__name__+': '+str(exc))
     # A technical end-to-end PASS is not proof of actual factual correctness.
     profile=os.environ.get('AI_SMM_TEST_PROFILE','full').strip().casefold()
     task_checks=['package_integrity','windows_platform','unit_tests','live_qt_gui','ollama_roundtrip',
@@ -730,7 +744,7 @@ if __name__=='__main__':
     if os.environ.get('AI_SMM_ENABLE_OPENAI_API','').strip()=='1' and os.environ.get('AI_SMM_ENABLE_OPENAI_ACCEPTANCE','').strip()=='1':
         task_checks.append('openai_api_preflight')
     if profile=='full':
-        task_checks.append('live_gui_full_workflow')
+        task_checks.extend(('live_gui_full_workflow','local_generative_media'))
     full_checks=tuple(task_checks)
     RESULT['checks']['full_real_task_end_to_end']={
       'status':acceptance_status(RESULT['checks'],full_checks),

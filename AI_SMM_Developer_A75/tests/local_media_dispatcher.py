@@ -30,7 +30,7 @@ class LocalMediaWorker(QThread):
             result=execute_job(db,workspace,self.project_id,self.job_id,cancel_check=check)
             self.done.emit(self.project_id,self.job_id,result)
         except LocalMediaStopped:self.stopped.emit(self.project_id,self.job_id)
-        except Exception as exc:self.failed.emit(self.project_id,self.job_id,type(exc).__name__)
+        except Exception as exc:self.failed.emit(self.project_id,self.job_id,getattr(exc,'public_code',type(exc).__name__))
         finally:
             if db is not None:db.close()
 
@@ -39,6 +39,8 @@ class LocalMediaDispatcher:
     def __init__(self,db,workspace):
         if not callable(workspace):raise TypeError('Local project workspace resolver required')
         self.db=db;self.workspace=workspace
+        from generative_models import configure_from_database
+        configure_from_database(db)
 
     def worker(self,owner,*,request=None,job_id=None,dialogue_turn_id=None):
         if job_id is None:

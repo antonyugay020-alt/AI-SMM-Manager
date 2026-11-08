@@ -315,11 +315,26 @@ TOOL_DESCRIPTIONS={
  'project_control':'Запросить подтверждаемое удаление выбранных объектов текущего проекта. Сам AI ничего не удаляет.',
  'image_edit':'Передать текущую инструкцию выбранному графическому инструменту. use_reference задаёт необходимость выбранного эталона.',
  'video_trim':'Передать выбранное видео с явно определённым интервалом инструменту монтажа.',
- 'local_media':'Выполнить подтверждённую локальную операцию с media_sources по их ID: монтаж, обрезка, формат, ролик из фото или размер изображения. Заполни media; не подставляй пути, не называй это генеративной стилизацией.'}
+ 'local_media':'Выполнить подтверждённую локальную операцию с media_sources по их ID: монтаж, обрезка, формат, ролик из фото или размер изображения. Заполни media; не подставляй пути. Генеративные задачи доступны только с установленным profile. image_inpaint: первый ID исходник, второй маска (белое меняется); image_reference: исходник и эталон; video_generative: ролик и необязательный эталон. Обычные FFmpeg/Pillow не выполняют генеративную стилизацию.'}
 
 
 def local_media_request(snapshot,media):
     from local_media_contract import available_local_tasks,validate_local_request
+    from generative_contract import GEN_TASKS,source_kind
+    if isinstance(media,dict) and isinstance(media.get('task'),str) and media.get('task') in GEN_TASKS:
+        from generative_models import profiles,describe_profile
+        task=media['task'];catalog=snapshot.get('media',{});caps=snapshot.get('ui_context',{}).get('capabilities',{})
+        if task not in available_local_tasks(catalog,caps):raise ValueError('Generative task is not installed for these sources')
+        ids=media.get('source_ids')
+        if not isinstance(ids,list) or not ids or any(not isinstance(i,str) or i not in catalog for i in ids) or len(ids)!=len(set(ids)):raise ValueError('Issued generative source IDs required')
+        name=media.get('profile');installed=profiles()
+        if not isinstance(name,str) or name not in installed or caps['generative_profiles'].get(name)!=describe_profile(installed[name]):
+            raise ValueError('Installed generative profile changed after analysis')
+        request={key:value for key,value in media.items() if key not in ('profile','source_ids')}
+        request.update(sources=[catalog[i]['path'] for i in ids],expected_sha256=[catalog[i].get('sha256') for i in ids],generation=installed[name])
+        if any(catalog[i]['kind']!=source_kind(request,index) for index,i in enumerate(ids)):raise ValueError('Generative source/reference/mask kind mismatch')
+        validate_local_request(request)
+        return request
     fields={'task','source_ids','width','height','start','end','seconds_per_image'}
     if not isinstance(media,dict) or set(media)!=fields:raise ValueError('Full structured local media parameters required')
     task=media['task'];ids=media['source_ids'];catalog=snapshot.get('media',{})

@@ -3533,7 +3533,7 @@ class Studio(QMainWindow):
         layout.addWidget(QLabel('AI-агент использует доступные инструменты. Облачные операции — только с разрешения.'))
         layout.addWidget(QLabel('Состояние: '+', '.join(k+': '+('доступно' if v else 'не подключено') for k,v in available_tools().items())))
         layout.addWidget(QLabel('Режим генерации:'))
-        selector=QComboBox();selector.addItems(['Локально: Qwen Image Edit 2509 (тяжёлая модель)','OpenAI API (с подтверждением каждой отправки)','Hugging Face Space (публичный Gradio API)'])
+        selector=QComboBox();selector.addItems(['Локально: установленные SD-профили / Qwen Image Edit (legacy)','OpenAI API (с подтверждением каждой отправки)','Hugging Face Space (публичный Gradio API)'])
         selector.setCurrentIndex(getattr(self,'engine_mode',0));layout.addWidget(selector)
         layout.addWidget(QLabel('OpenAI API-ключ (только в памяти до закрытия программы):'))
         key=QLineEdit();key.setEchoMode(QLineEdit.Password)
@@ -3745,7 +3745,7 @@ class Studio(QMainWindow):
         if getattr(self,'engine_mode',0)==1:self.cloud_generate(prompt.strip())
         elif getattr(self,'engine_mode',0)==2:self.hf_generate(prompt.strip())
         else:
-            self.modern_local_generate(prompt.strip())
+            if not self.try_installed_image_edit(prompt.strip()):self.modern_local_generate(prompt.strip())
 
     def open_results_folder(self):
         if not self.current_project:
@@ -4800,6 +4800,9 @@ class Studio(QMainWindow):
                 if str(self.reference.path or '')!=str(plan.snapshot['ui_context'].get('reference_path') or ''):
                     raise ValueError('Эталон изменился во время анализа')
                 if a['use_reference'] and not self.reference.path:raise ValueError('AI выбрал эталон, но файл не задан')
+                if op=='image_edit' and self.try_semantic_local_generation(plan):
+                    self._record_dialogue_projection(workspace,plan.turn_id,status='tool_dispatched',completion_verified=False)
+                    return
                 if op=='image_edit':
                     self.dispatch_semantic_image(plan.utterance,a['use_reference'])
                 else:self._apply_task_result({'action':'video_trim','instruction':plan.utterance,'start':a['start'],'end':a['end']})
@@ -5504,8 +5507,12 @@ class Studio(QMainWindow):
         if self.media_worker is not None:raise RuntimeError('A semantic media worker still owns the slot')
         from dialogue_runtime import local_media_request
         request=local_media_request(plan.snapshot,plan.action['media'])
+        self._launch_semantic_local_request(plan,request)
+
+    def _launch_semantic_local_request(self,plan,request):
+        if self.media_worker is not None:raise RuntimeError('A semantic media worker still owns the slot')
         worker=self.local_media.worker(plan.project_id,request=request,dialogue_turn_id=plan.turn_id)
-        kind='image' if request['task']=='image_resize' else 'video'
+        kind=__import__('generative_contract').output_kind(request)
         self._semantic_local_identity=(plan.project_id,plan.turn_id,kind,worker.job_id)
         self.media_worker=worker
         worker.done.connect(self.semantic_local_done)
@@ -5517,6 +5524,59 @@ class Studio(QMainWindow):
         self.ai_status.setText('Локальная обработка медиа…')
         self.append_chat('AI-менеджер','Медиа-задание сохранено и выполняется локально. Исходники сохраняются.')
         worker.start()
+
+    def try_installed_image_edit(self,prompt):
+        try:
+            from generative_models import profiles
+            installed=profiles()
+            if not installed:return False
+            reference=self.task_reference(prompt)
+            engine='sd15_ip_adapter' if reference else 'instruct_pix2pix'
+            candidates=[(name,p) for name,p in installed.items() if p['engine']==engine]
+            if not candidates:
+                self.append_chat('Система','Для этой операции нужен установленный профиль '+engine+'. Выберите профиль в разделе медиа-заданий.')
+                return True
+            panel=self.kie_queue_panel
+            if panel._result_worker is not None:
+                self.append_chat('Система','Дождитесь завершения текущего медиа-задания.');return True
+            selected=panel.local_profile.currentData()
+            name,profile=next(((name,p) for name,p in candidates if name==selected),candidates[0])
+            sources=[str(self.source.path)]+([str(reference)] if reference else [])
+            request={'task':'image_reference' if reference else 'image_instruction','sources':sources,'prompt':prompt,
+                'generation':profile,'width':512,'height':512,'steps':20,'seed':0,'strength':.65,'guidance':7.5}
+            worker=self.local_media.worker(self.current_project,request=request)
+            panel.refresh();panel._launch_worker(worker)
+            self.append_chat('Система','Локальная генерация сохранена в очереди медиа-заданий.')
+            return True
+
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.append_chat('Система','Локальная генерация не запущена: '+type(exc).__name__)
+            return True
+
+    def try_semantic_local_generation(self,plan):
+        if getattr(self,'engine_mode',0)!=0:return False
+        from generative_models import profiles,describe_profile
+        installed=profiles()
+        use_reference=plan.action['use_reference']
+        engine='sd15_ip_adapter' if use_reference else 'instruct_pix2pix'
+        candidates=[(name,p) for name,p in installed.items() if p['engine']==engine]
+        if not candidates:return False
+        selected=self.kie_queue_panel.local_profile.currentData()
+        name,profile=next(((name,p) for name,p in candidates if name==selected),candidates[0])
+        declared=plan.snapshot.get('ui_context',{}).get('capabilities',{}).get('generative_profiles',{})
+        if declared.get(name)!=describe_profile(profile):raise ValueError('Local generative profile changed after analysis')
+        sources=[str(self.source.path)]
+        if use_reference:sources.append(str(self.reference.path))
+        catalog=plan.snapshot.get('media',{})
+        hashes=[]
+        for source in sources:
+            item=next((item for item in catalog.values() if item['path']==source),None)
+            if item is None:raise ValueError('Selected image was not issued in this project snapshot')
+            hashes.append(item.get('sha256'))
+        request={'task':'image_reference' if use_reference else 'image_instruction','sources':sources,'expected_sha256':hashes,
+            'prompt':plan.utterance,'generation':profile,'width':512,'height':512,'steps':20,'seed':0,'strength':.65,'guidance':7.5}
+        self._launch_semantic_local_request(plan,request)
+        return True
 
     def semantic_local_done(self,owner,job,path):
         identity=self._semantic_local_identity
