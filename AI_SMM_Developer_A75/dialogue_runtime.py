@@ -161,17 +161,9 @@ class DialogueContract:
             'requested_media':{'type':'boolean','description':'Нужны ли отдельные готовые медиафайлы как результат. Текст, сценарии, раскадровка и описание визуала являются текстовыми документами, а не отрендеренными файлами.'},'reuse_structure':{'type':'boolean'},
             'offset':{'type':'integer','minimum':0},'length':{'type':'integer','minimum':1,'maximum':20000}}}
         if 'local_media' in self.available_operations():
-            from local_media_contract import available_local_tasks
-            tasks=list(available_local_tasks(snap.get('media',{}),snap.get('ui_context',{}).get('capabilities',{})))
+            from local_media_contract import local_media_schema
             result['required'].append('media')
-            result['properties']['media']={'type':['object','null'],'additionalProperties':False,
-                'required':['task','source_ids','width','height','start','end','seconds_per_image'],
-                'properties':{'task':{'type':'string','enum':tasks},
-                    'source_ids':{'type':'array','items':{'type':'string','enum':list(snap.get('media',{}))},'minItems':1,'maxItems':30,'uniqueItems':True},
-                    'width':{'type':['integer','null'],'minimum':64,'maximum':4096},
-                    'height':{'type':['integer','null'],'minimum':64,'maximum':4096},
-                    'start':{'type':['number','null'],'minimum':0},'end':{'type':['number','null'],'minimum':0},
-                    'seconds_per_image':{'type':['number','null'],'minimum':.25,'maximum':30}}}
+            result['properties']['media']=local_media_schema(snap.get('media',{}),snap.get('ui_context',{}).get('capabilities',{}))
         return result
     def context(self):
         s=self.snapshot

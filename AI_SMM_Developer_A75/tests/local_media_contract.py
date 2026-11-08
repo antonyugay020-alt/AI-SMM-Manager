@@ -42,3 +42,22 @@ def available_local_tasks(catalog,capabilities):
     minimum={'image_resize':images>=1,'video_from_images':images>=1,
              'video_cut':videos>=1,'video_format':videos>=1,'video_montage':videos>=2}
     return tuple(task for task in sorted(TASKS) if task in declared and minimum[task])
+
+
+def local_media_schema(catalog,capabilities):
+    """Expose task-specific constraints to native decoding as well as the host."""
+    variants=[{'type':'null'}]
+    for task in available_local_tasks(catalog,capabilities):
+        kind='image' if task in ('image_resize','video_from_images') else 'video'
+        ids=[ident for ident,item in catalog.items() if item['kind']==kind]
+        single=task in ('image_resize','video_cut','video_format')
+        properties={'task':{'type':'string','enum':[task]},
+            'source_ids':{'type':'array','items':{'type':'string','enum':ids},
+                'minItems':2 if task=='video_montage' else 1,'maxItems':1 if single else 30,'uniqueItems':True},
+            'width':{'type':['integer','null'],'minimum':64,'maximum':4096},
+            'height':{'type':['integer','null'],'minimum':64,'maximum':4096},
+            'start':{'type':'number','minimum':0} if task=='video_cut' else {'type':'null'},
+            'end':{'type':'number','exclusiveMinimum':0} if task=='video_cut' else {'type':'null'},
+            'seconds_per_image':{'type':['number','null'],'minimum':.25,'maximum':30} if task=='video_from_images' else {'type':'null'}}
+        variants.append({'type':'object','additionalProperties':False,'required':list(properties),'properties':properties})
+    return {'anyOf':variants}

@@ -77,8 +77,24 @@ class SemanticMediaContractTests(unittest.TestCase):
         snapshot['media']={key:item for key,item in snapshot['media'].items() if item['kind']=='image'}
         contract=DialogueContract(self.message,snapshot,self.turn)
         self.assertIn('media',contract.schema()['required'])
-        allowed=contract.schema()['properties']['media']['properties']['task']['enum']
+        variants=contract.schema()['properties']['media']['anyOf'][1:]
+        allowed=[variant['properties']['task']['enum'][0] for variant in variants]
         self.assertEqual(set(allowed),{'image_resize','video_from_images'})
+
+    def test_native_schema_encodes_task_source_kinds_cardinality_and_unused_nulls(self):
+        contract=DialogueContract(self.message,self.snapshot,self.turn)
+        variants=contract.schema()['properties']['media']['anyOf'][1:]
+        self.assertEqual(len(variants),len(TASKS))
+        for variant in variants:
+            properties=variant['properties'];task=properties['task']['enum'][0]
+            kind='image' if task in ('image_resize','video_from_images') else 'video'
+            ids=properties['source_ids']['items']['enum']
+            self.assertTrue(ids)
+            self.assertTrue(all(self.snapshot['media'][ident]['kind']==kind for ident in ids))
+            for key in ('start','end'):
+                self.assertEqual(properties[key]['type'],'number' if task=='video_cut' else 'null')
+            if task!='video_from_images':self.assertEqual(properties['seconds_per_image'],{'type':'null'})
+            if task in ('image_resize','video_cut','video_format'):self.assertEqual(properties['source_ids']['maxItems'],1)
 
     def test_actual_semantic_decoder_accepts_media_action_for_arbitrary_wording(self):
         action=self.action(self.media('video_montage',['media:asset:clip','media:asset:second']))

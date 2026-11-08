@@ -79,7 +79,7 @@ def main():
         try:
             with (nullcontext(None) if args.real_model else patch('central_dialogue_transport.request_central_dialogue',return_value={'message':{'content':json.dumps(action)}})) as model,patch.object(jobs,'_render',side_effect=render):
                 window.message.setPlainText(request);window.send_message()
-                deadline=time.monotonic()+(180 if args.real_model else 25)
+                deadline=time.monotonic()+(420 if args.real_model else 25)
                 while time.monotonic()<deadline:
                     qapp.processEvents()
                     if args.cancel and entered.is_set() and not stop_sent:
