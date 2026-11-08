@@ -1,4 +1,52 @@
-# Current integrated development state — 2026-11-08
+# Current development state — native local-media dispatcher
+
+PR #4 remains draft on `integration/ai-smm-pr2-20261106`. Tested source:
+`cad9bd89564153f7f45ec29cef11824b7637affe`, following the verified
+`3ed71fc` / evidence `62f7e40` milestone. Main is untouched. No release/build.
+
+- Actual Qt local execution now supports image resizing, video trimming,
+  montage, format conversion and video from photos, independently of API keys
+  and the paid ledger. Mixed audio/silent video montage preserves an audio
+  track. Non-generative tools do not claim AI styling or object editing.
+- One project-source ownership boundary and one byte validator now serve local
+  and Kie backends. Immutable snapshots, input receipts, attempt fencing,
+  cooperative stop, subprocess termination, event history and crash-safe
+  ingest/publication are shared across the local job lifecycle.
+- Semantic `video_trim` uses this dispatcher and a persistent link to the
+  original dialogue. Result publication resolves that intake once. Crash after
+  artifact commit recovers its dialogue receipt without rendering twice.
+- Reference use follows semantic booleans/explicit user choice through GUI,
+  workers and the standalone editor. Removed keyword-driven reference/pixel
+  decisions. Explicit technical tonal controls remain distinct from AI editing.
+- Local editor precision queries CUDA capability and native BF16 support;
+  it selects FP16 rather than BF16 emulation on a Turing-class device. This is
+  mocked capability verification, **not** a real RTX 2080 Super model run.
+  API reference: https://docs.pytorch.org/docs/stable/generated/torch.cuda.is_bf16_supported.html .
+
+Verification on exact source fingerprint
+`f2870fe3cfd31c155d44a0f82e8b4a79de55bb1bfbb6af3fa4465f525ebe3802`:
+full developer regression **2109 + 1035 subtests PASS** (263 modules, JUnit
+3144); offline CI **236 + 77 PASS**; forced-GC whole CI **236 + 77 PASS**;
+real native media checks PASS. Actual Studio source import → semantic trim →
+local FFmpeg worker → owned result → original dialogue receipt → clean close
+PASS, including a second isolated run with a deliberately corrupt paid ledger.
+All three runtime mirrors and `git diff --check` PASS.
+
+Commands/interpreter/environment match the previous milestone below; latest
+regression output: `/workspace/work/session2/local-verified-regression`.
+[Exact logs, manifests and failure inventory](evidence/20261108-local-media-dispatcher).
+No paid API calls, Actions, merge or user build. Automatic paid review stays
+disabled. Windows clean-unpack/full-GUI/real-model acceptance remains **0/10**.
+
+Next: extend the semantic contract/dispatcher binding to every supported local
+media task using issued project-media IDs, then verify available generative
+model adapters without inventing availability or model-quality evidence.
+Real local model weights/services, target GPU performance, independent model
+review and Windows E2E are still unverified. Earlier PASS is not final acceptance.
+
+---
+
+# Previous integrated milestone — 2026-11-08
 
 Development evidence only. PR #4 remains draft; Windows acceptance **0/10**.
 
