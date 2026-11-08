@@ -77,28 +77,8 @@ class KieMediaGateway:
         self.verified_price_quote=verified_price_quote
 
     def _authorized(self, project_id, filename):
-        """Only source assets already registered to the launch project may leave it."""
-        from project_file_boundary import reject_path_link, require_managed_file
-        if not isinstance(project_id,str) or not project_id:
-            raise ValueError("project owner required")
-        db=self.db
-        if not db.execute("SELECT 1 FROM projects WHERE id=?",(project_id,)).fetchone():
-            raise ValueError("project owner not found")
-        root=Path(self.workspace(project_id))
-        source=Path(filename)
-        reject_path_link(source)
-        source=source.resolve(strict=True)
-        if not source.is_file():
-            raise ValueError("uploaded source is not a regular file")
-        require_managed_file(root,source,("originals","references","processed"))
-        authorized=db.execute("""SELECT 1 FROM assets
-              WHERE project_id=? AND stored_path=?
-              UNION ALL SELECT 1 FROM project_files
-              WHERE project_id=? AND path=? LIMIT 1""",
-              (project_id,str(source),project_id,str(source))).fetchone()
-        if authorized is None:
-            raise ValueError("media source is not registered to project")
-        return source
+        from project_media_sources import registered_source
+        return registered_source(self.db,self.workspace,project_id,filename)
 
     def _upload_image_refs(self, project_id, paths, *, limit, kling=False):
         validated=[verified_image(self._authorized(project_id,p),limit_mb=limit,

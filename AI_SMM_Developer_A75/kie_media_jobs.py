@@ -16,6 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from kie_media_contracts import extract_task_id, TASK_ID
+from media_artifact_validation import digest_file as _digest_file, validate_media_bytes as _validate_media_bytes
 
 SUPPORTED = frozenset((
     "nano-banana-pro", "google/nano-banana-edit",
@@ -165,51 +166,6 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False,
         raise
     return provider_id
 
-
-
-def _digest_file(path):
-    result=hashlib.sha256()
-    with Path(path).open("rb") as source:
-        for block in iter(lambda: source.read(1024*1024), b""):
-            result.update(block)
-    return result.hexdigest()
-
-
-def _validate_media_bytes(path, *, is_video):
-    """Verify bytes before they cross the project publication boundary."""
-    if path.stat().st_size > (500 if is_video else 60)*1024*1024:
-        raise ValueError("downloaded Kie media exceeds maximum size")
-    if not is_video:
-        from PIL import Image, UnidentifiedImageError
-        expected="PNG" if path.suffix.lower()==".png" else "JPEG"
-        try:
-            with Image.open(path) as image:
-                if image.format!=expected:
-                    raise ValueError("downloaded photo MIME does not match output")
-                width,height=image.size
-                if (width<=0 or height<=0 or width>16000 or height>16000
-                        or width*height>40_000_000):
-                    raise ValueError("downloaded photo pixel budget exceeded")
-                # Verify actual decoded pixels, not only the image header.
-                image.load()
-        except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-            raise ValueError("downloaded photo cannot be fully decoded") from exc
-    else:
-        import subprocess
-        try:
-            probe=subprocess.run(
-                ["ffprobe","-v","error","-show_entries",
-                 "stream=codec_type:format=duration","-of","json",str(path)],
-                timeout=15, capture_output=True, check=True)
-            metadata=json.loads(probe.stdout)
-        except (OSError,subprocess.SubprocessError,ValueError) as exc:
-            raise ValueError("downloaded video failed ffprobe verification") from exc
-        if not any(item.get("codec_type")=="video"
-                   for item in metadata.get("streams",[]) if isinstance(item,dict)):
-            raise ValueError("downloaded media has no video stream")
-        duration=float(metadata.get("format",{}).get("duration",0))
-        if not math.isfinite(duration) or duration<=0:
-            raise ValueError("downloaded video duration invalid")
 
 
 def complete(db, project_id, job_id, query_task, fetch_verified_file,

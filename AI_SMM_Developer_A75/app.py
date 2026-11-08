@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 from cloud_credentials import get_openai_key, set_openai_key, clear_openai_key
+from reference_policy import explicit_reference
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl, QTimer, QSize
 from PySide6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QDrag, QBrush, QFont, QTextDocument, QIcon
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFormLayout,
@@ -452,9 +453,10 @@ class AIWorker(QThread):
 class EditWorker(QThread):
     done = Signal(str)
     failed = Signal(str)
-    def __init__(self, source, reference, output, instruction):
+    def __init__(self, source, reference, output, instruction, *, use_reference=False, adjustments=None):
         super().__init__()
-        self.source, self.reference, self.output, self.instruction = source, (reference if mentions_reference(instruction) else None), output, instruction
+        self.source, self.reference, self.output, self.instruction = source, explicit_reference(reference,use_reference,source=source), output, instruction
+        self.adjustments=adjustments or {}
     def run(self):
         try:
             with Image.open(self.source) as raw:
@@ -480,17 +482,15 @@ class EditWorker(QThread):
             else:
                 edited = ImageOps.autocontrast(original, cutoff=0.5, preserve_tone=True)
                 edited = ImageEnhance.Contrast(edited).enhance(1.07)
-            command = self.instruction.lower()
-            if any(word in command for word in ('ярче', 'светлее', 'осветл')):
-                edited = ImageEnhance.Brightness(edited).enhance(1.12)
-            if any(word in command for word in ('темнее', 'затемн')):
-                edited = ImageEnhance.Brightness(edited).enhance(0.88)
-            if any(word in command for word in ('контраст', 'тени глубже')):
-                edited = ImageEnhance.Contrast(edited).enhance(1.12)
-            if any(word in command for word in ('насыщен', 'сочнее')):
-                edited = ImageEnhance.Color(edited).enhance(1.12)
-            if any(word in command for word in ('менее насыщ', 'приглуш')):
-                edited = ImageEnhance.Color(edited).enhance(0.88)
+            # Technical parameters are explicit. Natural language is interpreted
+            # by the semantic AI pipeline, never by a list of image keywords.
+            import math
+            if set(self.adjustments)-{'brightness','contrast','saturation'}:raise ValueError('Unknown tonal control')
+            for key,enhancer in [('brightness',ImageEnhance.Brightness),('contrast',ImageEnhance.Contrast),('saturation',ImageEnhance.Color)]:
+                amount=self.adjustments.get(key,1)
+                if type(amount) not in (int,float) or not math.isfinite(amount) or not 0<=amount<=4:
+                    raise ValueError('Invalid explicit tonal value')
+                edited=enhancer(edited).enhance(amount)
             self.output.parent.mkdir(parents=True, exist_ok=True)
             edited.save(self.output, format='JPEG', quality=94, subsampling=0)
             self.done.emit(str(self.output))
@@ -670,7 +670,7 @@ class ModernLocalWorker(QThread):
     def __init__(self, source, reference, output, prompt, install=False, offload="sequential", steps=12, max_side=512, *, use_reference=None):
         super().__init__()
         self.offload,self.steps,self.max_side=offload,steps,max_side
-        self.source,self.reference,self.output,self.prompt,self.install=source,(reference if (mentions_reference(prompt) if use_reference is None else use_reference) else None),output,prompt,install
+        self.source,self.reference,self.output,self.prompt,self.install=source,explicit_reference(reference,use_reference,source=source),output,prompt,install
         self.proc=None
         self.cancel_requested=threading.Event()
         self.started_at=time.monotonic()
@@ -736,7 +736,7 @@ class ModernLocalWorker(QThread):
             self.progress.emit('Модель скачана. Запускаю редактирование фотографии…')
             cmd=[ai_python(),'-u',str(Path(__file__).with_name('modern_local_editor.py')),
                  '--model-path',model_path,'--offload',self.offload,'--steps',str(self.steps),'--max-side',str(self.max_side),'--source',self.source,'--output',str(self.output),'--prompt',self.prompt]
-            if self.reference:cmd+=['--reference',self.reference]
+            if self.reference:cmd+=['--reference',self.reference,'--use-reference']
             try:
                 execute(cmd)
             except RuntimeError as exc:
@@ -746,7 +746,7 @@ class ModernLocalWorker(QThread):
                     fallback=[ai_python(),'-u',str(Path(__file__).with_name('modern_local_editor.py')),
                         '--model-path',model_path,'--offload','sequential','--steps',str(min(self.steps,8)),
                         '--max-side',str(min(self.max_side,512)),'--source',self.source,'--output',str(self.output),'--prompt',self.prompt]
-                    if self.reference:fallback+=['--reference',self.reference]
+                    if self.reference:fallback+=['--reference',self.reference,'--use-reference']
                     try:
                         execute(fallback)
                     except RuntimeError as fallback_exc:
@@ -760,7 +760,7 @@ class ModernLocalWorker(QThread):
                     fallback=[ai_python(),'-u',str(Path(__file__).with_name('modern_local_editor.py')),
                         '--model-path',model_path,'--offload','sequential','--steps',str(min(self.steps,8)),
                         '--max-side',str(min(self.max_side,512)),'--source',self.source,'--output',str(self.output),'--prompt',self.prompt]
-                    if self.reference:fallback+=['--reference',self.reference]
+                    if self.reference:fallback+=['--reference',self.reference,'--use-reference']
                     execute(fallback)
                 else:
                     raise
@@ -777,7 +777,7 @@ class CloudEditWorker(QThread):
     failed=Signal(str)
     def __init__(self, source, reference, output, instruction, api_key, *, use_reference=None):
         super().__init__()
-        self.source,self.reference,self.output,self.instruction,self.api_key=source,(reference if (mentions_reference(instruction) if use_reference is None else use_reference) else None),output,instruction,api_key
+        self.source,self.reference,self.output,self.instruction,self.api_key=source,explicit_reference(reference,use_reference,source=source),output,instruction,api_key
     def run(self):
         try:
             from durable_cost_gate import DurableCostGate
@@ -1373,6 +1373,8 @@ class Studio(QMainWindow):
         self.generator = None
         self._generator_owner = None
         self._edit_owner = None
+        from local_media_dispatcher import LocalMediaDispatcher
+        self.local_media=LocalMediaDispatcher(self.core.db,self.core.workspace)
         from qt_text_approval import TextApprovalBroker
         self.text_approval_broker=TextApprovalBroker(self,self.paid_media) if self.paid_media is not None else None
         self.cloud_key = None  # Legacy compatibility; credential source is cloud_credentials (RAM/env)
@@ -2089,8 +2091,8 @@ class Studio(QMainWindow):
                        if self.paid_media is not None else None),
             result_worker_factory=(self.paid_media.result_worker
                                    if self.paid_media is not None else None),
-            media_service=self.paid_media)
-        self.pub_tabs.addTab(self.kie_queue_panel, 'Kie.ai · задания')
+            media_service=self.paid_media,local_service=self.local_media)
+        self.pub_tabs.addTab(self.kie_queue_panel, 'Медиа · задания')
         self.pub_tabs.currentChanged.connect(
             lambda index: self.kie_queue_panel.refresh()
             if self.pub_tabs.widget(index) is self.kie_queue_panel else None)
@@ -3709,13 +3711,16 @@ class Studio(QMainWindow):
         self.append_chat('Система','Загрузка gemma3:4b запущена. Открыто окно с прогрессом.')
 
     def task_reference(self, instruction, *, use_reference=None):
-        """Never include the reference unless the user explicitly requests it."""
-        if not (mentions_reference(instruction) if use_reference is None else use_reference):
-            return None
-        reference=getattr(self.reference, 'path', None)
+        """Semantic boolean or explicit GUI choice is the only reference authority."""
+        reference=getattr(self.reference,'path',None)
+        if use_reference is None:
+            if not reference:return None
+            use_reference=QMessageBox.question(self,'Использовать выбранный эталон?',
+                'Передать выбранный эталон вместе с исходником для этой операции?',
+                QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes
+        if use_reference is not True:return None
         if not reference:
-            self.append_chat('Система', 'В задании упомянут эталон, но эталон не выбран. Обработка без эталона.')
-            return None
+            self.append_chat('Система','Выберите эталон перед выполнением операции.');return None
         return reference
 
     def checked_source(self):
@@ -3905,15 +3910,15 @@ class Studio(QMainWindow):
             'Экспериментальный · group offload · 12 шагов · 512px (может быть быстрее; зависит от diffusers)'
         ]
         choice, accepted = QInputDialog.getItem(self, 'Режим локального редактирования',
-            '12 ГБ VRAM: совместимый режим надёжнее, но медленнее. Быстрый может вызвать OOM:', choices, 2, False)
+            '8 ГБ VRAM: совместимый режим надёжнее, но медленнее. Быстрый может вызвать OOM:', choices, 2, False)
         if not accepted:
             return
         mode_index = choices.index(choice)
         offload, steps, max_side = [('model',8,512), ('model',16,640), ('sequential',12,512), ('sequential',8,512), ('group',12,512)][mode_index]
         reference=self.task_reference(prompt,use_reference=use_reference)
         output=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.png')
-        self.append_chat('Система', f'Редактируемый исходник: {Path(self.source.path).name}. Эталон: '+('только справочно' if reference else 'не используется')+'.')
-        self.modern_worker=ModernLocalWorker(self.source.path,reference,output,prompt,install=not installed,offload=offload,steps=steps,max_side=max_side,use_reference=use_reference)
+        self.append_chat('Система', f'Редактируемый исходник: {Path(self.source.path).name}. Эталон: '+('используется как визуальное условие' if reference else 'не используется')+'.')
+        self.modern_worker=ModernLocalWorker(self.source.path,reference,output,prompt,install=not installed,offload=offload,steps=steps,max_side=max_side,use_reference=bool(reference))
         self.modern_worker.progress.connect(self.modern_progress)
         self.modern_worker.done.connect(lambda path, pid=self.current_project, claim=self.batch_claim:self.cloud_done(path,project_id=pid,batch_claim=claim))
         self.modern_worker.failed.connect(lambda err:self.append_chat('Ошибка Qwen Image Edit',err))
@@ -3969,7 +3974,7 @@ class Studio(QMainWindow):
             return
         if self.cloud_worker is not None:return
         if not self.source.path or not self.current_project:return
-        if mentions_reference(prompt) if use_reference is None else use_reference:
+        if self.task_reference(prompt,use_reference=use_reference) is not None:
             self.append_chat('Система','Этот Hugging Face Space не поддерживает эталон. Выберите другой движок или уберите ссылку на эталон.')
             return
         reply=QMessageBox.question(self,'Отправка фотографии в Hugging Face',
@@ -4060,7 +4065,7 @@ class Studio(QMainWindow):
             self.append_chat('Система','Платный запуск заблокирован: '+type(exc).__name__);return
         output=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.png')
         self.append_chat('Система', f'Облачный исходник: {Path(self.source.path).name}. Эталон: '+('отправляется по запросу' if reference else 'не отправляется')+'.')
-        self.cloud_worker=CloudEditWorker(self.source.path,reference,output,prompt,get_openai_key(),use_reference=use_reference)
+        self.cloud_worker=CloudEditWorker(self.source.path,reference,output,prompt,get_openai_key(),use_reference=bool(reference))
         self.cloud_worker.cost_gate=service.cost_gate
         self.cloud_worker.payment_binding=(owner,task,operation,reservation)
         self.cloud_worker.done.connect(lambda path, pid=self.current_project, claim=self.batch_claim:self.cloud_done(path,project_id=pid,batch_claim=claim))
@@ -4183,7 +4188,7 @@ class Studio(QMainWindow):
         reference = self.task_reference(self.message.toPlainText().strip())
         output = self.core.workspace(self.current_project) / 'processed' / (uuid4().hex + '.jpg')
         self._edit_owner = (self.current_project, str(output))
-        self.edit_worker = EditWorker(self.source.path, reference, output, self.message.toPlainText().strip())
+        self.edit_worker = EditWorker(self.source.path, reference, output, self.message.toPlainText().strip(),use_reference=bool(reference))
         self.edit_worker.done.connect(self.image_done)
         self.edit_worker.failed.connect(self.image_failed)
         self.process_button.setEnabled(False)
@@ -5439,14 +5444,10 @@ class Studio(QMainWindow):
             elif not isinstance(task.get('start'),(int,float)) or not isinstance(task.get('end'),(int,float)):
                 self.append_chat('AI-менеджер','Укажите начало и конец нужного фрагмента в секундах.')
             else:
-                out=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.mp4')
-                self.video_worker=VideoTrimWorker(src,out,task['start'],task['end'])
-                self.video_worker.done.connect(lambda path, pid=self.current_project:
-                                               self.video_done(path, project_id=pid))
-                self.video_worker.failed.connect(lambda err:self.append_chat('Ошибка видеомонтажа',err))
-                self.video_worker.finished.connect(self.video_finished)
-                self.video_worker.start()
-                self.append_chat('AI-менеджер','Обрабатываю видео локально. Исходник не изменяется.')
+                pid=self.current_project
+                start,end=task['start'],task['end']
+                turn=getattr(self,'task_dialogue_turn_id',None) if getattr(self,'_dialogue_applying',False) else None
+                self._after_result_commit(lambda:self.start_local_video_trim(pid,str(src),start,end,dialogue_turn_id=turn))
         from task_routing import creation_checkpoint_required
         incomplete_response=(action=='respond' and (semantic or creation_checkpoint_required(self.task_instruction)))
         self.ai_status.setText('Задание не завершено' if incomplete_response else
@@ -5483,6 +5484,27 @@ class Studio(QMainWindow):
         if origin==self.current_project:
             self.append_chat('AI-менеджер',response if failure_saved else
                 'Сохранение ошибки ожидает восстановления. '+response)
+
+    def start_local_video_trim(self,owner,source,start,end,*,dialogue_turn_id=None):
+        worker=self.local_media.worker(owner,request={'task':'video_cut','sources':[source],'start':start,'end':end},
+                                       dialogue_turn_id=dialogue_turn_id)
+        self.video_worker=worker
+        worker.done.connect(self.local_video_done)
+        worker.failed.connect(self.local_video_failed)
+        worker.stopped.connect(self.local_video_stopped)
+        worker.finished.connect(self.video_finished)
+        self._track_background(worker)
+        worker.start()
+        self.append_chat('AI-менеджер','Видео обрабатывается локально; задание сохранено для восстановления.')
+
+    def local_video_done(self,owner,job,path):
+        self.video_done(path,project_id=owner)
+
+    def local_video_failed(self,owner,job,code):
+        if owner==self.current_project:self.append_chat('Ошибка локального видео',code)
+
+    def local_video_stopped(self,owner,job):
+        if owner==self.current_project:self.append_chat('Система','Локальная обработка видео остановлена; исходник сохранён.')
 
     def video_done(self, path, *, project_id=None):
         # Worker callbacks must never infer their owner from active GUI selection.

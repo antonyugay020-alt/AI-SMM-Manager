@@ -121,11 +121,11 @@ def select_executor(request: MediaRequest, executors, *, paid_approved=False):
     return Decision("unavailable",None,None,"no verified compatible executor")
 
 
-def default_executors(*, ffmpeg_ready=False):
+def default_executors(*, ffmpeg_ready=False,pillow_ready=False):
     """Never claim that ffmpeg provides AI editing, background removal, etc."""
-    if type(ffmpeg_ready) is not bool:
+    if type(ffmpeg_ready) is not bool or type(pillow_ready) is not bool:
         raise ValueError("ffmpeg readiness must be verified")
     return (Executor("local-ffmpeg","local",frozenset((
         VIDEO_CUT,VIDEO_MONTAGE,VIDEO_FORMAT,VIDEO_FROM_IMAGES,
-        IMAGE_RESIZE,
-    )),verified_ready=ffmpeg_ready),)
+    )),verified_ready=ffmpeg_ready),
+        Executor('local-pillow','local',frozenset((IMAGE_RESIZE,)),verified_ready=pillow_ready))

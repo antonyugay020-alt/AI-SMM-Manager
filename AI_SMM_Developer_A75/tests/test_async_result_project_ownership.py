@@ -148,7 +148,15 @@ class AsyncProjectOwnership(unittest.TestCase):
     def test_signals_capture_original_project(self):
         code = Path(__file__).with_name('app.py').read_text(encoding='utf-8')
         self.assertIn('self.vision_done(response, project_id=pid)', code)
-        self.assertIn('self.video_done(path, project_id=pid)', code)
+        import ast
+        tree=ast.parse(code)
+        studio=next(node for node in tree.body if isinstance(node,ast.ClassDef) and node.name=='Studio')
+        bridge=next(node for node in studio.body if isinstance(node,ast.FunctionDef) and node.name=='local_video_done')
+        forwarding=next(node for node in ast.walk(bridge) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='video_done')
+        owner=next(item.value for item in forwarding.keywords if item.arg=='project_id')
+        self.assertIsInstance(owner,ast.Name)
+        self.assertEqual(owner.id,bridge.args.args[1].arg)
+        self.assertFalse(any(isinstance(node,ast.Attribute) and node.attr=='current_project' for node in ast.walk(bridge)))
 
 
 if __name__ == '__main__':

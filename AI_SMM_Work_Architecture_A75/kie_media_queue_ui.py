@@ -30,13 +30,15 @@ _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID з
 class KieMediaQueuePanel(QWidget):
     """Resolve project identity on every read, and freeze it for every action."""
 
-    def __init__(self, db, current_project, parent=None, *, cost_gate=None, result_worker_factory=None,media_service=None):
+    def __init__(self, db, current_project, parent=None, *, cost_gate=None, result_worker_factory=None,media_service=None,local_service=None):
         super().__init__(parent)
         if not callable(current_project):
             raise TypeError("current_project must be callable")
         if cost_gate is not None and not isinstance(cost_gate, DurableCostGate):
             raise TypeError("cost_gate must be the shared durable paid ledger")
         self._media_service = media_service
+        self._local_service = local_service
+        self._local_recovered=set()
         self._recovered_projects = set()
         self._result_worker_factory = result_worker_factory
         self._result_worker = None
@@ -69,6 +71,18 @@ class KieMediaQueuePanel(QWidget):
         route_button.clicked.connect(self.preview_route)
         route_row.addWidget(route_button)
         layout.addLayout(route_row)
+        local_row=QHBoxLayout()
+        self.local_width=QSpinBox();self.local_width.setRange(64,4096);self.local_width.setValue(720)
+        self.local_height=QSpinBox();self.local_height.setRange(64,4096);self.local_height.setValue(1280)
+        self.local_start=QDoubleSpinBox();self.local_start.setRange(0,3600);self.local_start.setValue(0)
+        self.local_end=QDoubleSpinBox();self.local_end.setRange(.01,3600);self.local_end.setValue(5)
+        for label,widget in [('Ширина',self.local_width),('Высота',self.local_height),('От, сек.',self.local_start),('До, сек.',self.local_end)]:
+            local_row.addWidget(QLabel(label));local_row.addWidget(widget)
+        self.local_button=QPushButton('Выполнить локально / повторить')
+        self.local_button.setEnabled(local_service is not None)
+        self.local_button.clicked.connect(self.execute_local)
+        local_row.addWidget(self.local_button)
+        layout.addLayout(local_row)
         self.route_status=QLabel(
             "Маршрут только планируется: внешние API и платные операции не запускаются.")
         self.route_status.setWordWrap(True)
@@ -193,7 +207,8 @@ class KieMediaQueuePanel(QWidget):
                 source_count=self.smm_source_count.value(),
                 prompt=self.prompt.toPlainText(),
                 has_style_reference=self.smm_reference.isChecked())
-            candidates=default_executors(ffmpeg_ready=bool(shutil.which("ffmpeg")))
+            from PIL import Image
+            candidates=default_executors(ffmpeg_ready=bool(shutil.which("ffmpeg")),pillow_ready=True)
             decision=select_executor(request,candidates)
         except (ValueError,TypeError) as exc:
             self.route_status.setText("Маршрут недоступен: "+str(exc))
@@ -278,6 +293,10 @@ class KieMediaQueuePanel(QWidget):
             # No provider request or automatic paid retry is ever made here.
             recover_pending(self._db, owner)
             jobs = list_project_tasks(self._db, owner, limit=200)
+            if self._local_service is not None:
+                if owner not in self._local_recovered and self._result_worker is None:
+                    self._local_service.recover(owner);self._local_recovered.add(owner)
+                jobs.extend(self._local_service.tasks(owner))
             from media_generation_runtime import install,recover_intents
             if self._media_service is not None:
                 if owner not in self._recovered_projects and self._result_worker is None:
@@ -433,14 +452,19 @@ class KieMediaQueuePanel(QWidget):
         if not hasattr(window,'_background_workers'):window._background_workers=[]
         window._background_workers.append(worker)
         self._worker_window=weakref.ref(window)
-        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button):button.setEnabled(False)
+        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button,self.local_button):button.setEnabled(False)
+        if worker.project_id==self._owner():
+            for row in range(self.table.rowCount()):
+                if self.table.item(row,3).data(Qt.UserRole)==worker.job_id:
+                    self.table.selectRow(row);break
         worker.start()
 
     def _result_done(self, owner, job, output):
         if owner == self._owner():
             self.refresh()
             operation=getattr(self._result_worker,'operation','refresh')
-            if operation=='draft':
+            if operation=='local':self.note.setText('Локальная обработка завершена, результат проверен и сохранён в проекте.')
+            elif operation=='draft':
                 if self.prompt.toPlainText()==self._result_worker.request.get('prompt'):self.prompt.clear()
                 self.note.setText('Задание сохранено локально. Разрешите загрузку через «Подготовить исходники».')
             elif operation=='prepare':self.note.setText('Исходники подготовлены. Платный запрос ещё не отправлен.')
@@ -451,8 +475,10 @@ class KieMediaQueuePanel(QWidget):
 
     def _result_failed(self, owner, job, code):
         if owner == self._owner():
-            self.note.setText("Не удалось получить результат: " + code +
-                              ". Повторная платная отправка не выполнялась.")
+            if getattr(self._result_worker,'operation',None)=='local':
+                self.note.setText('Локальная операция не завершена: '+code+'. Задание сохранено для проверки и повторения.')
+            else:self.note.setText("Не удалось получить результат: " + code +
+                                   ". Повторная платная отправка не выполнялась.")
 
     def _result_finished(self):
         worker = self._result_worker
@@ -467,6 +493,7 @@ class KieMediaQueuePanel(QWidget):
         self.prepare_button.setEnabled(self._media_service is not None)
         self.generate_button.setEnabled(self._media_service is not None)
         self.create_button.setEnabled(True)
+        self.local_button.setEnabled(self._local_service is not None)
 
     def closeEvent(self, event):
         if self._result_worker is not None and self._result_worker.isRunning():
@@ -557,7 +584,11 @@ class KieMediaQueuePanel(QWidget):
         if not chosen:return
         owner,job=chosen
         try:
-            if self._media_service is not None:self._media_service.stop_generation(owner,job)
+            if self._local_service is not None and self._local_service.owns(owner,job):
+                accepted=self._local_service.stop(owner,job)
+                if not accepted:
+                    self.note.setText('Результат уже зафиксирован; отмена не удаляет сохранённые материалы.');return
+            elif self._media_service is not None:self._media_service.stop_generation(owner,job)
             else:
                 from media_task_control import request_stop
                 request_stop(self._db,owner,job)
@@ -598,4 +629,27 @@ class KieMediaQueuePanel(QWidget):
         try:worker=self._media_service.recovery_worker(owner,job,provider_id.strip(),evidence,confirmed=True)
         except (ValueError,RuntimeError,PermissionError,sqlite3.Error) as exc:
             self.note.setText('Восстановление недоступно: '+type(exc).__name__);return
+        self._launch_worker(worker)
+
+    def execute_local(self):
+        if self._local_service is None or self._result_worker is not None:return
+        owner=self._owner()
+        if owner is None:return
+        chosen=self._selection()
+        try:
+            if chosen and self._local_service.owns(*chosen):
+                worker=self._local_service.worker(owner,job_id=chosen[1])
+            else:
+                from local_media_jobs import TASKS
+                task=self.smm_task.currentText()
+                if task not in TASKS:raise ValueError('Для этой операции нужен подтверждённый AI-исполнитель')
+                sources=[item.data(Qt.UserRole) for item in self.sources.selectedItems()]
+                request={'task':task,'sources':sources,'width':self.local_width.value(),'height':self.local_height.value()}
+                if task=='video_cut':request.update(start=self.local_start.value(),end=self.local_end.value())
+                if task=='video_from_images':request['seconds_per_image']=self.duration.value()
+                worker=self._local_service.worker(owner,request=request)
+            if owner!=self._owner():return
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.note.setText('Локальный запуск недоступен: '+str(exc));return
+        self.refresh()
         self._launch_worker(worker)

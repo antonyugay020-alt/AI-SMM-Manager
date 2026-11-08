@@ -81,7 +81,7 @@ def main():
             original_hash = digest(original)
             output = owners[0] / "processed" / "adjusted.jpg"
             got = run_worker(app, EditWorker(original, reference, output,
-                            "Сделай светлее, ярче, по образцу эталона"), 45)
+                            "Сделай светлее, ярче, по образцу эталона",use_reference=True,adjustments={"brightness":1.12}), 45)
             assert got == output and got.stat().st_size > 1000
             with Image.open(got) as image:
                 image.verify()
