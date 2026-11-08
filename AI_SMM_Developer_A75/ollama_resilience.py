@@ -263,6 +263,8 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
             headers={'Content-Type': 'application/json'})
     for attempt in range(1, attempts + 1):
+        from cooperative_cancellation import check_cancelled
+        check_cancelled()
         scope=_CASE_DEADLINE.get()
         role=_MODEL_CALL_ROLE.get()
         if scope is not None and role=='author' and scope.get('aborted_on_model_timeout'):
@@ -319,6 +321,7 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                 response_format = 'json_object' if payload.get('format') == 'json' else None
                 result = call_text(model, payload.get('messages') or [], timeout=call_timeout,
                                    temperature=temperature, response_format=response_format)
+            check_cancelled()
             if scope is not None and time.monotonic()>=scope['deadline']:
                 scope['expired']=True
             if not isinstance(result, dict):
@@ -378,6 +381,7 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             record_model_event('model_transport_error',stage=stage,attempt=attempt,
                 error_type=type(exc).__name__,error=str(exc),traceback=traceback.format_exc())
             is_timeout = isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(getattr(exc, 'reason', None), (TimeoutError, socket.timeout))
+            check_cancelled()
             if scope is not None and time.monotonic()>=scope['deadline']:
                 scope['expired']=True
             if report:

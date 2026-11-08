@@ -94,7 +94,7 @@ class SupportReport(unittest.TestCase):
    out=request_chat({'model':'fixture','messages':[]},stage='no logging',attempts=1)
   self.assertEqual(out['message']['content'],'unchanged response')
  def test_cloud_raw_reply_cannot_record_provider_credential(self):
-  from text_providers import call_text
+  from test_paid_text_support import authorized_call as call_text
   response={'choices':[{'message':{'content':'Reply '+self.key}}],'usage':{'total_tokens':17}}
   with dr.capture_task(self.workspace,'Cloud task'),patch('urllib.request.urlopen',return_value=io.BytesIO(json.dumps(response).encode())):
    call_text('openai/gpt-6-luna',[],environ={'OPENAI_API_KEY':self.key})

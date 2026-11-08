@@ -264,6 +264,16 @@ class ApplicationRuntime:
         self.db.close()
         self._closed = True
 
+    def execution_database_path(self):
+        path=next((row[2] for row in self.db.execute('PRAGMA database_list') if row[1]=='main'),'')
+        if not path:raise RuntimeError('Durable execution database required')
+        return path
+
+    def cancel_text_execution(self,project_id,request,*,task_id):
+        """Own the registry/fencing/journal commit; UI never commits SQL."""
+        with own(self.db):
+            return self.executions.cancel(project_id,request,task_id=task_id)
+
     def record_execution_failure(self, *, project_id, attempt=None, response=None, timestamp=None):
         """One failure commit: settle worker authority and persist its explanation.
 

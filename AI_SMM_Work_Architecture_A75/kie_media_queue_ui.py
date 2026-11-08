@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import weakref
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
     QPlainTextEdit, QComboBox, QDoubleSpinBox, QSpinBox, QCheckBox,
+    QListWidget,QListWidgetItem,QLineEdit,QInputDialog,
 )
 from kie_media_contracts import nano_banana_pro
 from kie_media_jobs import prepare
@@ -28,12 +30,14 @@ _COLUMNS = ("Создано (UTC)", "Модель", "Состояние", "ID з
 class KieMediaQueuePanel(QWidget):
     """Resolve project identity on every read, and freeze it for every action."""
 
-    def __init__(self, db, current_project, parent=None, *, cost_gate=None, result_worker_factory=None):
+    def __init__(self, db, current_project, parent=None, *, cost_gate=None, result_worker_factory=None,media_service=None):
         super().__init__(parent)
         if not callable(current_project):
             raise TypeError("current_project must be callable")
         if cost_gate is not None and not isinstance(cost_gate, DurableCostGate):
             raise TypeError("cost_gate must be the shared durable paid ledger")
+        self._media_service = media_service
+        self._recovered_projects = set()
         self._result_worker_factory = result_worker_factory
         self._result_worker = None
         self._db = db
@@ -42,7 +46,8 @@ class KieMediaQueuePanel(QWidget):
         self._visible_project = None
         layout = QVBoxLayout(self)
         explanation = QLabel(
-            "Kie.ai · локальная очередь заданий. Платная генерация отключена. "
+            "Kie.ai · подготовка и генерация медиа. Платный запуск требует "
+            "отдельного подтверждения максимальной стоимости и общего бюджета. "
             "Список читается из базы проекта. Кнопка получения результата "
             "проверяет только уже подтверждённые задания Kie.ai; повторной оплаты нет."
         )
@@ -81,6 +86,22 @@ class KieMediaQueuePanel(QWidget):
         self.budget_status = QLabel("")
         budget_row.addWidget(self.budget_status,1)
         layout.addLayout(budget_row)
+        mode_row=QHBoxLayout()
+        mode_row.addWidget(QLabel("Режим:"))
+        self.generation_mode=QComboBox()
+        for label,mode in [("Изображение · Pro","image_pro"),("Редактирование изображения","image_edit"),
+                           ("Видео из исходников","video_reference"),("Редактирование видео","video_edit")]:
+            self.generation_mode.addItem(label,mode)
+        mode_row.addWidget(self.generation_mode)
+        self.duration=QSpinBox();self.duration.setRange(3,15);self.duration.setValue(5)
+        mode_row.addWidget(QLabel("Видео, сек.:"));mode_row.addWidget(self.duration)
+        layout.addLayout(mode_row)
+        self.sources=QListWidget()
+        self.sources.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.sources.setMaximumHeight(85)
+        self.sources.itemSelectionChanged.connect(self._source_selection_changed)
+        self.sources.setToolTip("Выберите зарегистрированные файлы текущего проекта. Ctrl — несколько файлов.")
+        layout.addWidget(self.sources)
         draft_row = QHBoxLayout()
         self.prompt = QPlainTextEdit()
         self.prompt.setPlaceholderText("Описание изображения для Nano Banana Pro")
@@ -91,8 +112,10 @@ class KieMediaQueuePanel(QWidget):
         draft_row.addWidget(self.aspect_ratio)
         self.resolution = QComboBox()
         self.resolution.addItems(["1K", "2K", "4K"])
+        self.generation_mode.currentIndexChanged.connect(self._mode_changed)
         draft_row.addWidget(self.resolution)
         create_button = QPushButton("Сохранить черновик")
+        self.create_button=create_button
         create_button.setToolTip("Только локальная запись в SQLite, без загрузки и генерации")
         create_button.clicked.connect(self.create_draft)
         draft_row.addWidget(create_button)
@@ -108,11 +131,39 @@ class KieMediaQueuePanel(QWidget):
         self.fetch_button.setEnabled(callable(result_worker_factory))
         self.fetch_button.clicked.connect(self.fetch_selected_result)
         toolbar.addWidget(self.fetch_button)
+        self.prepare_button=QPushButton("Подготовить исходники")
+        self.prepare_button.setEnabled(media_service is not None)
+        self.prepare_button.clicked.connect(self.prepare_selected)
+        toolbar.addWidget(self.prepare_button)
         discard_button = QPushButton("Удалить неоплаченную заготовку")
         discard_button.clicked.connect(self.discard_selected)
         toolbar.addWidget(discard_button)
         toolbar.addStretch()
         layout.addLayout(toolbar)
+        pricing=QHBoxLayout()
+        self.maximum_cost=QDoubleSpinBox();self.maximum_cost.setDecimals(6)
+        self.maximum_cost.setRange(0,100000);self.maximum_cost.setValue(0)
+        pricing.addWidget(QLabel("Проверенный максимум USD:"));pricing.addWidget(self.maximum_cost)
+        self.price_evidence=QLineEdit()
+        self.price_evidence.setPlaceholderText("Источник проверенного тарифа / ссылка на расчёт")
+        pricing.addWidget(self.price_evidence,1)
+        self.price_confirmed=QCheckBox("Максимальная стоимость проверена")
+        pricing.addWidget(self.price_confirmed)
+        self.generate_button=QPushButton("Запустить генерацию")
+        self.generate_button.setEnabled(media_service is not None)
+        self.generate_button.clicked.connect(self.submit_selected)
+        pricing.addWidget(self.generate_button)
+        layout.addLayout(pricing)
+        stopping=QHBoxLayout()
+        self.stop_button=QPushButton("Остановить локальную обработку")
+        self.stop_button.clicked.connect(self.stop_selected);stopping.addWidget(self.stop_button)
+        self.resume_button=QPushButton("Возобновить получение результата")
+        self.resume_button.clicked.connect(self.resume_selected);stopping.addWidget(self.resume_button)
+        self.recovery_button=QPushButton('Восстановить ID из Kie.ai')
+        self.recovery_button.setEnabled(media_service is not None)
+        self.recovery_button.clicked.connect(self.recover_selected_submission)
+        stopping.addWidget(self.recovery_button)
+        layout.addLayout(stopping)
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -215,6 +266,8 @@ class KieMediaQueuePanel(QWidget):
         if owner != self._visible_project:
             # Unsubmitted prompts must not leak across project selections.
             self.prompt.clear()
+            self.price_evidence.clear();self.price_confirmed.setChecked(False);self.maximum_cost.setValue(0)
+        self._load_sources(owner)
         self.table.setRowCount(0)
         self._visible_project = None
         if owner is None:
@@ -225,6 +278,17 @@ class KieMediaQueuePanel(QWidget):
             # No provider request or automatic paid retry is ever made here.
             recover_pending(self._db, owner)
             jobs = list_project_tasks(self._db, owner, limit=200)
+            from media_generation_runtime import install,recover_intents
+            if self._media_service is not None:
+                if owner not in self._recovered_projects and self._result_worker is None:
+                    recover_intents(self._db,owner);self._recovered_projects.add(owner)
+                install(self._db);self._db.commit()
+                existing={job['id'] for job in jobs}
+                for ident,model,state,stop,error,created in self._db.execute(
+                        'SELECT id,model,state,stop_requested,error_code,created_at FROM media_generation_intents WHERE project_id=? ORDER BY created_at DESC LIMIT 200',(owner,)):
+                    if ident not in existing:
+                        jobs.append({'id':ident,'model':model,'state':state,'local_stop_requested':bool(stop),
+                                     'output_path':None,'error_code':error,'created_at':created})
         except (ValueError, RuntimeError, OSError, sqlite3.Error) as exc:
             self.note.setText("Очередь недоступна: " + str(exc))
             return
@@ -232,7 +296,8 @@ class KieMediaQueuePanel(QWidget):
         for index, job in enumerate(jobs):
             self.table.insertRow(index)
             cells = (
-                job["created_at"], job["model"], job["state"],
+                job["created_at"], job["model"], job["state"] +
+                (" · остановлено локально" if job.get('local_stop_requested') else ""),
                 job["id"], job["output_path"] or job["error_code"] or "",
             )
             for column, value in enumerate(cells):
@@ -248,7 +313,19 @@ class KieMediaQueuePanel(QWidget):
         if owner is None:
             self.note.setText("Сначала выберите проект.")
             return
+        if self._result_worker is not None:return
         try:
+            selected=[item.data(Qt.UserRole) for item in self.sources.selectedItems()]
+            mode=self.generation_mode.currentData()
+            if mode!='image_pro' or selected:
+                if self._media_service is None:raise RuntimeError('Сервис подготовки медиа не подключён')
+                request={'mode':mode,'prompt':self.prompt.toPlainText(),'sources':selected,
+                    'aspect_ratio':self.aspect_ratio.currentText(),'resolution':self.resolution.currentText(),
+                    'duration':self.duration.value()}
+                worker=self._media_service.intent_worker(owner,request)
+                self._launch_worker(worker)
+                self.note.setText('Проверяю исходники и сохраняю локальное задание…')
+                return
             payload = nano_banana_pro(
                 self.prompt.toPlainText(), (),
                 aspect_ratio=self.aspect_ratio.currentText(),
@@ -343,25 +420,34 @@ class KieMediaQueuePanel(QWidget):
         # Factory must not launch work before the frozen owner is checked.
         if self._owner() != owner:
             return
+        self._launch_worker(worker)
+
+    def _launch_worker(self,worker):
         self._result_worker = worker
         worker.setParent(self)
         worker.done.connect(self._result_done)
         worker.failed.connect(self._result_failed)
+        worker.stopped.connect(self._result_stopped)
         worker.finished.connect(self._result_finished)
-        # Studio.closeEvent already checks this native-thread ownership list.
-        window = self.window()
-        if not hasattr(window, '_background_workers'):
-            window._background_workers = []
+        window=self.window()
+        if not hasattr(window,'_background_workers'):window._background_workers=[]
         window._background_workers.append(worker)
-        self._worker_window = window
-        self.fetch_button.setEnabled(False)
+        self._worker_window=weakref.ref(window)
+        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button):button.setEnabled(False)
         worker.start()
 
     def _result_done(self, owner, job, output):
         if owner == self._owner():
             self.refresh()
-            self.note.setText("Результат сохранён и проверен." if output else
-                              "Задание ещё выполняется в Kie.ai.")
+            operation=getattr(self._result_worker,'operation','refresh')
+            if operation=='draft':
+                if self.prompt.toPlainText()==self._result_worker.request.get('prompt'):self.prompt.clear()
+                self.note.setText('Задание сохранено локально. Разрешите загрузку через «Подготовить исходники».')
+            elif operation=='prepare':self.note.setText('Исходники подготовлены. Платный запрос ещё не отправлен.')
+            elif operation=='reconcile':self.note.setText('Удалённый ID проверен и сохранён. Повторной оплаты нет.')
+            elif operation=='submit':self.note.setText('Задание принято Kie.ai. Получите результат после завершения.')
+            else:self.note.setText("Результат сохранён и проверен." if output else
+                                   "Задание ещё выполняется в Kie.ai.")
 
     def _result_failed(self, owner, job, code):
         if owner == self._owner():
@@ -371,15 +457,145 @@ class KieMediaQueuePanel(QWidget):
     def _result_finished(self):
         worker = self._result_worker
         if worker is not None:
-            workers = self._worker_window._background_workers
-            if worker in workers:
-                workers.remove(worker)
+            window=self._worker_window()
+            workers=getattr(window,'_background_workers',[]) if window is not None else []
+            if worker in workers:workers.remove(worker)
+            self._worker_window=None
             self._result_worker = None
             worker.deleteLater()
         self.fetch_button.setEnabled(callable(self._result_worker_factory))
+        self.prepare_button.setEnabled(self._media_service is not None)
+        self.generate_button.setEnabled(self._media_service is not None)
+        self.create_button.setEnabled(True)
 
     def closeEvent(self, event):
         if self._result_worker is not None and self._result_worker.isRunning():
             event.ignore()
             return
         super().closeEvent(event)
+
+    def _mode_changed(self):
+        video=self.generation_mode.currentData().startswith('video')
+        self.resolution.clear();self.resolution.addItems(['720p','1080p','4k'] if video else ['1K','2K','4K'])
+        self.duration.setEnabled(video)
+        self.resolution.setEnabled(self.generation_mode.currentData()!='image_edit')
+        self.aspect_ratio.clear()
+        self.aspect_ratio.addItems(['16:9','9:16','1:1','auto'] if video else ['1:1','9:16','16:9','4:5','3:4'])
+        self._source_selection_changed()
+
+    def _source_selection_changed(self):
+        if not hasattr(self,'aspect_ratio') or not self.generation_mode.currentData().startswith('video'):return
+        from pathlib import Path
+        chosen=[Path(item.data(Qt.UserRole)) for item in self.sources.selectedItems()]
+        if chosen and all(path.suffix.lower() in ('.mp4','.mov') for path in chosen):
+            self.aspect_ratio.setCurrentText('auto')
+        elif self.aspect_ratio.currentText()=='auto':self.aspect_ratio.setCurrentText('16:9')
+
+    def _load_sources(self,owner):
+        selected={item.data(Qt.UserRole) for item in self.sources.selectedItems()} if owner==self._visible_project else set()
+        self.sources.clear()
+        if not owner:return
+        for table,column,label in [('assets','stored_path','original_name'),('project_files','path','display_name')]:
+            if not self._db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():continue
+            try:rows=self._db.execute('SELECT '+column+','+label+' FROM '+table+' WHERE project_id=?',(owner,)).fetchall()
+            except sqlite3.Error:continue
+            for path,name in rows:
+                from pathlib import Path
+                if Path(path).suffix.lower() not in ('.png','.jpg','.jpeg','.webp','.mp4','.mov'):continue
+                item=QListWidgetItem(str(name));item.setData(Qt.UserRole,path)
+                self.sources.addItem(item);item.setSelected(path in selected)
+
+    def _selection(self):
+        owner=self._owner()
+        if owner is None or owner!=self._visible_project:
+            self.refresh();return None
+        row=self.table.currentRow()
+        item=self.table.item(row,3) if row>=0 else None
+        return (owner,item.data(Qt.UserRole)) if item is not None else None
+
+    def prepare_selected(self):
+        chosen=self._selection()
+        if not chosen or self._media_service is None or self._result_worker is not None:return
+        owner,job=chosen
+        answer=QMessageBox.question(self,'Загрузка исходников',
+            'Разрешить загрузку выбранных исходников проекта в Kie.ai? Генерация этим действием не оплачивается.')
+        if answer!=QMessageBox.Yes or owner!=self._owner():return
+        try:worker=self._media_service.preparation_worker(owner,job)
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.note.setText('Подготовка недоступна: '+type(exc).__name__);return
+        self._launch_worker(worker)
+
+    def submit_selected(self):
+        chosen=self._selection()
+        if not chosen or self._media_service is None or self._result_worker is not None:return
+        owner,job=chosen
+        if not self.price_confirmed.isChecked() or self.maximum_cost.value()<=0 or not self.price_evidence.text().strip():
+            self.note.setText('Укажите и подтвердите проверенную максимальную стоимость и её источник.');return
+        try:info=preview_prepared_task(self._db,owner,job)
+        except (ValueError,RuntimeError,sqlite3.Error):
+            self.note.setText('Сначала подготовьте неоплаченное задание.');return
+        maximum=f'{self.maximum_cost.value():.6f}'
+        answer=QMessageBox.question(self,'Платная генерация Kie.ai',
+            'Модель: '+info['model']+'\nЗапрос: '+info['prompt']+
+            '\nМаксимальная стоимость: $'+maximum+'\nИсточник: '+self.price_evidence.text()+
+            '\nРазрешить один платный запрос с резервированием общего бюджета?')
+        if answer!=QMessageBox.Yes or owner!=self._owner():return
+        try:
+            token=self._media_service.approve_generation(owner,job,maximum,self.price_evidence.text(),confirmed=True)
+            worker=self._media_service.submission_worker(owner,job,token)
+        except (ValueError,RuntimeError,PermissionError,OSError,sqlite3.Error) as exc:
+            self.note.setText('Запуск заблокирован: '+type(exc).__name__);return
+        self.price_confirmed.setChecked(False)
+        self._launch_worker(worker)
+
+    def stop_selected(self):
+        worker=self._result_worker
+        if worker is not None and getattr(worker,'operation',None)=='draft' and worker.project_id==self._owner():
+            worker.requestInterruption()
+            self.note.setText('Останавливаю проверку исходников до сохранения задания.');return
+        chosen=self._selection()
+        if not chosen:return
+        owner,job=chosen
+        try:
+            if self._media_service is not None:self._media_service.stop_generation(owner,job)
+            else:
+                from media_task_control import request_stop
+                request_stop(self._db,owner,job)
+            worker=self._result_worker
+            if worker is not None and worker.project_id==owner and worker.job_id==job:
+                worker.requestInterruption()
+        except (ValueError,RuntimeError,sqlite3.Error) as exc:
+            self.note.setText('Остановка недоступна: '+type(exc).__name__);return
+        self.refresh()
+        self.note.setText('Локальная остановка сохранена. Уже отправленное платное задание может продолжаться в Kie.ai.')
+
+    def resume_selected(self):
+        chosen=self._selection()
+        if not chosen:return
+        from media_task_control import resume_confirmed
+        try:resume_confirmed(self._db,*chosen)
+        except (ValueError,RuntimeError,sqlite3.Error) as exc:
+            self.note.setText('Возобновление недоступно: '+type(exc).__name__);return
+        self.refresh()
+        self.note.setText('Получение результата разрешено. Новая платная отправка не выполнялась.')
+
+    def _result_stopped(self,owner,job):
+        if owner==self._owner():
+            self.refresh()
+            self.note.setText('Локальная обработка остановлена; повторной оплаты нет.')
+
+    def recover_selected_submission(self):
+        chosen=self._selection()
+        if not chosen or self._media_service is None or self._result_worker is not None:return
+        owner,job=chosen
+        provider_id,ok=QInputDialog.getText(self,'Восстановление после сбоя','ID оплаченного задания из журнала Kie.ai:')
+        if not ok or owner!=self._owner():return
+        evidence,ok=QInputDialog.getText(self,'Журнал Kie.ai','Ссылка или номер записи, подтверждающей эту отправку:')
+        if not ok or owner!=self._owner():return
+        answer=QMessageBox.question(self,'Проверить удалённое задание?',
+            'Проверить модель и точный запрос задания '+provider_id+'? Новая генерация не запускается, резерв расходов сохраняется.')
+        if answer!=QMessageBox.Yes or owner!=self._owner():return
+        try:worker=self._media_service.recovery_worker(owner,job,provider_id.strip(),evidence,confirmed=True)
+        except (ValueError,RuntimeError,PermissionError,sqlite3.Error) as exc:
+            self.note.setText('Восстановление недоступно: '+type(exc).__name__);return
+        self._launch_worker(worker)

@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'AI_SMM_Work_Architecture_A75'))
 from PIL import Image
+from PySide6.QtCore import QObject,Slot
 from PySide6.QtWidgets import QApplication
 from kie_media_jobs import prepare
 from kie_media_contracts import nano_banana_pro
@@ -21,6 +22,18 @@ from application_paid_media import PaidMediaComposition
 from durable_cost_gate import DurableCostGate
 
 TASK='task_worker_1234567890'
+
+class ResultCollector(QObject):
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self.done=[];self.failed=[]
+
+    @Slot(str,str,str)
+    def completed(self,*args):self.done.append(args)
+
+    @Slot(str,str,str)
+    def rejected(self,*args):self.failed.append(args)
+
 
 class WorkerQtTests(unittest.TestCase):
     @classmethod
@@ -44,7 +57,7 @@ class WorkerQtTests(unittest.TestCase):
         self.query_threads=[]
         self.query=None
         self.view=KieMediaQueuePanel(self.db,lambda:self.current,result_worker_factory=self.factory)
-        self.addCleanup(self.view.close)
+        self.addCleanup(self.dispose_view)
         self.view.refresh()
         self.view.table.selectRow(0)
 
@@ -67,6 +80,14 @@ class WorkerQtTests(unittest.TestCase):
             self.app.processEvents()
             time.sleep(.005)
         self.assertIsNone(self.view._result_worker)
+        self.app.processEvents()
+
+    def dispose_view(self):
+        # Destroy native Qt objects deterministically on the GUI thread.
+        # close() only hides a widget and leaves Python callback cycles for GC.
+        from PySide6.QtCore import QCoreApplication,QEvent
+        self.view.close();self.view.deleteLater()
+        QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
         self.app.processEvents()
 
     def test_actual_qt_refresh_publishes_to_frozen_project_and_reopens_offline(self):
@@ -157,12 +178,16 @@ class WorkerQtTests(unittest.TestCase):
                 'resultJson':json.dumps({'resultUrls':['https://example.org/result.mp4']})}}
         worker=KieResultWorker(self.path,self.root/('a'*32),'a'*32,video_job,status,
                               fetch_verified_file=lambda _,target:shutil.copyfile(source,target))
-        done=[]
-        failed=[]
-        worker.done.connect(lambda *args:done.append(args))
-        worker.failed.connect(lambda *args:failed.append(args))
+        collector=ResultCollector(self.view)
+        done=collector.done;failed=collector.failed
+        worker.setParent(self.view)
+        worker.done.connect(collector.completed)
+        worker.failed.connect(collector.rejected)
         worker.start()
-        self.assertTrue(worker.wait(10000))
+        deadline=time.monotonic()+10
+        while worker.isRunning() and time.monotonic()<deadline:
+            self.app.processEvents();time.sleep(.005)
+        self.assertTrue(worker.wait(1000))
         self.app.processEvents()
         self.assertEqual(failed,[])
         self.assertEqual(len(done),1)
@@ -180,13 +205,17 @@ class WorkerQtTests(unittest.TestCase):
             return self.status(task)
         workers=[KieResultWorker(self.path,self.root/('a'*32),'a'*32,self.job,
                                 query,fetch_verified_file=self.download) for _ in range(2)]
-        done=[]
-        failed=[]
+        collector=ResultCollector(self.view)
+        done=collector.done;failed=collector.failed
         for worker in workers:
-            worker.done.connect(lambda *args:done.append(args))
-            worker.failed.connect(lambda *args:failed.append(args))
+            worker.setParent(self.view)
+            worker.done.connect(collector.completed)
+            worker.failed.connect(collector.rejected)
             worker.start()
-        for worker in workers:self.assertTrue(worker.wait(10000))
+        deadline=time.monotonic()+10
+        while any(worker.isRunning() for worker in workers) and time.monotonic()<deadline:
+            self.app.processEvents();time.sleep(.005)
+        for worker in workers:self.assertTrue(worker.wait(1000))
         self.app.processEvents()
         self.assertEqual(failed,[])
         self.assertEqual(len(done),2)

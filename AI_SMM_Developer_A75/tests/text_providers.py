@@ -230,7 +230,9 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
 
 
 def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=None,
-              environ=None):
+              environ=None, payment=None):
+    from cooperative_cancellation import check_cancelled
+    check_cancelled()
     parsed = parse_cloud_model(model)
     if parsed is None:
         raise ValueError('Неизвестный формат облачной модели')
@@ -248,6 +250,14 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         api_key = str(env.get(key_name, '') or '').strip()
     if not api_key:
         raise RuntimeError(f'Не задан {key_name}; облачный запрос не отправлен')
+    free_ack={'groq':'AI_SMM_GROQ_FREE_TIER_ACK','gemini':'AI_SMM_GEMINI_FREE_TIER_ACK'}.get(provider)
+    if free_ack and str(env.get(free_ack,'')).strip()!='1':
+        from cost_authorization import PaymentDenied
+        raise PaymentDenied('Direct free-provider dispatch requires explicit account free-tier confirmation')
+    if provider in ('openai','anthropic'):
+        from paid_text_runtime import claim_text
+        claim_text(model,messages,payment=payment,temperature=temperature,
+                   response_format=response_format)
     try:
         text, usage = _chat_request(provider, model_id, messages, timeout, api_key,
                                     temperature, response_format=response_format)
@@ -274,5 +284,6 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         failure.provider_error_code=safe_code
         failure.args=(f'{provider}: API HTTP {exc.code}{suffix}; запрос не завершён',)
         raise failure from None
+    check_cancelled()
     return {'message': {'content': text}, 'done_reason': 'stop',
             'provider': provider, 'model': model_id, 'usage': usage}

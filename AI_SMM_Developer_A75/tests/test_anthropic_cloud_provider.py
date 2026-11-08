@@ -5,7 +5,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from text_providers import (parse_cloud_model, configured_cloud_models, call_text)
+from text_providers import (parse_cloud_model, configured_cloud_models)
+from test_paid_text_support import authorized_call as call_text
 
 ENV = {
     "ANTHROPIC_API_KEY": "fake-test-only",

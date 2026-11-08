@@ -1,3 +1,4 @@
+from test_paid_text_support import authorized_call
 """Regression tests for one RAM-only OpenAI key used across providers."""
 import importlib.util
 import os
@@ -58,7 +59,7 @@ class CredentialsTests(unittest.TestCase):
             seen.update(provider=provider, key=api_key)
             return 'OK',{}
         with mockpatch.dict(os.environ,{'OPENAI_API_KEY':''}),mockpatch.object(text_providers,'_chat_request',side_effect=fake_chat_request):
-            r=text_providers.call_text('openai/test-model',[{'role':'user','content':'hi'}])
+            r=authorized_call('openai/test-model',[{'role':'user','content':'hi'}])
             self.assertEqual(os.environ['OPENAI_API_KEY'],'')
         self.assertEqual(seen,{'provider':'openai','key':'unique-test-key'})
         self.assertEqual(r['message']['content'],'OK')
@@ -77,7 +78,7 @@ class CredentialsTests(unittest.TestCase):
         set_openai_key('secret-test-key-345')
         with patch.object(text_providers,'_chat_request',side_effect=RuntimeError('provider error')):
             with self.assertRaisesRegex(RuntimeError,'provider error') as exc:
-                text_providers.call_text('openai/test-model',[])
+                authorized_call('openai/test-model',[])
         self.assertNotIn('secret-test-key-345',str(exc.exception))
 
     def test_gui_source_references_single_key_source(self):

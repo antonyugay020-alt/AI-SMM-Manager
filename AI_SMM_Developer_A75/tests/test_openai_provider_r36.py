@@ -1,3 +1,4 @@
+from test_paid_text_support import authorized_call
 import json
 import sys
 import unittest
@@ -46,7 +47,7 @@ class OpenAIProviderR36Tests(unittest.TestCase):
             return _FakeResponse()
 
         with patch('urllib.request.urlopen', fake_urlopen):
-            result = text_providers.call_text(
+            result = authorized_call(
                 'openai/gpt-6-luna', [{'role': 'user', 'content': 'mock test'}],
                 environ={'OPENAI_API_KEY': 'mock-only'}, response_format='json_object')
 

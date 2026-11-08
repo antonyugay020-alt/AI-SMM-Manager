@@ -116,7 +116,8 @@ class SubstanceContractTests(unittest.TestCase):
             return io.BytesIO(json.dumps({'choices':[{'message':{'content':json.dumps(answer)}}]}).encode())
         missing=False
         with patch.dict(os.environ,{'OPENAI_API_KEY':'mock-only','AI_SMM_ENABLE_OPENAI_API':'1'}), \
-             patch('urllib.request.urlopen',side_effect=wire):
+             patch('urllib.request.urlopen',side_effect=wire), \
+             patch('text_providers.call_text',side_effect=__import__('test_paid_text_support').authorized_call):
             result=editor.call_substance_reader('Prepare a useful strategy and calendar.',
                 'A strategic explanation.','An educational explanation.',model='openai/gpt-6-luna')
             self.assertTrue(result['pass'],result)

@@ -332,7 +332,9 @@ class DialogueWorker(QThread):
             save_turn(self.workspace,self.turn_id,status='understanding',utterance=self.message,
                       project_id=self.snapshot['project_id'],snapshot=self.snapshot)
             from execution_time_budget import worker_model_budget
-            with worker_model_budget('dialogue'), capture_task(self.workspace,self.message):
+            from cooperative_cancellation import cancellation_scope,worker_check
+            from paid_text_runtime import text_authorization_scope
+            with text_authorization_scope(getattr(self,'text_authorizer',None)), cancellation_scope(worker_check(self)), worker_model_budget('dialogue'), capture_task(self.workspace,self.message):
                 plan=understand_dialogue(self.message,self.snapshot,model=CENTRAL_MODEL,turn_id=self.turn_id,
                     report=lambda stage,**details:self.progress.emit({'stage':stage,**details}))
             save_turn(self.workspace,self.turn_id,status='plan_prepared',completion_verified=False,decision=plan.action,
@@ -361,7 +363,9 @@ class TaskWorker(QThread):
             from contextlib import nullcontext
             scope=capture_task(self.context['project_workspace'],original) if self.context.get('project_workspace') else nullcontext()
             from execution_time_budget import worker_model_budget
-            with worker_model_budget('content'), scope:
+            from cooperative_cancellation import cancellation_scope,worker_check
+            from paid_text_runtime import text_authorization_scope
+            with text_authorization_scope(getattr(self,'text_authorizer',None)), cancellation_scope(worker_check(self)), worker_model_budget('content'), scope:
                 result=run_text_task(original,self.context,model=MODEL,
                                      progress=self.progress.emit)
             if (self.context.get('semantic_execution_kind')=='bundle') if self.context.get('semantic_authorized') else is_compound_request(original):
@@ -776,6 +780,16 @@ class CloudEditWorker(QThread):
         self.source,self.reference,self.output,self.instruction,self.api_key=source,(reference if (mentions_reference(instruction) if use_reference is None else use_reference) else None),output,instruction,api_key
     def run(self):
         try:
+            from durable_cost_gate import DurableCostGate
+            from paid_image_runtime import image_operation
+            gate=getattr(self,'cost_gate',None)
+            binding=getattr(self,'payment_binding',None)
+            if not isinstance(gate,DurableCostGate) or not binding:
+                raise PermissionError('Платная обработка изображения требует общего журнала и точного разрешения')
+            owner,task,operation,reservation=binding
+            if image_operation(owner,task,self.source,self.reference,self.instruction)!=operation:
+                raise PermissionError('Исходники или запрос изменились после подтверждения стоимости')
+            gate.assert_reservation(reservation,'openai',operation)
             boundary='AISMM'+uuid4().hex
             chunks=[]
             def field(name, value):
@@ -800,6 +814,7 @@ class CloudEditWorker(QThread):
             chunks.append(f'--{boundary}--\r\n'.encode())
             req=urllib.request.Request('https://api.openai.com/v1/images/edits',data=b''.join(chunks),
                 headers={'Authorization':'Bearer '+self.api_key,'Content-Type':'multipart/form-data; boundary='+boundary},method='POST')
+            gate.claim_dispatch(reservation,'openai',operation)
             try:
                 with urllib.request.urlopen(req,timeout=300) as response: result=json.load(response)
             except urllib.error.HTTPError as exc:
@@ -1358,6 +1373,8 @@ class Studio(QMainWindow):
         self.generator = None
         self._generator_owner = None
         self._edit_owner = None
+        from qt_text_approval import TextApprovalBroker
+        self.text_approval_broker=TextApprovalBroker(self,self.paid_media) if self.paid_media is not None else None
         self.cloud_key = None  # Legacy compatibility; credential source is cloud_credentials (RAM/env)
         self.cloud_worker = None
         self.modern_worker = None
@@ -1745,6 +1762,9 @@ class Studio(QMainWindow):
         send.clicked.connect(self.send_message)
         self.send_button = send
         command.addWidget(send, 1)
+        self.stop_text_button=QPushButton('Остановить AI-задание')
+        self.stop_text_button.clicked.connect(self.cancel_text_task)
+        command.addWidget(self.stop_text_button)
         batch = QPushButton('Обработать выбранные')
         batch.setToolTip('Выделите несколько исходников через Ctrl/Shift и введите команду')
         batch.clicked.connect(self.start_batch)
@@ -2068,7 +2088,8 @@ class Studio(QMainWindow):
             cost_gate=(self.paid_media.cost_gate
                        if self.paid_media is not None else None),
             result_worker_factory=(self.paid_media.result_worker
-                                   if self.paid_media is not None else None))
+                                   if self.paid_media is not None else None),
+            media_service=self.paid_media)
         self.pub_tabs.addTab(self.kie_queue_panel, 'Kie.ai · задания')
         self.pub_tabs.currentChanged.connect(
             lambda index: self.kie_queue_panel.refresh()
@@ -3967,6 +3988,38 @@ class Studio(QMainWindow):
         self.append_chat('AI-менеджер',f'Отправляю задачу в {space} через {endpoint}.')
         self.cloud_worker.start()
 
+    def cancel_text_task(self):
+        worker=getattr(self,'task_worker',None)
+        if worker is None or not worker.isRunning():return
+        if getattr(self,'task_project_id',None)!=self.current_project:return
+        if self.db.in_transaction:
+            self.append_chat('Система','Остановка ожидает завершения операции хранения.');return
+        attempt=getattr(self,'task_attempt',None)
+        try:
+            if attempt is not None and getattr(worker,'execution_attempt',None)==attempt:
+                self.core.cancel_text_execution(attempt.project_id,self.task_instruction,task_id=attempt.task_id)
+                self.task_attempt=None
+            elif worker is getattr(self,'dialogue_worker',None):
+                self._dialogue_error='Задание остановлено пользователем'
+                self._resolved_dialogue=None
+                pid=getattr(self,'task_project_id',None)
+                turn=getattr(self,'task_dialogue_turn_id',None)
+                if pid and turn:self.core.conversations.transition(pid,turn,'failed')
+            else:
+                self.append_chat('Система','Для этого задания не подтверждён механизм отмены.');return
+        except (ValueError,RuntimeError,sqlite3.Error) as exc:
+            self.append_chat('Система','Не удалось сохранить отмену: '+type(exc).__name__);return
+        worker.requestInterruption()
+        worker.finished.connect(self._cancelled_text_finished)
+        self.send_button.setEnabled(False)
+        self.append_chat('Система','Отмена сохранена. Текущий запрос завершится без применения результата; новые вызовы не запускаются.')
+
+    def _cancelled_text_finished(self):
+        worker=self.sender()
+        if self.task_worker is worker:self.task_worker=None
+        self.send_button.setEnabled(self.task_worker is None)
+        if hasattr(self,'_task_clock'):self._task_clock.stop()
+
     def cloud_generate(self, prompt, confirmed=False, *, use_reference=None):
         if not self.checked_source():
             self.append_chat('Система', 'Выберите допустимый исходник, отличный от эталона.')
@@ -3976,15 +4029,40 @@ class Studio(QMainWindow):
             return
         if self.cloud_worker is not None:return
         reference=self.task_reference(prompt,use_reference=use_reference)
-        reply=QMessageBox.Yes if confirmed else QMessageBox.question(self,'Подтверждение платной облачной обработки',
-            'В OpenAI будут отправлены исходная фотография'+(' и эталон' if reference else '')+'.\n'
-            'API может списать плату. Точную стоимость приложение пока не рассчитывает. '
-            'Проверьте действующие тарифы OpenAI перед согласием.\n\nОтправить файлы и выполнить платную операцию?',
+        from PySide6.QtWidgets import QInputDialog
+        from paid_image_runtime import image_operation
+        service=getattr(self,'paid_media',None)
+        if service is None:
+            self.append_chat('Система','Общий платный журнал недоступен; запрос не отправлен.');return
+        owner=self.current_project
+        task=uuid4().hex
+        source=self.source.path
+        operation=image_operation(owner,task,source,reference,prompt)
+        maximum,ok=QInputDialog.getText(self,'Проверенная максимальная стоимость',
+            'Максимальная стоимость одного запроса USD по проверенному тарифу (не оценка модели):')
+        if not ok:return
+        evidence,ok=QInputDialog.getText(self,'Источник тарифа','Источник проверки максимальной стоимости:')
+        if not ok or not evidence.strip():return
+        reply=QMessageBox.question(self,'Подтверждение платной облачной обработки',
+            'Разрешить один запрос OpenAI Images с максимальной стоимостью $'+maximum+
+            '? Резерв сохранится при таймауте. Источник: '+evidence,
             QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
-        if not confirmed and reply!=QMessageBox.Yes:return
+        if reply!=QMessageBox.Yes or self.current_project!=owner:return
+        if image_operation(owner,task,self.source.path,reference,prompt)!=operation:
+            self.append_chat('Система','Исходники изменились во время подтверждения; запрос не отправлен.');return
+        try:
+            from durable_cost_gate import units
+            if units(maximum)<=0:raise PermissionError('Нужна положительная проверенная стоимость')
+            token=service.cost_gate.approve('openai',operation,maximum)
+            reservation=service.cost_gate.reserve('openai',operation,maximum,token=token,unique_operation=True)
+            service.cost_gate.record_authorization_evidence(reservation,evidence=evidence,confirmed_by_user=True)
+        except (ValueError,PermissionError,OSError,sqlite3.Error) as exc:
+            self.append_chat('Система','Платный запуск заблокирован: '+type(exc).__name__);return
         output=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.png')
         self.append_chat('Система', f'Облачный исходник: {Path(self.source.path).name}. Эталон: '+('отправляется по запросу' if reference else 'не отправляется')+'.')
         self.cloud_worker=CloudEditWorker(self.source.path,reference,output,prompt,get_openai_key(),use_reference=use_reference)
+        self.cloud_worker.cost_gate=service.cost_gate
+        self.cloud_worker.payment_binding=(owner,task,operation,reservation)
         self.cloud_worker.done.connect(lambda path, pid=self.current_project, claim=self.batch_claim:self.cloud_done(path,project_id=pid,batch_claim=claim))
         self.cloud_worker.failed.connect(lambda err:self.append_chat('Ошибка облачного API',err))
         self.cloud_worker.finished.connect(self.cloud_finished)
@@ -4567,6 +4645,8 @@ class Studio(QMainWindow):
         self.task_dialogue_turn_id=turn_id
         worker=DialogueWorker(msg,snapshot,str(self.core.workspace(self.current_project)),self.task_dialogue_turn_id)
         self.dialogue_worker=worker;self.task_worker=worker
+        if self.text_approval_broker is not None:
+            worker.text_authorizer=self.text_approval_broker.for_worker(worker,self.current_project,self.task_dialogue_turn_id)
         worker.done.connect(self._dialogue_resolved)
         worker.failed.connect(self._dialogue_failed)
         worker.progress.connect(self.task_progress)
@@ -4736,6 +4816,10 @@ class Studio(QMainWindow):
                     execution_kind=self.task_semantic_kind,revision_id=self.task_revision_id)
                 worker=TaskWorker(plan.utterance,context);self.task_worker=worker
                 issued=self.task_attempt
+                worker.execution_attempt=issued
+                if self.text_approval_broker is not None:
+                    worker.text_authorizer=self.text_approval_broker.for_worker(worker,issued.project_id,issued.task_id)
+                worker.execution_database_path=self.core.execution_database_path()
                 worker.done.connect(lambda result,attempt=issued:self.task_ready_for_attempt(result,attempt))
                 worker.failed.connect(lambda error,attempt=issued:self.task_failed_for_attempt(error,attempt))
                 worker.progress.connect(self.task_progress)

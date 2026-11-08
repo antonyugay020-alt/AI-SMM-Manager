@@ -37,7 +37,7 @@ class KieMediaQueueQtTests(unittest.TestCase):
         self.ledger = DurableCostGate(Path(self.temp.name) / "qt-paid-ledger.sqlite")
         self.view = KieMediaQueuePanel(
             self.db, lambda: self.current, cost_gate=self.ledger)
-        self.addCleanup(self.view.close)
+        self.addCleanup(self.dispose_view)
         self.payload = nano_banana_pro("A safe mock cover", [], aspect_ratio="1:1")
 
     def paid_submit(self, project_id, job_id, transport, *, enable_paid=True):
@@ -51,6 +51,14 @@ class KieMediaQueueQtTests(unittest.TestCase):
         return submit(self.db, project_id, job_id, authorized_transport,
                       enable_paid=enable_paid, payment_reservation=reservation,
                       cost_gate=gate)
+
+    def dispose_view(self):
+        # Destroy native Qt objects deterministically on the GUI thread.
+        # close() only hides a widget and leaves Python callback cycles for GC.
+        from PySide6.QtCore import QCoreApplication,QEvent
+        self.view.close();self.view.deleteLater()
+        QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
+        self.app.processEvents()
 
     def test_refresh_shows_only_selected_project_and_is_offline(self):
         a = prepare(self.db, "project-a", self.payload)

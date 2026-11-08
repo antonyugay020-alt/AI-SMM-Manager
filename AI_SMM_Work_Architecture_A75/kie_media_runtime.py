@@ -107,7 +107,7 @@ class KieMediaGateway:
 
     def prepare_image(self, project_id, *, prompt, sources, pro=True,
                       aspect_ratio="1:1",resolution="1K",output_format=None,
-                      explicit_upload_consent=False):
+                      explicit_upload_consent=False,job_id=None):
         """No model generation; external source upload requires separate consent."""
         sources=list(sources)
         if sources and explicit_upload_consent is not True:
@@ -133,12 +133,12 @@ class KieMediaGateway:
         else:
             payload=nano_banana_edit(prompt, urls,aspect_ratio,
                                      output_format or "png")
-        return prepare(self.db,project_id,payload)
+        return prepare(self.db,project_id,payload,job_id=job_id)
 
     def prepare_video(self, project_id, *, prompt, source_video=None,
                       source_images=(), reference_mode=True,
                       duration=5, resolution="720p",aspect_ratio=None,
-                      audio=None, multi_prompt=(), explicit_upload_consent=False):
+                      audio=None, multi_prompt=(), explicit_upload_consent=False,job_id=None):
         """Reference mode creates from images; transformation edits existing video."""
         images=list(source_images)
         if (images or source_video is not None) and explicit_upload_consent is not True:
@@ -176,7 +176,7 @@ class KieMediaGateway:
                 raise ValueError("Transformation requires source video")
             payload=kling_omni_transformation(
                 prompt,video_url,metadata,urls,resolution,aspect_ratio)
-        return prepare(self.db,project_id,payload)
+        return prepare(self.db,project_id,payload,job_id=job_id)
 
     def start(self, project_id, job_id, *, explicit_paid_consent=False,
               approval_token=None):
@@ -206,7 +206,7 @@ class KieMediaGateway:
             raise RuntimeError("legacy Kie paid allocations require reconciliation")
         quote=self.verified_price_quote(row[0],json.loads(row[1]))
         reservation=self.cost_gate.reserve(
-            "kie.ai","media:"+job_id,quote,token=approval_token)
+            "kie.ai","media:"+job_id,quote,token=approval_token,unique_operation=True)
         # If the process dies now, the ledger retains the reservation.
         # Never auto-release on error: the provider may have charged.
         return submit(self.db,project_id,job_id,self.create_task,

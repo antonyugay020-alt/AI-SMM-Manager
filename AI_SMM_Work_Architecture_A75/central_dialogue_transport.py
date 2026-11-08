@@ -1,28 +1,10 @@
-"""GPT-first central dialogue transport, independent from task generation.
+"""Local-first central dialogue transport, independent from task generation.
 
 Fallback is explicit and reported; content acceptance policies remain unchanged.
 Only transport failures allow local fallback, never schema/contract violations.
 """
 from __future__ import annotations
 import os
-
-
-def _unambiguously_casual(payload):
-    """Only shortcut unmistakably casual turns; ambiguous/project requests use GPT."""
-    import json
-    messages = payload.get('messages') or []
-    if not messages or not isinstance(messages[-1], dict):
-        return False
-    try:
-        content = json.loads(messages[-1].get('content', ''))
-    except (TypeError, ValueError):
-        return False
-    if not isinstance(content, dict) or not isinstance(content.get('utterance'), str):
-        return False
-    phrase = content['utterance'].strip().lower().strip(' .!?…')
-    return phrase in {'привет', 'здравствуй', 'здравствуйте', 'добрый день',
-                      'доброе утро', 'добрый вечер', 'как дела', 'спасибо',
-                      'благодарю', 'hi', 'hello', 'thanks', 'thank you'}
 
 
 def default_central_model(env=None):
@@ -41,7 +23,7 @@ def default_central_model(env=None):
             model = token.strip()
             if model.casefold().startswith('openai/') and model[7:].strip():
                 return model
-    return 'openai/gpt-5'
+    return str(env.get('AI_SMM_LOCAL_DIALOGUE_MODEL') or 'qwen3:8b').strip()
 
 
 def request_central_dialogue(payload, *, stage, timeout=180, attempts=1, report=None):
@@ -50,14 +32,33 @@ def request_central_dialogue(payload, *, stage, timeout=180, attempts=1, report=
     if mode not in {'hybrid', 'gpt', 'local'}:
         raise ValueError('AI_SMM_DIALOGUE_MODE должен быть hybrid, gpt или local')
     local = str(os.environ.get('AI_SMM_LOCAL_DIALOGUE_MODEL', 'qwen3:8b')).strip()
-    if mode == 'local' or (mode == 'hybrid' and primary.startswith('openai/') and _unambiguously_casual(payload)):
-        if not local or local.startswith('openai/'):
+    if mode in {'local','hybrid'}:
+        from text_providers import parse_cloud_model
+        if not local or parse_cloud_model(local) is not None:
             raise ValueError('Локальная модель диалога должна быть моделью Ollama')
-        if report:
-            report('central_local_dialogue', model=local, reason='local_mode' if mode == 'local' else 'casual_turn')
         from ollama_resilience import request_chat
-        return request_chat({**payload, 'model': local}, stage=stage,
-                            timeout=timeout, attempts=attempts, report=report)
+        if report:report('central_local_dialogue',model=local,reason='local_first')
+        try:
+            return request_chat({**payload,'model':local},stage=stage,
+                                timeout=timeout,attempts=attempts,report=report)
+        except (OSError,RuntimeError) as exc:
+            from provider_errors import ProviderHTTPError
+            import urllib.error
+            current=exc
+            transport=False
+            for _ in range(8):
+                if isinstance(current,(OSError,urllib.error.URLError,ProviderHTTPError)):
+                    transport=True;break
+                current=getattr(current,'__cause__',None)
+                if current is None:break
+            if mode=='local' or not transport or parse_cloud_model(primary) is None:
+                raise
+            if report:report('central_cloud_fallback',primary=local,backup=primary,
+                             failure_type=type(exc).__name__)
+            # Cloud paid authority is still required at the shared transport.
+            from text_providers import call_text
+            return call_text(primary,payload['messages'],timeout=timeout,
+                             temperature=0,response_format='json_object')
     if not primary.startswith('openai/'):
         from ollama_resilience import request_chat
         return request_chat(payload, stage=stage, timeout=timeout, attempts=attempts, report=report)
@@ -68,7 +69,7 @@ def request_central_dialogue(payload, *, stage, timeout=180, attempts=1, report=
         # in understand_dialogue; a JSON-object transport is not acceptance.
         return call_text(primary, cloud_payload['messages'], timeout=timeout,
                          temperature=0, response_format='json_object')
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError) as exc:
         if os.environ.get('AI_SMM_CENTRAL_FALLBACK', '1').strip() == '0':
             raise
         backup = str(os.environ.get('AI_SMM_CENTRAL_FALLBACK_MODEL', 'qwen3:8b')).strip()

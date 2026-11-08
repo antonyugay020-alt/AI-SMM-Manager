@@ -45,7 +45,7 @@ class TextProviderTests(unittest.TestCase):
               'usage':{'prompt_tokens':12,'completion_tokens':7}}
         with patch('text_providers.urllib.request.urlopen',return_value=FakeResponse(body)) as opened:
             result=call_text('groq/openai/gpt-oss-20b',[{'role':'user','content':'synthetic'}],
-                             environ={'GROQ_API_KEY':'secret'})
+                             environ={'GROQ_API_KEY':'secret','AI_SMM_GROQ_FREE_TIER_ACK':'1'})
         request=opened.call_args.args[0]
         self.assertEqual(request.full_url,'https://api.groq.com/openai/v1/chat/completions')
         self.assertNotIn('secret',request.data.decode())

@@ -187,7 +187,7 @@ class IngestReceipt:
     duplicate:bool=False
 
 
-def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None):
+def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None,authorize=None):
     if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
     if kind not in _KINDS:raise ValueError('Invalid ingest kind')
     _require_owner(db,project_id)
@@ -208,6 +208,8 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     if not isinstance(label,str) or not label or '\x00' in label:raise ValueError('Invalid source display name')
     try:
         db.execute('BEGIN IMMEDIATE')
+        if authorize is not None:
+            authorize()
         install(db)
         if kind=='asset':
             found=db.execute('SELECT id,stored_path FROM assets WHERE project_id=? AND sha256=?',

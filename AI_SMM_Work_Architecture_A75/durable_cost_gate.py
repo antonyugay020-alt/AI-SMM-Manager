@@ -120,7 +120,7 @@ class DurableCostGate:
                 pending += amount
         return spent + pending, spent, pending
 
-    def reserve(self, provider, operation, estimate_usd, *, token=None):
+    def reserve(self, provider, operation, estimate_usd, *, token=None, unique_operation=False):
         estimate = units(estimate_usd)
         if estimate <= 0:
             raise PaymentDenied("A paid operation needs a positive verified maximum quote")
@@ -133,6 +133,11 @@ class DurableCostGate:
                     (token, provider, operation, period, int(time()))).fetchone()
                 if grant is None or estimate > grant[0]:
                     raise PaymentDenied("Explicit matching approval required")
+                if unique_operation and db.execute("""SELECT 1 FROM cost_reservations r
+                        JOIN cost_grants g ON r.grant_token=g.token
+                        WHERE g.provider=? AND g.operation=? AND r.state!='released' LIMIT 1""",
+                        (provider,operation)).fetchone():
+                    raise PaymentDenied("This exact operation already has a durable reservation")
                 spent, _, _ = self._totals(db, period)
                 cap, hold = db.execute("SELECT cap,hold FROM cost_settings WHERE id=1").fetchone()
                 if hold:
@@ -301,3 +306,11 @@ class DurableCostGate:
                 "paid_calls_frozen": bool(hold),
                 "spent_usd": Decimal(spent)/SCALE,
                 "pending_usd": Decimal(pending)/SCALE}
+
+    def record_authorization_evidence(self,reservation,*,evidence,confirmed_by_user=False):
+        reference=self._proof(evidence,confirmed_by_user)
+        with closing(self._connect()) as db:
+            if not db.execute("SELECT 1 FROM cost_reservations WHERE id=? AND state='reserved'",(reservation,)).fetchone():
+                raise PaymentDenied('Active reservation required for authorization evidence')
+            db.execute('INSERT INTO cost_audit(id,event,reservation_id,evidence,created_utc) VALUES(?,?,?,?,?)',
+                (uuid4().hex,'authorize',reservation,reference,datetime.now(timezone.utc).isoformat()))

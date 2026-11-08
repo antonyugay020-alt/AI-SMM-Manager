@@ -55,7 +55,7 @@ def _project_exists(db, project_id):
         raise ValueError("unknown project owner")
 
 
-def prepare(db, project_id, payload):
+def prepare(db, project_id, payload, *, job_id=None):
     """Record immutable paid intent. Caller provides approved uploaded URLs."""
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
@@ -68,11 +68,15 @@ def prepare(db, project_id, payload):
                            ensure_ascii=False)
     if len(canonical.encode("utf-8")) > 160_000:
         raise ValueError("Kie media request exceeds size limit")
-    ident = uuid4().hex
+    ident = job_id or uuid4().hex
+    if not isinstance(ident,str) or len(ident)!=32 or any(x not in '0123456789abcdef' for x in ident):
+        raise ValueError('Invalid media job identity')
     at = utcnow()
     try:
         db.execute("BEGIN IMMEDIATE")
         install(db)
+        from media_task_control import check_active
+        check_active(db,project_id,ident)
         db.execute("""INSERT INTO kie_media_tasks
             (id, project_id, model, payload_json, payload_sha256, state,
              created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'prepared', ?, ?)""",
@@ -113,6 +117,8 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False,
     cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
     try:
         db.execute("BEGIN IMMEDIATE")
+        from media_task_control import check_active
+        check_active(db,project_id,job_id)
         updated=db.execute("""UPDATE kie_media_tasks
             SET state='submitting',cost_reservation_id=?,updated_at=?
             WHERE id=? AND project_id=? AND state='prepared'""",
@@ -126,6 +132,7 @@ def submit(db, project_id, job_id, create_task, *, enable_paid=False,
         # Revalidate immediately before the provider transport; a grant from
         # another task, a settled grant or a frozen ledger cannot be reused.
         cost_gate.assert_reservation(payment_reservation,"kie.ai","media:"+job_id)
+        check_active(db,project_id,job_id)
         result=create_task(
             json.loads(row[1]), payment_reservation=payment_reservation,
             operation="media:"+job_id, cost_gate=cost_gate)
@@ -206,7 +213,7 @@ def _validate_media_bytes(path, *, is_video):
 
 
 def complete(db, project_id, job_id, query_task, fetch_verified_file,
-             workspace):
+             workspace, *, cancel_check=None):
     """Query task via injected documented adapter; publish verified owned bytes.
 
     fetch_verified_file(task_result, destination) MUST place validated bytes in
@@ -264,7 +271,14 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
             (str(resolved),digest,utcnow(),job_id,project_id))
         db.commit()
         return str(resolved)
+    from media_task_control import check_active
+    def ensure_active():
+        check_active(db,project_id,job_id)
+        if cancel_check is not None:
+            cancel_check()
+    ensure_active()
     status=query_task(provider_id)
+    ensure_active()
     if not isinstance(status,dict) or status.get("code")!=200:
         raise ValueError("Kie task status not confirmed")
     data=status.get("data")
@@ -302,7 +316,9 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
     # polling worker cannot block recovery or have its file unlinked by us.
     staged=spool/(job_id+"-"+uuid4().hex+ext)
     try:
+        ensure_active()
         fetch_verified_file(urls[0],staged)
+        ensure_active()
         if not staged.is_file() or staged.is_symlink() or staged.stat().st_size==0:
             raise ValueError("downloaded Kie result missing or invalid")
         _validate_media_bytes(staged, is_video=model.startswith("kling-"))
@@ -310,7 +326,7 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         try:
             receipt=ingest(db,workspace,staged,project_id=project_id,
                            kind=kind,original_name="kie-"+job_id+ext,
-                           item_id=job_id)
+                           item_id=job_id, authorize=ensure_active)
         except (sqlite3.IntegrityError, FileExistsError):
             # Another polling process may have committed this exact identity
             # after our initial lookup. Reconcile through the authenticated
@@ -318,7 +334,8 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
             if not db.execute("SELECT 1 FROM project_files WHERE id=? AND project_id=?",
                               (job_id,project_id)).fetchone():
                 raise
-            return complete(db,project_id,job_id,query_task,fetch_verified_file,workspace)
+            return complete(db,project_id,job_id,query_task,fetch_verified_file,workspace,
+                            cancel_check=cancel_check)
         if not receipt.published:
             raise RuntimeError("media result committed but publication pending")
         db.execute("""UPDATE kie_media_tasks SET state='completed',
@@ -361,7 +378,9 @@ def list_project_tasks(db, project_id, *, limit=100):
         error_code,created_at,updated_at
         FROM kie_media_tasks WHERE project_id=? ORDER BY created_at DESC,id DESC
         LIMIT ?""",(project_id,limit)).fetchall()
+    from media_task_control import stopped
     return [{"id":row[0],"model":row[1],"state":row[2],
+             "local_stop_requested":stopped(db,project_id,row[0]),
              "provider_task_id":row[3],"output_path":row[4],
              "error_code":row[5],"created_at":row[6],"updated_at":row[7]}
             for row in rows]
