@@ -1,0 +1,48 @@
+WARNING: The directory '/home/agent/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Found existing installation: torch 2.8.0+cpu
+Uninstalling torch-2.8.0+cpu:
+  Successfully uninstalled torch-2.8.0+cpu
+Found existing installation: diffusers 0.36.0
+Uninstalling diffusers-0.36.0:
+  Successfully uninstalled diffusers-0.36.0
+Found existing installation: transformers 4.57.3
+Uninstalling transformers-4.57.3:
+  Successfully uninstalled transformers-4.57.3
+Found existing installation: accelerate 1.12.0
+Uninstalling accelerate-1.12.0:
+  Successfully uninstalled accelerate-1.12.0
+Found existing installation: safetensors 0.7.0
+Uninstalling safetensors-0.7.0:
+  Successfully uninstalled safetensors-0.7.0
+Found existing installation: tokenizers 0.22.2
+Uninstalling tokenizers-0.22.2:
+  Successfully uninstalled tokenizers-0.22.2
+Collecting huggingface-hub<3,>=1.16
+  Downloading huggingface_hub-2.4.0-py3-none-any.whl.metadata (16 kB)
+Requirement already satisfied: click<9.0.0,>=8.4.2 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (8.5.1)
+Requirement already satisfied: filelock>=3.10.0 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (4.2.9)
+Requirement already satisfied: fsspec>=2023.5.0 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (2026.9.0)
+Requirement already satisfied: hf-xet<2.0.0,>=1.6.0 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (1.8.0)
+Requirement already satisfied: httpx2<3,>=2.0.0 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (2.16.0)
+Requirement already satisfied: packaging>=20.9 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (26.3)
+Requirement already satisfied: pyyaml>=5.1 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (6.0.3)
+Requirement already satisfied: tqdm>=4.42.1 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (4.70.1)
+Requirement already satisfied: typing-extensions>=4.1.0 in /workspace/work/venv/lib/python3.12/site-packages (from huggingface-hub<3,>=1.16) (4.16.0)
+Requirement already satisfied: anyio>=4.10 in /workspace/work/venv/lib/python3.12/site-packages (from httpx2<3,>=2.0.0->huggingface-hub<3,>=1.16) (4.16.0)
+Requirement already satisfied: httpcore2==2.16.0 in /workspace/work/venv/lib/python3.12/site-packages (from httpx2<3,>=2.0.0->huggingface-hub<3,>=1.16) (2.16.0)
+Requirement already satisfied: idna>=3.18 in /workspace/work/venv/lib/python3.12/site-packages (from httpx2<3,>=2.0.0->huggingface-hub<3,>=1.16) (3.20)
+Requirement already satisfied: truststore>=0.10 in /workspace/work/venv/lib/python3.12/site-packages (from httpx2<3,>=2.0.0->huggingface-hub<3,>=1.16) (0.10.5)
+Requirement already satisfied: h11>=0.16 in /workspace/work/venv/lib/python3.12/site-packages (from httpcore2==2.16.0->httpx2<3,>=2.0.0->huggingface-hub<3,>=1.16) (0.16.0)
+Downloading huggingface_hub-2.4.0-py3-none-any.whl (857 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 857.0/857.0 kB 11.9 MB/s eta 0:00:00
+Installing collected packages: huggingface-hub
+  Attempting uninstall: huggingface-hub
+    Found existing installation: huggingface_hub 0.36.2
+    Uninstalling huggingface_hub-0.36.2:
+      Successfully uninstalled huggingface_hub-0.36.2
+Successfully installed huggingface-hub-2.4.0
+
+[notice] A new release of pip is available: 25.0.1 -> 26.3
+[notice] To update, run: python -m pip install --upgrade pip
+WARNING: The directory '/home/agent/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+No broken requirements found.

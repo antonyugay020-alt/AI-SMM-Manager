@@ -1,0 +1,33 @@
+import json,hashlib,urllib.request,shutil
+from pathlib import Path
+import torch
+from safetensors.torch import save_file
+from diffusers import StableDiffusionPipeline,StableDiffusionInstructPix2PixPipeline,UNet2DConditionModel,DDIMScheduler
+root=Path('/workspace/work/generative');meta=json.loads((root/'tiny-stable-diffusion-torch-metadata.json').read_text())
+raw=root/'tiny-download';raw.mkdir(exist_ok=True)
+for item in meta['siblings']:
+ name=item['rfilename']
+ if not name.endswith(('.json','.txt','.bin')) or name.startswith(('flax/','onnx/')):continue
+ path=raw/name;path.parent.mkdir(parents=True,exist_ok=True)
+ with urllib.request.urlopen('https://huggingface.co/'+meta['id']+'/resolve/'+meta['sha']+'/'+name,timeout=60) as response:data=response.read()
+ assert len(data)==item['size']
+ if item.get('lfs'):assert hashlib.sha256(data).hexdigest()==item['lfs']['sha256']
+ else:assert hashlib.sha1(('blob '+str(len(data))+'\0').encode()+data).hexdigest()==item['blobId']
+ path.write_bytes(data)
+converted=root/'tiny-converted';shutil.copytree(raw,converted,dirs_exist_ok=True)
+for path in converted.rglob('*.bin'):
+ tensors=torch.load(path,map_location='cpu',weights_only=True)
+ save_file({k:v.contiguous() for k,v in tensors.items()},str(path.with_name('model.safetensors') if path.name=='pytorch_model.bin' else path.with_suffix('.safetensors')),metadata={'format':'pt'})
+ path.unlink()
+base=StableDiffusionPipeline.from_pretrained(converted,local_files_only=True,use_safetensors=True)
+unet=UNet2DConditionModel.from_config(base.unet.config,in_channels=8)
+state=base.unet.state_dict();weight=state['conv_in.weight'];state['conv_in.weight']=torch.cat([weight,torch.zeros_like(weight)],dim=1);unet.load_state_dict(state)
+pipe=StableDiffusionInstructPix2PixPipeline(vae=base.vae,text_encoder=base.text_encoder,tokenizer=base.tokenizer,
+ unet=unet,scheduler=DDIMScheduler.from_config(base.scheduler.config),safety_checker=None,feature_extractor=base.feature_extractor,requires_safety_checker=False)
+bundle=root/'tiny-bundle';pipe.save_pretrained(bundle/'model',safe_serialization=True)
+files={p.relative_to(bundle).as_posix():{'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'bytes':p.stat().st_size} for p in bundle.rglob('*') if p.is_file()}
+manifest={'version':1,'provenance':{'test_only':True,'quality_accepted':False,'source':meta['id'],'revision':meta['sha'],'transformation':'tiny pretrained UNet expanded to 8 channels; untrained instruction conditioning; no semantic-quality claim'},'files':files}
+blob=(json.dumps(manifest,indent=2)+'\n').encode();(bundle/'manifest.json').write_bytes(blob)
+profile={'engine':'instruct_pix2pix','bundle':str(bundle),'manifest_sha256':hashlib.sha256(blob).hexdigest(),'device':'cpu','python':'/workspace/work/generative/venv/bin/python'}
+(root/'tiny-profiles.json').write_text(json.dumps({'version':1,'profiles':{'tiny-topology-only':profile}},indent=2))
+print(json.dumps({'status':'PASS','scope':'real Diffusers tiny topology preparation, NOT semantic-quality or GPU acceptance','model_bytes':sum(v['bytes'] for v in files.values()),'profile':profile}))

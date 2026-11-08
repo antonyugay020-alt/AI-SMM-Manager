@@ -1,4 +1,51 @@
-# Current development state — semantic media and live-model integration
+# Current development state — offline generative image/video engines
+
+Existing integration branch / draft PR #4. Baseline `211e897`; tested source
+`600ae799b6e067be7a8936eb2bb01f26cb260a12`. Main unchanged. No build/archive,
+release, merge, paid model API or Actions execution. Windows E2E **0/10**.
+
+- Added pinned offline InstructPix2Pix, SD 1.5 IP-Adapter/reference editing,
+  SD inpainting with protected mask compositing, and AnimateDiff V2V with
+  optional reference and original interval audio. Only explicitly installed
+  safetensors/config bundles; immutable manifests and a separate ML Python.
+- Integrated actual Qt profile controls/settings, typed semantic issued IDs,
+  selected-image local entry points, shared SQLite dispatcher, source snapshots,
+  output verification, model/device/seed receipts, ready media and task history.
+- Native FP16 CUDA/Turing policy, image/video caps, offload/chunking and RAM/VRAM
+  checks; no BF16/emulation or automatic CPU/cloud fallback. Device contention
+  waits cooperatively. OS locks, raw-FD parent-death watcher, child termination,
+  persistent cancellation, retained errors, orphan cleanup and receipt adoption
+  share existing ownership. Project deletion now rejects live local claims.
+- Prepared strict actual Windows/RTX six-case generation/visual-review harness.
+  Its result is a mandatory full-QA and ten-pass-supervisor gate; absent actual
+  host/models/plan/review cannot count. [Setup, envelopes and exact scope](LOCAL_GENERATIVE_MEDIA.md).
+
+Final full Linux developer regression: **2109 + 1042 subtests PASS** (all 263
+modules); full CI **273 + 77 PASS**, also with forced GC after every case.
+Actual existing Studio panel → separate Diffusers neural process → SQLite,
+owned image/video/audio result → clean shutdown PASS on **tiny CPU test
+models**. Image check also passes with a corrupt optional paid ledger;
+child-start cancellation prevents publication. Tiny instruction/motion models
+are not trained quality evidence. Full-size reference/inpaint/trained video
+quality and GPU performance remain unverified.
+
+Actual CUDA profile probe returned `CUDA_NOT_AVAILABLE`, without output,
+emulation, CPU fallback or paid call. This Linux Work executor has no NVIDIA
+CUDA device and no configured Windows/RTX host. Both isolated dependency
+checks, source mirrors (157 modules) and diff checks PASS. Source fingerprint:
+`52ed31e0494ad60392d571eb9e28477c95275fb747d9c81304c101e97feea2c0`.
+[Exact source manifests, real/fixture scopes, failed iterations and logs](evidence/20261108-offline-generative).
+
+**Next needs user-provided Windows/RTX access**: run the trained engines and
+visual fixture plan on real RTX 2080 Super 8 GB, correct measured model/VRAM/
+quality defects, then perform the required ten successive full Windows Qt E2E
+checks. Current tiny CPU inference does not advance acceptance counters.
+Independent real-model review and final packaging/clean-unpack gates still
+block delivery. Automatic paid independent-review workflow remains disabled.
+
+---
+
+# Previous development state — semantic media and live-model integration
 
 PR #4 stays draft on `integration/ai-smm-pr2-20261106`; main untouched.
 Tested source: `ab4cc3b83824bd33912bf1c7fb3b4d14d967219a`, following

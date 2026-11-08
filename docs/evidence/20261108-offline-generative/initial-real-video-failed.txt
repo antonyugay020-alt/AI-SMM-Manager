@@ -1,0 +1,10 @@
+Fontconfig error: No writable cache directories
+('{"returncode": 1, "log_tail": "/workspace/work/generative/venv/lib/python3.12/site-packages/torch/amp/autocast_mode.py:266: UserWarning: User provided device_type of \'cuda\', but CUDA is not available. Disabling\\n  warnings.warn(\\n\\rLoading pipeline components...:   0%|          | 0/6 [00:00<?, ?it/s]`torch_dtype` is deprecated! Use `dtype` instead!\\n\\rLoading pipeline components...: 100%|██████████| 6/6 [00:00<00:00, 112.09it/s]\\n/workspace/work/generative/venv/lib/python3.12/site-packages/diffusers/pipelines/pipeline_utils.py:2186: FutureWarning: `enable_vae_slicing` is deprecated and will be removed in version 0.40.0. Calling `enable_vae_slicing()` on a `AnimateDiffVideoToVideoPipeline` is deprecated and this method will be removed in a future version. Please use `pipe.vae.enable_slicing()`.\\n  deprecate(\\n/workspace/work/generative/venv/lib/python3.12/site-packages/diffusers/pipelines/pipeline_utils.py:2213: FutureWarning: `enable_vae_tiling` is deprecated and will be removed in version 0.40.0. Calling `enable_vae_tiling()` on a `AnimateDiffVideoToVideoPipeline` is deprecated and this method will be removed in a future version. Please use `pipe.vae.enable_tiling()`.\\n  deprecate(\\n\\r  0%|          | 0/4 [00:00<?, ?it/s]\\r 25%|██▌       | 1/4 [00:02<00:08,  2.99s/it]\\r 50%|█████     | 2/4 [00:04<00:04,  2.03s/it]\\r 75%|███████▌  | 3/4 [00:05<00:01,  1.72s/it]\\r 75%|███████▌  | 3/4 [00:05<00:01,  1.90s/it]\\n{\\"error_code\\": \\"ValueError\\", \\"detail\\": \\"Generated frame geometry mismatch\\"}\\n"}',)
+Traceback (most recent call last):
+  File "/workspace/AI-SMM-Manager/ci/studio_local_generative_smoke.py", line 97, in <module>
+    if __name__=='__main__':raise SystemExit(main())
+                                             ^^^^^^
+  File "/workspace/AI-SMM-Manager/ci/studio_local_generative_smoke.py", line 67, in main
+    assert row and row[1]=='completed',row
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('9fd7fbc195cb45588f6fd2e23e73187f', 'failed', None, 'LOCAL_MODEL_EXECUTION_FAILED')

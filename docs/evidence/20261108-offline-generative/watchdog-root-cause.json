@@ -1,0 +1,10 @@
+{
+  "buffered": {
+    "exit": -6,
+    "stderr": "Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedReader name='<stdin>'> at interpreter shutdown, possibly due to daemon threads\nPython runtime state: finalizing (tstate=0x00000000015b7de0)\n\nCurrent thread 0x00007f18f6301740 (most recent call first):\n  <no Python frame>\n"
+  },
+  "raw": {
+    "exit": 0,
+    "stderr": ""
+  }
+}
