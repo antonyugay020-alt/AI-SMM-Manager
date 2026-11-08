@@ -1,4 +1,53 @@
-# Current development state — native local-media dispatcher
+# Current development state — semantic media and live-model integration
+
+PR #4 stays draft on `integration/ai-smm-pr2-20261106`; main untouched.
+Tested source: `ab4cc3b83824bd33912bf1c7fb3b4d14d967219a`, following
+`0ab7cf578b94eabf186ab85588aae2b5941a375b` and prior checkpoints below.
+No user build/archive, release or merge. Windows acceptance **0/10**.
+
+- Dialogue now dispatches all five supported local media operations using only
+  issued project-media IDs: resize, trim, format, montage and slideshow. Source
+  ownership/current metadata/receipt hashes, immutable worker snapshots, exact
+  task parameters, independent output geometry/duration/audio checks, atomic
+  publication, original dialogue receipt, history and cancellation are joined.
+- Task-specific native JSON variants constrain source kinds/count and null-only
+  unused parameters. The same constraints remain enforced by the host. No
+  phrase/keyword routing or raw model-supplied path grants were introduced.
+- Live per-job OS locks prevent queue recovery from fencing an active worker,
+  including across processes. Process death releases ownership; orphan recovery
+  and explicit retry keep the same durable task identity. Windows lock branch
+  still requires actual Windows verification.
+- Optional exact-alias loopback llama.cpp backend uses the existing common text
+  boundary and schemas, no cloud credentials/proxy/redirect. Ollama is still
+  default; see [configuration and smoke](LOCAL_MODEL_RUNTIME.md).
+- **Real local Qwen3-1.7B Q8_0 CPU Studio scenario PASS**: Russian request →
+  actual model decision → FFmpeg slideshow from both issued images → exact
+  128x96/0.5 seconds per image → owned result/intake → clean shutdown.
+  Weights and official llama.cpp binary SHA-256 were verified. This is one live
+  semantic scenario, not general model/Windows/GPU acceptance. Qwen0.6B and the
+  earlier broad-schema 1.7B runs failed; their diagnostics remain recorded.
+
+Final complete Linux developer regression: **2109 + 1037 subtests PASS**, all
+263 test modules. Complete CI **252 + 77 PASS**, also with forced GC after every
+case. Both Studio fixture checks (success and cancellation with a corrupt paid
+ledger) PASS; native photo/video checks PASS. Three runtime mirrors PASS (152
+modules), `git diff --check` PASS. Final fingerprint:
+`c95931f3345bd4eb70595936304a22f17766a72be959d631fdee7eed0732845c`.
+[Exact commands, source manifests, failures and final evidence](evidence/20261108-semantic-local-model).
+
+No paid API calls or Actions dispatched. Automatic paid independent review
+remains `disabled_manually`; commits use `[skip ci]`.
+
+Next: integrate actual local generative engines with the same durable media
+lifecycle, then verify real instruction/reference editing quality and target
+RTX 2080 Super 8GB behavior. FFmpeg/Pillow are not generative styling engines.
+Live paid-provider/independent model review and ten consecutive clean complete
+Windows Qt E2E checks remain mandatory, unrun, and block release. A known tiny
+model failure must not be treated as a successful general AI acceptance.
+
+---
+
+# Previous development state — native local-media dispatcher
 
 PR #4 remains draft on `integration/ai-smm-pr2-20261106`. Tested source:
 `cad9bd89564153f7f45ec29cef11824b7637affe`, following the verified
