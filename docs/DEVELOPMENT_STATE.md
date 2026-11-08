@@ -1,4 +1,62 @@
-# Current development state — offline generative image/video engines
+# Current development state — one-launch two-PC Windows QA
+
+Existing integration branch / draft PR #4. User supplies two LAN Windows PCs,
+RTX 3080 Ti first and RTX 2080 Super 8 GB final, with no direct Work access.
+Baseline `c49fbd0`; tested implementation `36f5decbec04918d51d3f237169515f24fdc2049`,
+following `7fb73b5`. Main untouched; no build/release, merge, paid calls or Actions.
+No models downloaded in this session; existing tiny CPU fixtures were reused.
+
+**Concrete user launch:** `RUN_WINDOWS_QA.cmd` at repository root. Choose **1**
+on RTX 3080 Ti; after a clean full pass copy `PRELIMINARY_ATTESTATION.json` by LAN.
+Choose **2** on RTX 2080 Super for **10 consecutive clean full source Qt E2E**.
+Failure/uncertainty/drift/replay/live descendants reset to zero. Both actual
+counts remain **0** until physically executed. No Work/Linux evidence advances them.
+
+One report root: `%LOCALAPPDATA%\AI_SMM_Manager\QA`. Includes bootstrap console,
+HOST/prerequisites, persistent setup, STATUS/LATEST, per-pass source copies,
+raw logs/JUnit, all retained QA projects/SQLite/exports, screenshots, model and
+output receipts, VRAM samples, metrics/local vision observations and SHA manifests.
+[Exact first-launch guide and honest limitations](WINDOWS_ONE_CLICK_QA.md).
+Missing dependencies/models/input/reviewer yield BLOCKED; no automatic package/
+model download, cloud fallback, report upload or permission to spend is implied.
+
+- Distinct actual GPU roles; clean frozen source/data each run; portable primary
+  attestation bound to source, fixtures, model/manifest and dependency identity.
+- Full old text/Qt/independent review and developer suite plus complete offline
+  CI; all four actual CUDA generative engines and qualified installed local
+  vision quality review. Metrics include change/contrast, exact mask protection,
+  video shape/duration/flicker samples and decoded interval audio correlation.
+- Torch allocated/reserved peaks, strict 8 GB envelope, real nvidia-smi sampling;
+  missing/N/A memory evidence cannot pass. Local-only allowlist/credential/proxy
+  isolation forbids paid/external transports, even with inherited API keys.
+- Actual Qt model child stop, owner crash/EOF exit, stable-ID retry, independent
+  SQLite integrity/hash reopening and adoption without re-inference. Win32
+  suspended child/owned kill-on-close Job Object contains only QA descendants.
+- Native codec failures retain bounded stderr/exit code; codec/memory preflight
+  precedes long tests; all failed/partial quality diagnostics are retained.
+- Source QA explicitly does **not** fabricate a packaging/release PASS. The old
+  packaged-candidate acceptance and independent/final delivery gates remain.
+
+Final Work verification on fingerprint
+`d060bce030f0ad78f7e6333718d91039db789b1d2561c2f7a1ecf0c59ad3d283`:
+full developer **2109 + 1046 PASS**, all 263 modules; CI **294 + 77 PASS**,
+also with forced GC. Actual tiny CPU neural/Qt stop-owner-crash-retry-SQLite-
+receipt lifecycle and Linux Qt navigation/two-project/PDF child PASS. Three
+mirrors (161 runtime modules), dependency boundaries and diff checks PASS.
+[Commands, failed iterations, final manifests and logs](evidence/20261108-windows-one-click-qa).
+No real Windows Job Object, target CUDA, trained media quality or live vision
+review was executed here. Pixel controls/model judgement are not an infallible
+artistic oracle; diagnostics retain images/video and reasoning for inspection.
+
+**Next:** user runs phase 1 on RTX 3080 Ti using this source and already installed
+models/fixtures, provides the session folder for actual platform/model fixes;
+then same frozen bytes and phase 2 on RTX 2080 Super. No further request for
+remote Windows access is necessary. Do not repeat completed cloud integration
+or claim readiness before actual acceptance. Paid review remains disabled.
+
+---
+
+# Previous development state — offline generative image/video engines
 
 Existing integration branch / draft PR #4. Baseline `211e897`; tested source
 `600ae799b6e067be7a8936eb2bb01f26cb260a12`. Main unchanged. No build/archive,

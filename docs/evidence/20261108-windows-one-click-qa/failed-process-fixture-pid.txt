@@ -1,0 +1,82 @@
+...............................F.......................... [ 21%]
+................................... [ 34%]
+.................................................................. [ 58%]
+........................................................................ [ 84%]
+..........................................           [100%]
+=================================== FAILURES ===================================
+_ GenerativeContracts.test_actual_video_container_composition_keeps_source_audio_with_model_frame_fixture _
+
+self = <test_generative_media.GenerativeContracts testMethod=test_actual_video_container_composition_keeps_source_audio_with_model_frame_fixture>
+
+    def test_actual_video_container_composition_keeps_source_audio_with_model_frame_fixture(self):
+        import io
+        import subprocess
+        import shutil
+        import test_local_media_jobs as local_fixture
+        import generative_media_runtime as runtime
+        if not shutil.which('ffmpeg'):self.skipTest('Native FFmpeg required')
+        video=local_fixture.LocalMediaJobsTests.video(self,'input.mp4',audio=True)
+        request=self.request('video_generative');request.update(sources=[str(video),self.sources[0]],frames=4,fps=8,start=0)
+        source_hash=digest(video);job=jobs.create_job(self.db,OWNER,request)
+        class ProcessFixture:
+            returncode=0
+            def __init__(self,command,**options):
+                self.stdin=io.BytesIO();payload=json.loads(Path(command[-1]).read_text());target=Path(payload['target'])
+                frames=target.parent/'output_frames';frames.mkdir()
+                for index in range(4):
+                    with Image.new('RGB',(64,64),(40+index,70,90)) as image:image.save(frames/(str(index).zfill(4)+'.png'),'PNG')
+                (target.parent/'generation_receipt.json').write_text(json.dumps({**{key:request['generation'][key] for key in ('engine','manifest_sha256','device')},'seed':12,'frames':4,'dtype':'model-frame-fixture'}))
+            def poll(self):return 0
+        # Replace only generation's process factory. FFmpeg/ffprobe stay real.
+        with patch.object(runtime,'subprocess',SimpleNamespace(Popen=ProcessFixture,PIPE=subprocess.PIPE)):
+>           output=jobs.execute_job(self.db,self.workspace,OWNER,job)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+ci/test_generative_media.py:178: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+AI_SMM_Work_Architecture_A75/local_media_jobs.py:293: in execute_job
+    return _execute_locked(db,workspace,owner,job,cancel_check=cancel_check)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AI_SMM_Work_Architecture_A75/local_media_jobs.py:345: in _execute_locked
+    _render(request,sources,target,check);check()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AI_SMM_Work_Architecture_A75/local_media_jobs.py:143: in _render
+    return render_generation(request,sources,target,check,tool=_tool,probe=_probe)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+request = {'fps': 8, 'frames': 4, 'generation': {'bundle': '/tmp/tmp2sow4fi4/bundle', 'device': 'cpu', 'engine': 'animatediff_v2v', 'manifest_sha256': '6b89722ff172babcf65de2aca52165ce3b3efe971593fe12939db7f9e679cb86'}, 'guidance': 7.5, ...}
+sources = [PosixPath('/tmp/tmp2sow4fi4/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.local_media_work/68c9f463143b4a729cad2810db7fa4ae-_ey3x...'/tmp/tmp2sow4fi4/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.local_media_work/68c9f463143b4a729cad2810db7fa4ae-_ey3xrq9/1.png')]
+target = PosixPath('/tmp/tmp2sow4fi4/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.local_media_work/68c9f463143b4a729cad2810db7fa4ae-_ey3xrq9/output.mp4')
+check = <function _execute_locked.<locals>.check at 0x7f273c1dc4a0>
+tool = <function _tool at 0x7f27432af240>
+probe = <function _probe at 0x7f27432af1a0>
+
+    def render_generation(request,sources,target,check,*,tool,probe):
+        verify_bundle(request['generation'],check)
+        width=request.get('width',512);height=request.get('height',512)
+        video=request['task']=='video_generative';audio=False
+        duration=request.get('frames',16)/request.get('fps',8)
+        base=['ffmpeg','-nostdin','-v','error','-y']
+        if video:
+            original,audio=probe(sources[0]);start=request.get('start',0)
+            if start+duration>original+.02:raise ValueError('Requested generation interval exceeds input video')
+            folder=target.parent/'input_frames';folder.mkdir()
+            tool(base+['-ss',str(start),'-i',str(sources[0]),'-vf',f'fps={request.get("fps",8)},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1',
+                       '-frames:v',str(request.get('frames',16)),str(folder/'%04d.png')],check)
+            if len(list(folder.glob('*.png')))!=request.get('frames',16):raise ValueError('Video extraction incomplete')
+        payload=target.parent/'generation_request.json'
+        payload.write_text(json.dumps({'request':request,'inputs':[str(p) for p in sources],'target':str(target)},ensure_ascii=False),encoding='utf-8')
+        log_path=target.parent/'generation_process.log'
+        env={**os.environ,'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_HUB_DISABLE_TELEMETRY':'1','DO_NOT_TRACK':'1'}
+        with log_path.open('wb') as log:
+            process=subprocess.Popen([request['generation'].get('python',sys.executable),str(Path(__file__).with_name('generative_runner.py')),'--request',str(payload)],
+                stdin=subprocess.PIPE,stdout=log,stderr=log,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+>           (target.parent/'generation_process.json').write_text(json.dumps({'pid':process.pid,'parent_pid':os.getpid(),'started_at':time.time()}),encoding='utf-8')
+                                                                                   ^^^^^^^^^^^
+E           AttributeError: 'ProcessFixture' object has no attribute 'pid'
+
+AI_SMM_Work_Architecture_A75/generative_media_runtime.py:38: AttributeError
+=========================== short test summary info ============================
+FAILED ci/test_generative_media.py::GenerativeContracts::test_actual_video_container_composition_keeps_source_audio_with_model_frame_fixture
+1 failed, 272 passed, 77 subtests passed in 7.57s
