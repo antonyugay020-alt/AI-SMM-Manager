@@ -1,3 +1,19 @@
+# Cohesive AI SMM media-strength integration — post 966d285 (2026-11-09)
+
+Current integration branch PR #4, baseline `966d285bff6dda5b2844c697edf41c85c99089d7`. This checkpoint records *code changes* and a limited verification scope, **not a release**.
+
+**Root cause found in the real media pipeline:** Qt exposes and persists the `strength` control for all four local generation engines, but InstructPix2Pix previously ignored it and always passed `image_guidance_scale=1.5`. The prior real Windows image result (source QA `bdc7477`) completed inference but was rejected by independent vision as not clearly watercolor. This omission made the user-facing control ineffective for that engine; it is not evidence that changing the scale alone solves visual quality.
+
+**Integrated architectural change:** a single `generative_contract.instruction_image_guidance(strength)` maps the existing 0.05–1.00 editing strength inversely to image-guidance 1.95–1.00; other engines retain native denoising-strength. The step-count limitation now applies only to models that actually denoise based on strength. Work/Developer/tests mirrors of contract, runner, Qt and Windows acceptance were changed identically. The runner writes *requested strength and actual Pix2Pix image guidance* to its execution receipt. Native Windows E2E rejects a generation if those exact parameters do not match the QA request. The Qt label now describes the real function. New CPU pipeline-argument/receipt test in `ci/test_generative_media.py` and eight pure contract tests in `ci/test_instruction_strength_contract.py` exercise both behavior and bounds.
+
+**Actual verification:** GitHub tree audit found **164 common Work/Developer modules byte-for-byte identical**, including all three copies of four modified files. The exact Git blob `112b38d24eee8f7da1a980d8292bcb6518df70f6` of `generative_contract.py` was reproduced in the isolated container and passed **14 direct contract/boundary cases**. This verifies only that pure module. The previously reconstructed ZIP-report smoke fixture ran 6 cases, but is not a full-checkout regression of current source.
+
+**Still explicitly blocked:** Current HEAD has not yet run the full 263-module suite, complete CI, or actual Windows Qt/CUDA on the final code. The earlier Windows QA `bdc7477` had working native inference but `reviewer_models: FAIL`, `local_generative_media: FAIL`, and one Windows-specific CI test failure. The Windows-specific PID test was updated before this checkpoint but is still not proven on Windows. That QA Ollama inventory did **not** contain `qwen2.5:14b`; no model installation is claimed. Stronger visual transformation is unverified; visual quality and two independent reviewer families remain real release gates. **Target acceptance remains 0/10.**
+
+**Next complete cycle:** a clean-checkout full offline regression of this final SHA (no paid Actions), consolidate all resulting defects, then one Windows RTX 3080 Ti preflight/e2e; only if PASS proceed to 10 clean RTX 2080 Super E2E sessions. No main merge or release until that evidence exists. User-visible QA archive remains at the single path `Desktop\\AI_SMM_REPORTS\\DIAGNOSTICS.zip`; preserve history internally.
+
+---
+
 # Windows QA bdc7477 — consolidated remediation (2026-11-09)
 
 The actual Windows RTX 3080 Ti preliminary run tested source
