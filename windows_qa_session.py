@@ -28,6 +28,29 @@ def output_root():
     return Path(os.environ.get('USERPROFILE',str(Path.home()))) / 'Desktop' / 'AI_SMM_REPORTS'
 
 
+def model_roster_evidence(inventory,allowed,requested):
+    """Explain every Ollama QA selection without guessing missing local tags.
+
+    Names and admission reasons only: no prompts, responses, credentials,
+    cloud calls, or automatic installation of excluded local models.
+    """
+    discovered=list(dict.fromkeys(
+        entry['name'] for entry in inventory
+        if isinstance(entry,dict) and isinstance(entry.get('name'),str) and entry['name']))
+    approved=set(allowed)
+    chosen=set(requested or [])
+    return {
+        'explicit_local_models_selection':requested is not None,
+        'discovered_tags':discovered,
+        'admitted_local_completion_tags':list(allowed),
+        'excluded_tags':[
+            {'name':name,'reason':('not_selected_in_settings'
+                if requested is not None and name not in chosen
+                else 'not_eligible_for_local_completion')}
+            for name in discovered if name not in approved],
+    }
+
+
 def read_config(path):
     data=json.loads(Path(path).read_text(encoding='utf-8-sig'))
     required={'profiles','plan','vision_model'}
@@ -185,6 +208,8 @@ def execute(config,role,session,state):
             continue
         allowed.append(model)
     if config['vision_model'] not in allowed:raise ValueError('Vision model must be in approved local roster')
+    qa_roster=model_roster_evidence(inventory,allowed,requested)
+    write_json(session/'qa_model_roster.json',qa_roster)
     env=local_only_environment(os.environ,allowed);env['AI_SMM_GENERATIVE_CONFIG']=config['profiles']
     print('Verifying installed model bundles and fixture hashes (no download)...',flush=True)
     installed=profiles(env)
@@ -243,6 +268,8 @@ def execute(config,role,session,state):
             source=ROOT/name;target=staged/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
         verify_snapshot(staged,fingerprint)
         report_folder=run/'report';report_folder.mkdir()
+        qa_roster_folder=report_folder/'qa_roster';qa_roster_folder.mkdir()
+        write_json(qa_roster_folder/'qa_model_roster.json',qa_roster)
         from qa_fixture_masks import stage_qa_evidence
         stage_qa_evidence(session,report_folder)
         run_env={**env,'AI_SMM_QA_ROLE':role,'AI_SMM_QA_HARDWARE':json.dumps(hardware),
