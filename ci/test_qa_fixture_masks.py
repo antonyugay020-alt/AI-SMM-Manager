@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 from PIL import Image,ImageDraw
-from qa_fixture_masks import prepare_qa_plan,_valid_mask,_sha
+from qa_fixture_masks import prepare_qa_plan,stage_qa_evidence,_valid_mask,_sha
 
 
 def test_photo_substitutes_become_distinct_audited_binary_masks():
@@ -26,6 +26,11 @@ def test_photo_substitutes_become_distinct_audited_binary_masks():
         session2=root/'session2';session2.mkdir()
         selected2=prepare_qa_plan(plan,{'inpaint':{'engine':'sd15_inpaint'}},root,session2)
         assert json.loads(Path(selected2).read_text(encoding='utf-8'))['cases']==cases
+        staged=stage_qa_evidence(session,root/'report')
+        audit=json.loads((staged/'qa_fixture_mask_provenance.json').read_text(encoding='utf-8'))
+        assert len(audit['items'])==2
+        assert _sha(staged/'case_0_mask.png')==audit['items'][0]['mask_sha256']
+        assert _sha(staged/'case_1_mask.png')==audit['items'][1]['mask_sha256']
 
 
 def test_existing_matching_binary_mask_is_not_replaced():
@@ -41,3 +46,20 @@ def test_existing_matching_binary_mask_is_not_replaced():
         assert result['cases'][0]['sources'][1]==str(mask)
         assert _sha(mask)==hash_before
         assert json.loads((session/'qa_fixture_mask_provenance.json').read_text())['items']==[]
+
+
+def test_diagnostics_refuse_mask_evidence_mutation():
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory);photo=root/'photo.jpg';Image.new('RGB',(64,64),(3,5,7)).save(photo)
+        fake=root/'not_a_mask.jpg';Image.new('RGB',(64,64),(55,8,9)).save(fake)
+        plan=root/'plan.json';plan.write_text(json.dumps({'version':1,'cases':[
+            {'profile':'inpaint','sources':[str(photo),str(fake)]}]}),encoding='utf-8')
+        session=root/'session';session.mkdir()
+        prepared=json.loads(Path(prepare_qa_plan(
+            plan,{'inpaint':{'engine':'sd15_inpaint'}},root,session)).read_text(encoding='utf-8'))
+        Path(prepared['cases'][0]['sources'][1]).write_bytes(b'changed')
+        try:
+            stage_qa_evidence(session,root/'report')
+        except ValueError as error:
+            assert 'QA mask changed' in str(error)
+        else:raise AssertionError('Mutated QA mask was accepted')
