@@ -1,6 +1,11 @@
 """CPU-only QA evidence integrity; no native process or vision dependency."""
 import hashlib
+from pathlib import Path
+import sys
 import pytest
+
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'AI_SMM_Work_Architecture_A75'))
 from qa_receipt_provenance import make_request,output_sha256,validate_output_binding,validate_provenance
 
 
