@@ -90,9 +90,11 @@ class KieMediaQueuePanel(QWidget):
         self.local_steps=QSpinBox();self.local_steps.setRange(2,50);self.local_steps.setValue(20)
         self.local_seed=QSpinBox();self.local_seed.setRange(0,2147483647)
         self.local_strength=QDoubleSpinBox();self.local_strength.setRange(.05,1);self.local_strength.setValue(.65)
+        self.local_strength.setSingleStep(.05)
+        self.local_strength.setToolTip('Сила фактического изменения от 0.05 до 1.00; InstructPix2Pix преобразует её в image_guidance_scale, остальные движки — в denoising strength.')
         self.local_frames=QSpinBox();self.local_frames.setRange(4,16);self.local_frames.setValue(16)
         self.local_fps=QSpinBox();self.local_fps.setRange(1,12);self.local_fps.setValue(8)
-        for label,widget in [('Локальная модель',self.local_profile),('Эталон / маска',self.local_auxiliary),('Шаги',self.local_steps),('Seed',self.local_seed),('Сила',self.local_strength),('Кадры',self.local_frames),('FPS',self.local_fps)]:
+        for label,widget in [('Локальная модель',self.local_profile),('Эталон / маска',self.local_auxiliary),('Шаги',self.local_steps),('Seed',self.local_seed),('Сила изменения',self.local_strength),('Кадры',self.local_frames),('FPS',self.local_fps)]:
             generation_row.addWidget(QLabel(label));generation_row.addWidget(widget)
         layout.addLayout(generation_row)
         self.local_generation_button=QPushButton('Генеративная обработка локально')
