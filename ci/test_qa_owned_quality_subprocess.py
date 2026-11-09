@@ -31,6 +31,7 @@ def isolated_quality_module(tmp_path,monkeypatch):
         ' temp.replace(p)\n',encoding='utf-8')
     (tmp_path/'local_media_quality.py').write_text(
         'import time\n'
+        'class ObjectiveQualityRejected(ValueError):pass\n'
         'class LocalVision:\n'
         ' def __init__(self,model):self.model=model;self.digest=None\n'
         ' def installed(self):self.digest="a"*64;return self.digest\n'
@@ -38,7 +39,10 @@ def isolated_quality_module(tmp_path,monkeypatch):
         '  if case.get("behavior")=="hang":time.sleep(30)\n'
         '  return {"status":"BLOCKED" if case.get("behavior")=="reject" else "PASS",'
         '"model":self.model,"digest":self.digest,"scope":"synthetic CPU fixture"}\n'
-        'def objective_quality(case,output,folder):return {"fixture":"CPU_ONLY"}\n',
+        'def objective_quality(case,output,folder):\n'
+        ' if case.get("behavior")=="blank":raise ObjectiveQualityRejected("Blank generated image")\n'
+        ' if case.get("behavior")=="infra":raise RuntimeError("Local codec failure")\n'
+        ' return {"fixture":"CPU_ONLY"}\n',
         encoding='utf-8')
     monkeypatch.syspath_prepend(str(tmp_path))
     # Import the byte-identical QA worker from an isolated file location.
@@ -74,3 +78,19 @@ def test_real_owned_child_hang_is_bounded_and_error_captured(isolated_quality_mo
     diagnostic=json.loads((tmp_path/'proof'/'quality_process_error.json').read_text(encoding='utf-8'))
     assert diagnostic['error_type']=='TimeoutError'
     assert isinstance(diagnostic.get('pid'),int)
+
+
+def test_real_objective_quality_rejection_is_collected(isolated_quality_module,tmp_path):
+    result=_call(isolated_quality_module,tmp_path,'blank',5)
+    assert result['status']=='BLOCKED'
+    assert result['objective_rejection']=='Blank generated image'
+    assert result['model']=='gemma3:4b'
+    assert not (tmp_path/'proof'/'quality_process_error.json').exists()
+
+
+def test_real_codec_failure_still_aborts_and_keeps_diagnostics(isolated_quality_module,tmp_path):
+    with pytest.raises(RuntimeError,match='LOCAL_QUALITY_REVIEW_PROCESS_FAILED'):
+        _call(isolated_quality_module,tmp_path,'infra',5)
+    info=json.loads((tmp_path/'proof'/'quality_process_error.json').read_text(encoding='utf-8'))
+    assert info['error_type']=='RuntimeError'
+    assert (tmp_path/'proof'/'quality.json').is_file()
