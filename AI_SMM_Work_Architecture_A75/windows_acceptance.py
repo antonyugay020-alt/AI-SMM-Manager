@@ -757,7 +757,8 @@ if __name__=='__main__':
                 from generative_acceptance import run_cases
                 callback=None
                 if SOURCE_QA:
-                    from local_media_quality import LocalVision,objective_quality
+                    from local_media_quality import LocalVision
+                    from qa_quality_worker import BoundedQualityReview
                     from durable_json import atomic_write_json
                     vision=LocalVision(os.environ['AI_SMM_QA_VISION_MODEL'])
                     # Text qualification already requests keep_alive=0.
@@ -767,16 +768,9 @@ if __name__=='__main__':
                     # per-case nvidia-smi gate handles insufficient headroom.
                     qualification=vision.qualify(OUT/'vision_qualification')
                     atomic_write_json(OUT/'vision_qualification.json',qualification)
-                    def callback(case,path,folder):
-                        pathlib.Path(folder).mkdir(parents=True,exist_ok=True)
-                        try:
-                            metrics=objective_quality(case,path,folder)
-                            verdict=vision.review(case,path,folder,metrics)
-                            atomic_write_json(pathlib.Path(folder)/'quality.json',{'metrics':metrics,**verdict})
-                            return verdict
-                        except Exception as exc:
-                            atomic_write_json(pathlib.Path(folder)/'quality.json',{'status':'BLOCKED','reason':str(exc),'traceback':traceback.format_exc()})
-                            raise
+                    # QA quality is never executed in an unbounded Python
+                    # thread. This owner owns only its native vision subprocess.
+                    callback=BoundedQualityReview(vision.model,vision.digest,timeout=900)
                 proof=run_cases(plan,OUT/'generative_media',review=not SOURCE_QA,
                     qa_role=os.environ.get('AI_SMM_QA_ROLE','target_2080super'),quality_callback=callback,lifecycle=SOURCE_QA)
                 record('local_generative_media',proof.get('status')=='PASS' and proof.get('windows_executed') is True and proof.get('semantic_quality') in ('OPERATOR_VERIFIED','LOCAL_MODEL_VERIFIED'),
