@@ -46,9 +46,18 @@ def run_with_mock(tmp_path,child,timeout=3):
     return result,closed,folder
 
 
+def complete_receipt(status='PASS',model='gemma3:4b'):
+    return {'status':status,'model':model,'digest':'a'*64,
+        'metrics':{'width':256,'height':256,'contrast':.2,'mean_absolute_change':.25},
+        'verdict':{'verdict':'PASS' if status=='PASS' else 'FAIL',
+            'instruction':'PASS' if status=='PASS' else 'UNCERTAIN',
+            'preservation':'PASS','reference_or_mask':'NOT_APPLICABLE',
+            'temporal':'NOT_APPLICABLE','observations':'The edited object retains its subject and composition.'}}
+
+
 def test_owned_quality_pass_proves_matching_model_and_digest(tmp_path):
     folder=tmp_path/'quality';report=folder/'quality.json'
-    receipt={'status':'PASS','model':'gemma3:4b','digest':'a'*64}
+    receipt=complete_receipt()
     result,closed,_=run_with_mock(tmp_path,Child(receipt=(report,receipt)))
     assert result==receipt
     assert closed==[True]
@@ -56,14 +65,14 @@ def test_owned_quality_pass_proves_matching_model_and_digest(tmp_path):
 
 
 def test_rejected_quality_remains_blocked_and_child_closes(tmp_path):
-    receipt={'status':'BLOCKED','model':'gemma3:4b','digest':'a'*64}
+    receipt=complete_receipt('BLOCKED')
     result,closed,_=run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt)))
     assert result['status']=='BLOCKED'
     assert closed==[True]
 
 
 def test_invalid_model_receipt_fails_closed_and_closes(tmp_path):
-    receipt={'status':'PASS','model':'different:1b','digest':'a'*64}
+    receipt=complete_receipt(model='different:1b')
     with pytest.raises(RuntimeError,match='RECEIPT_INVALID'):
         run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt)))
     diagnostic=json.loads((tmp_path/'quality'/'quality_process_error.json').read_text())
@@ -99,3 +108,24 @@ def test_unowned_quality_callback_rejected_before_any_gpu_work():
             return {'status':'BLOCKED'}
     owned=Owned()
     assert _bounded_quality_callback(owned) is owned
+
+
+def test_incomplete_pass_rejected_even_with_correct_model_digest(tmp_path):
+    receipt={'status':'PASS','model':'gemma3:4b','digest':'a'*64}
+    with pytest.raises(RuntimeError,match='LOCAL_QUALITY_REVIEW_RECEIPT_INVALID'):
+        run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt)))
+    error=json.loads((tmp_path/'quality'/'quality_process_error.json').read_text(encoding='utf-8'))
+    assert error['error_type']=='RuntimeError'
+
+
+def test_unproven_reference_or_video_temporal_quality_never_passes():
+    from qa_quality_worker import validate_quality_receipt
+    report=complete_receipt()
+    report['verdict']['reference_or_mask']='NOT_APPLICABLE'
+    with pytest.raises(ValueError,match='RECEIPT_INVALID'):
+        validate_quality_receipt(report,{'task':'image_reference','sources':['a','b']},'gemma3:4b','a'*64)
+    report=complete_receipt()
+    report['metrics']={'duration':2,'sampled_frames':[{'contrast':.3}]}
+    report['verdict']['temporal']='NOT_APPLICABLE'
+    with pytest.raises(ValueError,match='RECEIPT_INVALID'):
+        validate_quality_receipt(report,{'task':'video_generative','sources':['a']},'gemma3:4b','a'*64)
