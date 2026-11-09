@@ -196,11 +196,21 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                 reviewed=False;automatic=None
                 if quality_callback is not None:
                     callback_case={**case,'task':json.loads(window.db.execute('SELECT request_json FROM local_media_jobs WHERE id=?',(job[0],)).fetchone()[0])['task']}
-                    from concurrent.futures import ThreadPoolExecutor
-                    with ThreadPoolExecutor(max_workers=1) as pool:
-                        future=pool.submit(quality_callback,callback_case,job[2],output/('quality_'+str(index)))
-                        while not future.done():app.processEvents();time.sleep(.03)
-                        automatic=future.result()
+                    if callable(getattr(quality_callback,'run_with_pump',None)):
+                        # Real Windows QA: process-owned, bounded, Qt-responsive.
+                        # A hung Ollama HTTP/native codec call can be terminated
+                        # without waiting for an unkillable ThreadPool thread.
+                        automatic=quality_callback.run_with_pump(
+                            callback_case,job[2],output/('quality_'+str(index)),
+                            pump=app.processEvents)
+                    else:
+                        # Kept for existing injected CPU-only acceptance fixtures;
+                        # production Windows QA MUST supply the bounded executor.
+                        from concurrent.futures import ThreadPoolExecutor
+                        with ThreadPoolExecutor(max_workers=1) as pool:
+                            future=pool.submit(quality_callback,callback_case,job[2],output/('quality_'+str(index)))
+                            while not future.done():app.processEvents();time.sleep(.03)
+                            automatic=future.result()
                     if automatic.get('status')!='PASS':raise ValueError('Automated local quality review did not pass')
                 if review:
                     question=QMessageBox(window)
