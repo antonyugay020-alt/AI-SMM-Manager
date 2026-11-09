@@ -36,11 +36,18 @@ def render_generation(request,sources,target,check,*,tool,probe):
         process=subprocess.Popen([request['generation'].get('python',sys.executable),str(Path(__file__).with_name('generative_runner.py')),'--request',str(payload)],
             stdin=subprocess.PIPE,stdout=log,stderr=log,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         deadline=time.monotonic()+7200
+        startup_deadline=time.monotonic()+180
         try:
             from durable_json import atomic_write_json
             atomic_write_json(target.parent/'generation_process.json',{'pid':process.pid,'parent_pid':os.getpid(),'started_at':time.time()})
             while process.poll() is None:
                 check()
+                # A fresh child must produce its first stage before expensive
+                # torch/Diffusers loading. No stdout for 180 s means a startup
+                # stall, not evidence of CUDA inference.
+                if time.monotonic()>startup_deadline and log_path.stat().st_size==0:
+                    raise OfflineGenerationError('LOCAL_MODEL_STARTUP_TIMEOUT',
+                        {'pid':process.pid,'startup_deadline_s':180,'log_bytes':0})
                 if time.monotonic()>deadline:raise TimeoutError('Offline generative deadline exceeded')
                 time.sleep(.1)
             check()
