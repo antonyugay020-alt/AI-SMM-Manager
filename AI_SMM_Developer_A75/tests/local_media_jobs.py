@@ -143,6 +143,34 @@ def _tool(command,check,*,timeout=1200):
         if process.stderr is not None:process.stderr.close()
 
 
+def _retain_generation_failure(folder,exc):
+    """Copy bounded CUDA child telemetry before TemporaryDirectory removes it.
+
+    Store only in the durable per-job diagnostic record; never lose interrupted
+    subprocess stage information when failed workspaces are cleaned up.
+    """
+    evidence=dict(getattr(exc,'diagnostic',None) or {})
+    folder=Path(folder)
+    child=folder/'generation_process.json'
+    if child.is_file():
+        try:
+            info=json.loads(child.read_text(encoding='utf-8'))
+            evidence['child']={key:info[key] for key in ('pid','parent_pid','started_at') if key in info}
+        except (OSError,ValueError,TypeError):evidence['child_metadata_unreadable']=True
+    log=folder/'generation_process.log'
+    if log.is_file():
+        try:
+            size=log.stat().st_size
+            with log.open('rb') as stream:
+                stream.seek(max(0,size-16384))
+                evidence['stage_log_tail']=stream.read().decode('utf-8','replace')[-16384:]
+            evidence['stage_log_bytes']=size
+        except OSError:evidence['stage_log_unreadable']=True
+    if evidence:
+        exc.diagnostic=evidence
+    return evidence
+
+
 def _render(request,sources,target,check):
     task=request['task'];width=request.get('width',720);height=request.get('height',1280)
     if task in GEN_TASKS:
@@ -349,7 +377,12 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
                 if digest_file(snapshot)!=receipts[index]['sha256']:raise ValueError('Local source changed during snapshot')
                 sources.append(snapshot)
             target=temp/('output.mp4' if is_video else 'output.png')
-            _render(request,sources,target,check);check()
+            try:
+                _render(request,sources,target,check)
+            except BaseException as exc:
+                if request['task'] in GEN_TASKS:_retain_generation_failure(temp,exc)
+                raise
+            check()
             validate_media_bytes(target,is_video=is_video)
             _verify_output(request,sources,target)
             if request['task'] in GEN_TASKS:
