@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import threading
 import time
-from generative_contract import validate_generation
+from generative_contract import validate_generation,instruction_image_guidance
 from generative_models import verify_bundle
 from project_file_boundary import reject_path_link
 
@@ -121,7 +121,7 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline,preloaded_torch=No
     kwargs={'prompt':request['prompt'],'num_inference_steps':request.get('steps',20),
             'guidance_scale':request.get('guidance',7.5),'generator':torch.Generator(device='cpu').manual_seed(seed)}
     task=request['task'];first=image(inputs[0],width,height) if task!='video_generative' else None
-    if task=='image_instruction':kwargs.update(image=first,image_guidance_scale=1.5)
+    if task=='image_instruction':kwargs.update(image=first,image_guidance_scale=instruction_image_guidance(request.get('strength',.65)))
     elif task=='image_inpaint':
         with Image.open(inputs[0]) as source,Image.open(inputs[1]) as mask:
             if ImageOps.exif_transpose(source).size!=ImageOps.exif_transpose(mask).size:
@@ -152,7 +152,7 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline,preloaded_torch=No
     from importlib.metadata import version
     runtime_versions={name:version(name) for name in ('torch','diffusers','transformers','accelerate','safetensors')} if pipeline_loader is load_pipeline else {'fixture':True}
     receipt={'runtime_versions':runtime_versions,'engine':profile['engine'],'manifest_sha256':profile['manifest_sha256'],
-        'device':profile['device'],'dtype':str(dtype),'torch_version':torch.__version__,'diffusers_version':__import__('diffusers').__version__ if pipeline_loader is load_pipeline else 'fixture','peak_cuda_bytes':torch.cuda.max_memory_allocated(0) if profile['device']=='cuda' else None,'peak_cuda_reserved_bytes':torch.cuda.max_memory_reserved(0) if profile['device']=='cuda' else None,'seed':seed,'frames':request.get('frames') if task=='video_generative' else None}
+        'device':profile['device'],'dtype':str(dtype),'instruction_image_guidance_scale':kwargs.get('image_guidance_scale') if task=='image_instruction' else None,'requested_strength':request.get('strength',.65),'torch_version':torch.__version__,'diffusers_version':__import__('diffusers').__version__ if pipeline_loader is load_pipeline else 'fixture','peak_cuda_bytes':torch.cuda.max_memory_allocated(0) if profile['device']=='cuda' else None,'peak_cuda_reserved_bytes':torch.cuda.max_memory_reserved(0) if profile['device']=='cuda' else None,'seed':seed,'frames':request.get('frames') if task=='video_generative' else None}
     (target.parent/'generation_receipt.json').write_text(json.dumps(receipt),encoding='utf-8')
     _stage('receipt_written')
 
