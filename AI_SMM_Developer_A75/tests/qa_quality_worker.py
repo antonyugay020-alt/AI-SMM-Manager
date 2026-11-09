@@ -47,6 +47,53 @@ def review_child(payload_path):
         raise
 
 
+def validate_quality_receipt(report,case,model,digest):
+    """No semantic PASS without objective output proof and a complete verdict.
+
+    The child is separately owned, but the supervisor independently checks
+    that a PASS contains evidence for the relevant image/video and reference
+    controls. Incomplete/uncertain responses cannot certify a Windows run.
+    """
+    if not isinstance(report,dict) or report.get('status') not in ('PASS','BLOCKED'):
+        raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    if report.get('model')!=model or report.get('digest')!=digest:
+        raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    if report['status']=='BLOCKED' and isinstance(report.get('objective_rejection'),str):
+        if not report['objective_rejection'].strip():
+            raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+        return report
+    metrics=report.get('metrics')
+    verdict=report.get('verdict')
+    if not isinstance(metrics,dict) or not metrics:
+        raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    if not isinstance(verdict,dict) or set(verdict)!={
+            'verdict','instruction','preservation','reference_or_mask',
+            'temporal','observations'}:
+        raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    required=['instruction','preservation']
+    sources=case.get('sources',[])
+    if isinstance(sources,list) and len(sources)>1:
+        required.append('reference_or_mask')
+    if case.get('task')=='video_generative':
+        required.append('temporal')
+        if not isinstance(metrics.get('sampled_frames'),list) or not metrics.get('sampled_frames'):
+            raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    else:
+        if (type(metrics.get('width')) is not int or type(metrics.get('height')) is not int
+                or not isinstance(metrics.get('contrast'),(int,float))
+                or not isinstance(metrics.get('mean_absolute_change'),(int,float))):
+            raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    if report['status']=='PASS':
+        if (verdict.get('verdict')!='PASS'
+                or any(verdict.get(k)!='PASS' for k in required)
+                or any(verdict.get(k) not in ('PASS','NOT_APPLICABLE')
+                       for k in ('instruction','preservation','reference_or_mask','temporal'))
+                or not isinstance(verdict.get('observations'),str)
+                or not 10<=len(verdict['observations'].strip())<=4000):
+            raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    return report
+
+
 class BoundedQualityReview:
     """Run qualified vision+objective checks with finite Qt-friendly ownership."""
     def __init__(self,model,digest,*,timeout=900):
@@ -84,14 +131,10 @@ class BoundedQualityReview:
                     if process.returncode!=0:
                         raise RuntimeError('LOCAL_QUALITY_REVIEW_PROCESS_FAILED')
             report=json.loads((folder/'quality.json').read_text(encoding='utf-8'))
-            if (not isinstance(report,dict) or report.get('status') not in ('PASS','BLOCKED')
-                    or report.get('model')!=self.model or report.get('digest')!=self.digest):
-                if report.get('status')=='BLOCKED' and report.get('model') is None:
-                    # Objective metric errors fail closed rather than masquerading
-                    # as a completed semantic reviewer verdict.
-                    raise RuntimeError('LOCAL_QUALITY_OBJECTIVE_CHECK_FAILED')
-                raise RuntimeError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
-            return report
+            try:
+                return validate_quality_receipt(report,case,self.model,self.digest)
+            except ValueError as exc:
+                raise RuntimeError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID') from exc
         except BaseException as exc:
             # On timeout, owned_native_process already closed the Windows
             # Job Object, terminating only this QA child and its descendants.
