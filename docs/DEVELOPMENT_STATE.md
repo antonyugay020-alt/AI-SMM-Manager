@@ -1,3 +1,11 @@
+# Atomic document-outbox schema migration — 2026-11-10 (unreleased)
+
+Baseline `1fa9b44a1f1c8a1e14f342531de2a78fbab857de` on draft PR #4. The document-effect outbox had a legacy SQLite ALTER/CREATE/COPY/DROP migration without a transaction when invoked from a clean replay connection. A process crash between DDL statements could strand the sole receipt table under a temporary name and prevent document completion. The migration now uses the existing shared `sqlite_transaction_core.compose` savepoint: schema installation, legacy copy, index and cleanup are atomic, and an enclosing document transaction is never committed by the installer. No change to existing effect ordering, authorization, paid APIs, media jobs or runtime paths.
+
+The three `file_effect_outbox.py` mirrors are identical. New `ci/test_file_effect_schema_atomic.py` exercises fresh schema, idempotence, preserved pending legacy receipts/attempts, outer rollback, simulated mid-migration exception and rollback of new schema. **5/5 isolated SQLite tests passed** on the matching install logic under Python 3.13.5. This is not the 263-module + complete CI regression of the frozen final HEAD and not Windows Qt/CUDA QA. Acceptance remains RTX 2080 Super 0/10; no release, merge, paid service, GitHub Actions, downloads, bot/monitor change or reboot.
+
+---
+
 # Shared numeric media contract and model-schema parity — 2026-11-10 (unreleased)
 
 Baseline: `f0d8ea6e555090563efc7b7070724d5a17ffc696`, existing draft PR #4 only. This work closes a systemic split between the model-facing local media JSON Schema and the host's `validate_generation` scalar constraints. In particular, the schema previously advertised arbitrary nonnegative `video_generative.start` while the host rejects values above 3600 seconds; all other width/height/steps/seed/strength/guidance/frames/fps limits were duplicated in separate implementations, permitting future silent drift and unnecessary model retries.
