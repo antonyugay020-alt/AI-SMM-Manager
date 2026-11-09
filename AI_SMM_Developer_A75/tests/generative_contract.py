@@ -14,6 +14,18 @@ def source_kind(request,index):
     return 'video' if request['task']=='video_generative' and index==0 else 'image'
 
 
+def instruction_image_guidance(strength):
+    """A single user-visible edit strength for Pix2Pix and other media engines.
+
+    Diffusers InstructPix2Pix uses image_guidance_scale instead of img2img
+    strength. Higher image guidance preserves the input more strongly, hence
+    the inverse mapping. Keep in [1.0, 1.95] without changing other engines.
+    """
+    if type(strength) not in (int,float) or not math.isfinite(strength) or not .05<=strength<=1:
+        raise ValueError('Generative limit: strength')
+    return round(2.0-float(strength),4)
+
+
 def validate_generation(request):
     if not isinstance(request,dict) or not isinstance(request.get('task'),str) or request['task'] not in ENGINES:raise ValueError('Known generative task required')
     allowed={'task','sources','expected_sha256','prompt','generation','width','height',
@@ -41,7 +53,11 @@ def validate_generation(request):
     for key,default,low,high in [('strength',.65,.05,1),('guidance',7.5,1,15)]:
         value=request.get(key,default)
         if type(value) not in (int,float) or not math.isfinite(value) or not low<=value<=high:raise ValueError('Generative limit: '+key)
-    if int(request.get('steps',20)*request.get('strength',.65))<1:raise ValueError('Strength must permit at least one denoising step')
+    # InstructPix2Pix has no denoising-strength parameter: the same UI knob
+    # maps to inverse image_guidance_scale; denoising-step limit is only for
+    # img2img/inpainting/video diffusion.
+    if task!='image_instruction' and int(request.get('steps',20)*request.get('strength',.65))<1:
+        raise ValueError('Strength must permit at least one denoising step')
     if task=='video_generative':
         if request.get('width',512)>384 or request.get('height',512)>384:raise ValueError('8 GB video profile supports at most 384 pixels per side')
         for key,default,low,high in [('frames',16,4,16),('fps',8,1,12)]:
