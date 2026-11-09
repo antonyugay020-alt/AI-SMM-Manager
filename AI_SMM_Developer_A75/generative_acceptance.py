@@ -11,6 +11,53 @@ from pathlib import Path
 import time
 
 
+def _parse_cuda_vram(sample):
+    """Parse only the first GPU, which owns the selected CUDA device index 0."""
+    from csv import reader
+    rows=sample.strip().splitlines()
+    if len(rows)!=1:raise RuntimeError('QA_CUDA_MULTIGPU_AMBIGUOUS')
+    cells=next(reader([rows[0]]))
+    if len(cells)!=2:raise RuntimeError('QA_CUDA_MEMORY_PROBE_INVALID')
+    try:free,total=(int(part.strip()) for part in cells)
+    except ValueError as exc:raise RuntimeError('QA_CUDA_MEMORY_PROBE_INVALID') from exc
+    if total<6144 or not 0<=free<=total:raise RuntimeError('QA_CUDA_MEMORY_PROBE_INVALID')
+    return {'free_mib':free,'total_mib':total,'used_mib':total-free}
+
+
+def _require_cuda_headroom(output,case_index,minimum_free_mib=3072,max_wait_seconds=90):
+    """Fail closed when another local process occupies native QA VRAM.
+
+    Does not kill other GPU processes, change their Ollama residency, or
+    reduce target 8GB CUDA inference limits. Record every real driver sample.
+    """
+    import subprocess
+    from durable_json import atomic_write_json
+    snapshots=[]
+    limit=time.monotonic()+max_wait_seconds
+    while True:
+        try:
+            probe=subprocess.run(
+                ['nvidia-smi','--query-gpu=memory.free,memory.total',
+                 '--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=12)
+            if probe.returncode:raise RuntimeError('QA_CUDA_MEMORY_PROBE_FAILED')
+            sample=_parse_cuda_vram(probe.stdout)
+            sample['observed_at_unix']=time.time()
+            snapshots.append(sample)
+            atomic_write_json(Path(output)/('vram_case_'+str(case_index)+'.json'),
+                {'minimum_free_mib':minimum_free_mib,'samples':snapshots,
+                 'status':'PASS' if sample['free_mib']>=minimum_free_mib else 'WAITING'})
+            if sample['free_mib']>=minimum_free_mib:return sample
+        except (OSError,subprocess.TimeoutExpired) as exc:
+            raise RuntimeError('QA_CUDA_MEMORY_PROBE_FAILED') from exc
+        if time.monotonic()>=limit:
+            atomic_write_json(Path(output)/('vram_case_'+str(case_index)+'.json'),
+                {'minimum_free_mib':minimum_free_mib,'samples':snapshots,
+                 'status':'BLOCKED','error_code':'QA_CUDA_INSUFFICIENT_FREE_VRAM'})
+            raise RuntimeError('QA_CUDA_INSUFFICIENT_FREE_VRAM: only '+
+                               str(snapshots[-1]['free_mib'])+' MiB free')
+        time.sleep(min(5,max(0,limit-time.monotonic())))
+
+
 def _observed_generation_stage(project_root):
     """Best-effort actual CUDA child stage for the live Windows QA status.
 
@@ -67,6 +114,13 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
         for index,case in enumerate(cases):
             from durable_json import atomic_write_json
             atomic_write_json(output/'active_case.json',{'case':index,'request':case,'stage':'starting'})
+            try:
+                _require_cuda_headroom(output,index)
+            except BaseException as exc:
+                atomic_write_json(output/'active_case.json',
+                    {'case':index,'request':case,'stage':'blocked_vram',
+                     'error':type(exc).__name__,'reason':str(exc)[:300]})
+                raise
             original={str(Path(p).resolve()):digest(p) for p in case['sources']}
             owner=window.core.projects.create(output/'projects','Generative acceptance '+str(index),'Other','Actual target hardware',now())
             window.current_project=owner
