@@ -24,7 +24,8 @@ from windows_qa_contract import (source_snapshot,verify_snapshot,sha,write_json,
 
 
 def output_root():
-    return Path(os.environ.get('LOCALAPPDATA',str(Path.home()))) / 'AI_SMM_Manager' / 'QA'
+    # One user-facing report folder on the desktop; existing junctions remain valid.
+    return Path(os.environ.get('USERPROFILE',str(Path.home()))) / 'Desktop' / 'AI_SMM_REPORTS'
 
 
 def read_config(path):
@@ -186,8 +187,13 @@ def execute(config,role,session,state):
     if config['vision_model'] not in allowed:raise ValueError('Vision model must be in approved local roster')
     env=local_only_environment(os.environ,allowed);env['AI_SMM_GENERATIVE_CONFIG']=config['profiles']
     print('Verifying installed model bundles and fixture hashes (no download)...',flush=True)
-    installed=profiles(env);fingerprint=source_snapshot(ROOT);binding=input_binding(config,installed)
+    installed=profiles(env)
     if not installed:raise ValueError('No installed generation profiles')
+    # Recover from photographs mistakenly selected as inpainting masks without
+    # touching the originals. Hash and audit deterministic QA-only PNG masks.
+    from qa_fixture_masks import prepare_qa_plan
+    config={**config,'plan':prepare_qa_plan(config['plan'],installed,session.parent,session)}
+    fingerprint=source_snapshot(ROOT);binding=input_binding(config,installed)
     write_json(session/'source_manifest.json',fingerprint)
     runtimes={}
     for profile in installed.values():
@@ -295,7 +301,7 @@ def bootstrap_inventory(folder):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--role',choices=ROLES,required=True);parser.add_argument('--config',type=Path)
     parser.add_argument('--output',type=Path,default=output_root());parser.add_argument('--no-wizard',action='store_true')
-    args=parser.parse_args();root=args.output.resolve();root.mkdir(parents=True,exist_ok=True)
+    args=parser.parse_args();root=Path(os.path.abspath(args.output));root.mkdir(parents=True,exist_ok=True)
     session=root/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+args.role+'_'+uuid.uuid4().hex[:8]);session.mkdir()
     state={'status':'PREPARING','role':args.role,'clean_consecutive':0,'target_clean_consecutive':0,'required':1 if args.role=='preliminary_3080ti' else 10,'release_eligible':False,'session':str(session),'windows_executed':os.name=='nt'}
     write_json(root/'LATEST.json',{'session':str(session),'role':args.role});write_json(session/'STATUS.json',state);write_json(root/'STATUS.json',state)
