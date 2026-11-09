@@ -14,7 +14,7 @@ import time
 
 def review_child(payload_path):
     from durable_json import atomic_write_json
-    from local_media_quality import LocalVision,objective_quality
+    from local_media_quality import LocalVision,objective_quality,ObjectiveQualityRejected
     payload=json.loads(Path(payload_path).read_text(encoding='utf-8'))
     if not isinstance(payload,dict) or set(payload)!={'case','output','folder','vision_model','vision_digest'}:
         raise ValueError('Invalid local quality request')
@@ -29,6 +29,15 @@ def review_child(payload_path):
         metrics=objective_quality(payload['case'],output,folder)
         verdict=vision.review(payload['case'],output,folder,metrics)
         atomic_write_json(folder/'quality.json',{'metrics':metrics,**verdict})
+        return 0
+    except ObjectiveQualityRejected as exc:
+        # Quality is a per-engine verdict. Keep the exact failure evidence,
+        # return normally so later independent engines are still inspected.
+        # The supervisor's final status remains BLOCKED.
+        atomic_write_json(folder/'quality.json',{'status':'BLOCKED',
+            'model':vision.model,'digest':vision.digest,
+            'objective_rejection':str(exc)[:800],
+            'scope':'failed objective media quality; not a semantic PASS'})
         return 0
     except Exception as exc:
         import traceback
