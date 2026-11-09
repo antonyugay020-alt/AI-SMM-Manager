@@ -3,6 +3,7 @@
 No GPU, Ollama, model download, privileged Windows operation or paid API needed.
 """
 import json
+import os
 from contextlib import contextmanager
 from pathlib import Path
 import sys
@@ -18,6 +19,9 @@ def test_windows_worker_imports_native_torch_before_acquiring_gpu_lease(tmp_path
         'inputs':[],'target':str(tmp_path/'image.png')}),encoding='utf-8')
     order=[]
     monkeypatch.setattr(sys,'argv',['generative_runner.py','--request',str(request)])
+    for key in ('HF_HUB_OFFLINE','TRANSFORMERS_OFFLINE',
+                'HF_HUB_DISABLE_TELEMETRY','DO_NOT_TRACK'):
+        monkeypatch.setenv(key,os.environ.get(key,''))
     monkeypatch.setattr(runner.threading.Thread,'start',lambda self:None)
     monkeypatch.setattr(runner,'validate_generation',lambda item:order.append('validate'))
     monkeypatch.setattr(runner,'verify_bundle',lambda p:order.append('verify'))
@@ -46,6 +50,9 @@ def test_failed_native_import_never_opens_gpu_lease(tmp_path,monkeypatch):
     request.write_text(json.dumps({'request':{'generation':{}},
         'inputs':[],'target':str(tmp_path/'image.png')}),encoding='utf-8')
     monkeypatch.setattr(sys,'argv',['generative_runner.py','--request',str(request)])
+    for key in ('HF_HUB_OFFLINE','TRANSFORMERS_OFFLINE',
+                'HF_HUB_DISABLE_TELEMETRY','DO_NOT_TRACK'):
+        monkeypatch.setenv(key,os.environ.get(key,''))
     monkeypatch.setattr(runner.threading.Thread,'start',lambda self:None)
     monkeypatch.setattr(runner,'validate_generation',lambda item:None)
     monkeypatch.setattr(runner,'verify_bundle',lambda profile:None)
