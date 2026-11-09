@@ -111,8 +111,25 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                 (output/'cases_progress.json').write_text(json.dumps({'cases':results,'lifecycle':lifecycle_proof},indent=2),encoding='utf-8')
             except BaseException as exc:
                 import traceback
+                evidence={}
+                try:
+                    row=window.db.execute(
+                        'SELECT id,state,error_code FROM local_media_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 1',
+                        (owner,)).fetchone()
+                    if row:
+                        evidence['job']={'id':row[0],'state':row[1],'error_code':row[2]}
+                        detail=window.db.execute(
+                            'SELECT diagnostic_json FROM local_generation_diagnostics WHERE job_id=? AND project_id=?',
+                            (row[0],owner)).fetchone()
+                        if detail:evidence['generation_diagnostic']=json.loads(detail[0])
+                except Exception as diagnostic_exc:
+                    evidence['capture_error']=type(diagnostic_exc).__name__+': '+str(diagnostic_exc)[:200]
+                atomic_write_json(output/'active_case.json',
+                    {'case':index,'request':case,'stage':'failed','error':type(exc).__name__})
                 window.grab().save(str(output/('qt_case_'+str(index)+'_FAILED.png')))
-                atomic_write_json(output/('case_'+str(index)+'_error.json'),{'case':index,'error':type(exc).__name__,'reason':str(exc),'traceback':traceback.format_exc()})
+                atomic_write_json(output/('case_'+str(index)+'_error.json'),
+                    {'case':index,'error':type(exc).__name__,'reason':str(exc),
+                     'traceback':traceback.format_exc(),'job_evidence':evidence})
                 raise
             finally:
                 if panel._result_worker is not None:
