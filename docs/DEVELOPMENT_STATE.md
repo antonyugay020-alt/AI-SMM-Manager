@@ -1,3 +1,17 @@
+# QA remediation checkpoint — 2026-11-09, pre-Windows acceptance
+
+Source baseline: `af2532124a4bbafb58952226dd1f2a2e982ec8bd`, new integration PR #4 head before checkpoint: `cd9a6eb024f055d26efdbb9e61cc8b6bfdebb9dc` (draft). No merge, main change, paid API, Actions invocation, model download or user release.
+
+**Windows evidence:** Last actual preliminary RTX 3080 Ti source QA ended BLOCKED, exit code 2, 0/10 target clean Windows cycles. Prior report: unit tests 2065 PASS/1 unprivileged symlink creation FAIL; CI 303 PASS, 2 skips, 77 subtests PASS; text reviewer six candidates unqualified (five timeout, Qwen2.5-coder 7B 3/6); first instruct_pix2pix child manually terminated after stall. These results are for the old source snapshot and do NOT certify this revision.
+
+**Implemented across the same branch, three Work/Developer/testing mirrors where applicable:** unprivileged junction fallback for the real linked-ancestor protection test; 180-second local reviewer call ceiling with unchanged six-control oracle, no cloud fallback; genuine subprocess stage markers, device-lock and per-stage watchdog budgets, bounded durable error telemetry before TemporaryDirectory cleanup; real model-stage observation in active_case.json; 3GiB free VRAM gate using actual nvidia-smi measurement before each Qt generative case (90s bounded wait, no termination of other users' processes); elimination of redundant per-model Ollama generate/unload calls before CUDA; deterministic separate actual binary PNG inpainting QA masks with provenance and hash-protected DIAGNOSTICS.zip inclusion; one user-facing Desktop AI_SMM_REPORTS destination and added source CI contracts.
+
+**Tests actually executed in this ChatGPT tool container:** 11/11 PASS isolated copied pure helpers and QA mask tests (Pillow/Python on Linux). These are *not* the original repository's full regression, nor a source-snapshot-linked Windows test. GitHub source tree audit: six changed production modules identical in Work, Developer and Developer/tests; all 162 shared modules have no SHA divergence. CI tests created on the PR have NOT been run in the full original checkout. No clean-release or Windows qualification is claimed.
+
+**Next objective:** Run a complete *offline* regression on a full same-HEAD checkout before any further Windows run; integrate and correct real failures as a group. After that, run independent frozen-source Windows Qt/CUDA preliminary QA on RTX 3080 Ti and the mandatory consecutive 10 clean target Windows E2E runs on RTX 2080 Super. Verify Qwen 2.5 14B's exact Ollama local tag from /api/tags, and preserve other model independence/quality gates. Do not ask the user to run a stale source snapshot. Desktop AI_SMM_REPORTS currently may be a junction to historical AppData QA; do not move live or historical user evidence without independently verified safe migration.
+
+---
+
 # Current checkpoint — first real Windows QA fixes (2026-11-09)
 
 Existing integration branch / draft PR #4, baseline `8f48fad`. One linked source
