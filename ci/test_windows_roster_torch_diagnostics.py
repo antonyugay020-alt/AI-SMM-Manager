@@ -39,9 +39,12 @@ def test_windows_qa_packages_roster_in_actual_diagnostic_report():
 def test_torch_import_traces_are_armed_and_cancelled_with_progress_marker():
     source=(ROOT/'AI_SMM_Work_Architecture_A75'/'generative_runner.py').read_text(encoding='utf-8')
     tree=ast.parse(source)
-    run=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='run')
-    calls=[n for n in ast.walk(run) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)]
+    init=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='initialize_python_torch')
+    calls=[n for n in ast.walk(init) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)]
     funcs=[n.func.attr for n in calls]
     assert 'dump_traceback_later' in funcs
     assert 'cancel_dump_traceback_later' in funcs
     assert '_stage(\'torch_imported\')' in source
+    main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+    calls=[n.func.id for n in ast.walk(main) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+    assert 'initialize_python_torch' in calls and 'device_lock' in calls
