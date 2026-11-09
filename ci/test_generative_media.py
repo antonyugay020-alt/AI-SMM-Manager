@@ -116,6 +116,38 @@ class GenerativeContracts(unittest.TestCase):
             with self.assertRaises(jobs.LocalMediaStopped):jobs.execute_job(self.db,self.workspace,OWNER,job)
         render.assert_not_called()
 
+    def test_painter_strength_controls_actual_pix2pix_guidance_and_receipt(self):
+        """UI strength cannot be silently ignored by actual inference."""
+        import generative_runner as runner
+        from generative_contract import instruction_image_guidance,validate_generation
+        from contextlib import nullcontext
+        request=self.request('image_instruction')
+        request.update(steps=2,strength=.05)
+        validate_generation(request)  # Pix2Pix has no denoising-step restriction
+        class Generator:
+            def __init__(self,**kwargs):pass
+            def manual_seed(self,seed):return self
+        torch=SimpleNamespace(Generator=Generator,inference_mode=nullcontext,__version__='fixture')
+        captured=[]
+        def pipeline(**kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(images=[Image.new('RGB',(64,64),(150,130,180))],
+                nsfw_content_detected=[False])
+        target=self.root/'painting.png'
+        for strength in (.2,.85):
+            request.update(steps=20,strength=strength)
+            with patch.dict(sys.modules,{'torch':torch}):
+                runner.run(request,[Path(self.sources[0])],target,
+                    pipeline_loader=lambda *args:(pipeline,'fixture'))
+            receipt=json.loads((target.parent/'generation_receipt.json').read_text())
+            self.assertAlmostEqual(receipt['instruction_image_guidance_scale'],
+                instruction_image_guidance(strength))
+            self.assertEqual(receipt['requested_strength'],strength)
+        self.assertAlmostEqual(captured[0]['image_guidance_scale'],1.8)
+        self.assertAlmostEqual(captured[1]['image_guidance_scale'],1.15)
+        self.assertGreater(captured[0]['image_guidance_scale'],captured[1]['image_guidance_scale'])
+        self.assertNotIn('strength',captured[0]) # Pix2Pix does not accept img2img strength
+
     def test_inpaint_compositing_preserves_unmasked_pixels_with_fixture_pipeline(self):
         import generative_runner as runner
         request=self.request('image_inpaint')
