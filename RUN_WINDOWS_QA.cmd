@@ -14,7 +14,8 @@ if errorlevel 2 (set QA_ROLE=target_2080super) else (set QA_ROLE=preliminary_308
 if exist "%QA_REPORTS%\LATEST.json" del "%QA_REPORTS%\LATEST.json"
 >"%QA_REPORTS%\STATUS.json" echo {"status":"BOOTSTRAP","target_clean_consecutive":0,"release_eligible":false}
 >"%QA_REPORTS%\BOOTSTRAP_STATUS.txt" echo Phase: %QA_ROLE%
-echo Progress and full reports: %QA_REPORTS%
+echo All reports in ONE folder: %QA_REPORTS%
+echo Last completed report ZIP: %QA_REPORTS%\DIAGNOSTICS.zip
 echo Initial console output: BOOTSTRAP_CONSOLE.txt
 if defined AI_SMM_QA_PYTHON goto run_custom
 if exist "%~dp0.venv\Scripts\python.exe" (
@@ -34,7 +35,7 @@ if not exist "%QA_REPORTS%\LATEST.json" (
  echo Python could not start. See BOOTSTRAP_CONSOLE.txt.
  echo Install Python 3.12 x64 and requirements-qa.txt once, or set AI_SMM_QA_PYTHON.
 )
-echo Reports: %QA_REPORTS%
-echo Current status: STATUS.json. Latest session: LATEST.json.
+echo ONE REPORT TO SEND: %QA_REPORTS%\DIAGNOSTICS.zip
+echo Current status: %QA_REPORTS%\STATUS.json
 pause
 exit /b %QA_RC%
