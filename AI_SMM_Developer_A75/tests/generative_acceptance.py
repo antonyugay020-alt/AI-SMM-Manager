@@ -281,7 +281,8 @@ def main():
     try:report=run_cases(args.plan,args.output,review=args.review)
     except Exception as exc:
         print(json.dumps({'status':'BLOCKED','reason':str(exc),'windows_e2e_counter_advanced':False}));return 2
-    print(json.dumps(report));return 0
+    print(json.dumps(report))
+    return 0 if report.get('status') in ('PASS','TECHNICAL_PASS_PENDING_VISUAL_REVIEW') else 2
 
 
 if __name__=='__main__':raise SystemExit(main())
