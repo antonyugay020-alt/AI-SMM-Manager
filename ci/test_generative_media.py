@@ -263,10 +263,10 @@ class NativeProcessOwnershipTests(unittest.TestCase):
         import subprocess
         with tempfile.TemporaryDirectory() as temporary:
             path=Path(temporary)/'request.json';path.write_text(json.dumps({'request':{},'inputs':[],'target':str(Path(temporary)/'output.png')}))
-            code="import sys,time,contextlib;sys.path.insert(0,sys.argv[1]);import generative_runner as runner\ndef workload(*args):\n print('entered',flush=True);time.sleep(30)\nrunner.run=workload;runner.device_lock=contextlib.nullcontext;sys.argv=['runner','--request',sys.argv[2]];runner.main()"
+            code="import sys,time,contextlib;sys.path.insert(0,sys.argv[1]);import generative_runner as runner\ndef workload(*args,**kwargs):\n print('entered',flush=True);time.sleep(30)\nrunner.run=workload;runner.validate_generation=lambda request:None;runner.verify_bundle=lambda profile:None;runner.initialize_python_torch=lambda:object();runner.device_lock=contextlib.nullcontext;sys.argv=['runner','--request',sys.argv[2]];runner.main()"
             process=subprocess.Popen([sys.executable,'-c',code,str(Path(jobs.__file__).parent),str(path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             try:
-                for stage in ('runner_started','acquiring_device_lock','device_lock_acquired'):
+                for stage in ('runner_started','verifying_model_bundle','acquiring_device_lock','device_lock_acquired'):
                     event=json.loads(process.stdout.readline())
                     self.assertEqual(event['stage'],stage)
                     self.assertIsInstance(event['monotonic_s'],(int,float))
