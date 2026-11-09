@@ -12,6 +12,7 @@ from generative_media_runtime import _stage_deadline,_last_child_stage
 
 def test_stage_timeout_distinguishes_cuda_phases_and_hardware_workload():
     assert _stage_deadline(None,False)==180
+    assert _stage_deadline('importing_torch',False)==180
     assert _stage_deadline('loading_pipeline',False)==1200
     assert _stage_deadline('inference_started',False)==1500
     assert _stage_deadline('inference_started',True)==3600
