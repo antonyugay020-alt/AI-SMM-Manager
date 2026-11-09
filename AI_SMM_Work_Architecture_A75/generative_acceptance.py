@@ -93,8 +93,16 @@ def _media_case_status(results,expected,*,review,quality_callback):
     return 'PASS' if review or quality_callback is not None else 'TECHNICAL_PASS_PENDING_VISUAL_REVIEW'
 
 
+def _bounded_quality_callback(callback):
+    """Reject thread-only reviewers before starting expensive native inference."""
+    if callback is not None and not callable(getattr(callback,'run_with_pump',None)):
+        raise TypeError('BOUNDED_QUALITY_EXECUTOR_REQUIRED')
+    return callback
+
+
 def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality_callback=None,lifecycle=False):
     if os.name!='nt':raise RuntimeError('WINDOWS_HOST_REQUIRED')
+    quality_callback=_bounded_quality_callback(quality_callback)
     import subprocess
     from generative_models import profiles,verify_bundle,digest
     from generative_contract import ENGINES
@@ -199,8 +207,6 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                     # Every automatic media-quality reviewer must be bounded
                     # and own its child. A plain callback/ThreadPool executor
                     # cannot forcibly stop a stalled Ollama/native-code thread.
-                    if not callable(getattr(quality_callback,'run_with_pump',None)):
-                        raise TypeError('BOUNDED_QUALITY_EXECUTOR_REQUIRED')
                     automatic=quality_callback.run_with_pump(
                         callback_case,job[2],output/('quality_'+str(index)),
                         pump=app.processEvents)
