@@ -83,5 +83,7 @@ def test_windows_acceptance_uses_the_owned_process_not_an_inline_http_call():
     assert 'callback=BoundedQualityReview(vision.model,vision.digest,timeout=900)' in source
     assert 'def callback(case,path,folder):' not in source
     acceptance=(ROOT/'AI_SMM_Work_Architecture_A75/generative_acceptance.py').read_text(encoding='utf-8')
-    assert "if callable(getattr(quality_callback,'run_with_pump',None)):" in acceptance
+    assert "if not callable(getattr(quality_callback,'run_with_pump',None)):" in acceptance
+    assert "raise TypeError('BOUNDED_QUALITY_EXECUTOR_REQUIRED')" in acceptance
     assert 'pump=app.processEvents' in acceptance
+    assert 'ThreadPoolExecutor' not in acceptance
