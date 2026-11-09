@@ -31,12 +31,14 @@ def isolated_quality_module(tmp_path,monkeypatch):
         ' temp.replace(p)\n',encoding='utf-8')
     (tmp_path/'local_media_quality.py').write_text(
         'import time\n'
+        'from pathlib import Path\n'
         'class ObjectiveQualityRejected(ValueError):pass\n'
         'class LocalVision:\n'
         ' def __init__(self,model):self.model=model;self.digest=None\n'
         ' def installed(self):self.digest="a"*64;return self.digest\n'
         ' def review(self,case,output,folder,metrics):\n'
         '  if case.get("behavior")=="hang":time.sleep(30)\n'
+        '  if case.get("behavior")=="mutate_source":Path(case["sources"][0]).write_bytes(b"changed")\n'
         '  state="BLOCKED" if case.get("behavior")=="reject" else "PASS"\n'
         '  return {"status":state,"model":self.model,"digest":self.digest,'
         '"verdict":{"verdict":"FAIL" if state=="BLOCKED" else "PASS",'
@@ -56,10 +58,14 @@ def isolated_quality_module(tmp_path,monkeypatch):
     return module
 
 
-def _call(module,tmp_path,behavior,timeout):
+def _call(module,tmp_path,behavior,timeout,with_source=False):
     output=tmp_path/'result.png';output.write_bytes(b'fixture')
     worker=module.BoundedQualityReview('gemma3:4b','a'*64,timeout=timeout)
-    return worker.run_with_pump({'behavior':behavior},output,tmp_path/'proof',pump=lambda:None)
+    case={'behavior':behavior}
+    if with_source:
+        source=tmp_path/'source.png';source.write_bytes(b'original')
+        case['sources']=[str(source)]
+    return worker.run_with_pump(case,output,tmp_path/'proof',pump=lambda:None)
 
 
 def test_real_owned_child_returns_checked_local_receipt(isolated_quality_module,tmp_path):
@@ -110,3 +116,16 @@ def test_real_owned_child_repeated_folder_never_reuses_receipt(isolated_quality_
     assert first['status']==second['status']=='PASS'
     assert first['request_id']!=second['request_id']
     assert first['output_sha256']==second['output_sha256']
+
+
+def test_real_child_source_binding_survives_review(isolated_quality_module,tmp_path):
+    result=_call(isolated_quality_module,tmp_path,'pass',5,with_source=True)
+    assert result['status']=='PASS'
+    assert len(result['source_sha256'])==1
+
+
+def test_real_child_source_mutation_is_infrastructure_failure(isolated_quality_module,tmp_path):
+    with pytest.raises(RuntimeError,match='LOCAL_QUALITY_REVIEW_PROCESS_FAILED'):
+        _call(isolated_quality_module,tmp_path,'mutate_source',5,with_source=True)
+    info=json.loads((tmp_path/'proof'/'quality_process_error.json').read_text(encoding='utf-8'))
+    assert info['error_type']=='RuntimeError'

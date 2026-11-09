@@ -19,26 +19,29 @@ from qa_quality_worker import BoundedQualityReview
 class Child:
     pid=345678
     returncode=None
-    def __init__(self,after=3,receipt=None,mutate_output=False):
+    def __init__(self,after=3,receipt=None,mutate_output=False,mutate_source=False):
         self.polls=0;self.after=after;self.receipt=receipt
         self.mutate_output=mutate_output
+        self.mutate_source=mutate_source
     def poll(self):
         self.polls+=1
         if self.receipt is not None and self.polls==self.after:
             path,record=self.receipt
             request=json.loads((path.parent/'quality_request.json').read_text(encoding='utf-8'))
             record=dict(record)
-            for key in ('request_id','output_sha256'):
+            for key in ('request_id','output_sha256','source_sha256'):
                 record.setdefault(key,request[key])
             if self.mutate_output:
                 (path.parent.parent/'result.png').write_bytes(b'changed-output')
+            if self.mutate_source:
+                Path(request['case']['sources'][0]).write_bytes(b'changed-source')
             path.write_text(json.dumps(record),encoding='utf-8')
         if self.after and self.polls>=self.after:
             self.returncode=0
         return self.returncode
 
 
-def run_with_mock(tmp_path,child,timeout=3):
+def run_with_mock(tmp_path,child,timeout=3,with_source=False):
     closed=[]
     @contextmanager
     def owned(*args,**kwargs):
@@ -47,9 +50,13 @@ def run_with_mock(tmp_path,child,timeout=3):
     folder=tmp_path/'quality'
     output=tmp_path/'result.png';output.write_bytes(b'fixture-do-not-image-open')
     reviewer=BoundedQualityReview('gemma3:4b','a'*64,timeout=timeout)
+    case={'prompt':'watercolor'}
+    if with_source:
+        source=tmp_path/'source.png';source.write_bytes(b'original-source')
+        case['sources']=[str(source)]
     with patch('native_process_runtime.owned_native_process',owned):
         result=reviewer.run_with_pump(
-            {'prompt':'watercolor'},output,folder,pump=lambda:None)
+            case,output,folder,pump=lambda:None)
     return result,closed,folder
 
 
@@ -160,3 +167,25 @@ def test_output_changed_while_reviewing_is_rejected(tmp_path):
     with pytest.raises(RuntimeError,match='RECEIPT_INVALID'):
         run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt),
                                      mutate_output=True))
+
+
+def test_owned_quality_binds_original_source_and_rejects_mid_review_mutation(tmp_path):
+    receipt=complete_receipt()
+    result,closed,folder=run_with_mock(tmp_path,Child(
+        receipt=(tmp_path/'quality'/'quality.json',receipt)),with_source=True)
+    assert len(result['source_sha256'])==1
+    assert closed==[True]
+    receipt=complete_receipt()
+    with pytest.raises(RuntimeError,match='RECEIPT_INVALID'):
+        run_with_mock(tmp_path,Child(
+            receipt=(tmp_path/'quality'/'quality.json',receipt),
+            mutate_source=True),with_source=True)
+    error=json.loads((folder/'quality_process_error.json').read_text(encoding='utf-8'))
+    assert error['error_type']=='RuntimeError'
+
+
+def test_windows_generation_rechecks_source_and_output_after_visual_review():
+    source=(ROOT/'AI_SMM_Work_Architecture_A75/generative_acceptance.py').read_text(encoding='utf-8')
+    assert "raise ValueError('Protected source changed during review')" in source
+    assert "raise ValueError('Generated output changed during review')" in source
+    assert source.index("raise ValueError('Protected source changed during review')") < source.index("window.grab().save")

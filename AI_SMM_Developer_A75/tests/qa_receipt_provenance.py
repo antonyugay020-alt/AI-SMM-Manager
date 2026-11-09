@@ -1,8 +1,7 @@
-"""Bind every local media QA verdict to one request and immutable output bytes.
+"""Bind every local media QA verdict to one request and immutable media bytes.
 
-This module has no model, Qt, network or GPU dependencies. A completed child
-from a previous run cannot certify the current image/video, even when its
-model tag and vision digest happen to match.
+No model, Qt, network or GPU dependencies. A completed child from an older
+run cannot certify a different output or changed source/reference/mask.
 """
 import hashlib
 from pathlib import Path
@@ -17,11 +16,26 @@ def output_sha256(path):
     return digest.hexdigest()
 
 
-def make_request(output):
-    return {'request_id':secrets.token_hex(16),'output_sha256':output_sha256(output)}
+def _sources(case):
+    if case is None:
+        return []
+    if not isinstance(case,dict):
+        raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID')
+    sources=case.get('sources',[])
+    if (not isinstance(sources,list) or len(sources)>2
+            or any(not isinstance(p,str) or not p for p in sources)):
+        raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID')
+    return sources
 
 
-def validate_output_binding(request,output):
+def make_request(output,case=None):
+    return {'request_id':secrets.token_hex(16),
+            'output_sha256':output_sha256(output),
+            'source_sha256':[output_sha256(path) for path in _sources(case)]}
+
+
+def validate_output_binding(request,output,case=None):
+    sources=_sources(case)
     if (not isinstance(request,dict)
             or not isinstance(request.get('request_id'),str)
             or len(request['request_id'])!=32
@@ -31,12 +45,75 @@ def validate_output_binding(request,output):
             or any(c not in '0123456789abcdef' for c in request['output_sha256'])
             or output_sha256(output)!=request['output_sha256']):
         raise ValueError('LOCAL_QUALITY_REVIEW_OUTPUT_BINDING_INVALID')
+    hashes=request.get('source_sha256')
+    if (not isinstance(hashes,list) or len(hashes)!=len(sources)
+            or any(not isinstance(sha,str) or len(sha)!=64
+                   or any(c not in '0123456789abcdef' for c in sha) for sha in hashes)):
+        raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID')
+    for path,sha in zip(sources,hashes):
+        try:
+            if output_sha256(path)!=sha:
+                raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID')
+        except OSError as exc:
+            raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID') from exc
 
 
-def validate_provenance(report,request,output):
-    validate_output_binding(request,output)
+def validate_provenance(report,request,output,case=None):
+    validate_output_binding(request,output,case)
     if (not isinstance(report,dict)
             or report.get('request_id')!=request['request_id']
-            or report.get('output_sha256')!=request['output_sha256']):
+            or report.get('output_sha256')!=request['output_sha256']
+            or report.get('source_sha256')!=request['source_sha256']):
         raise ValueError('LOCAL_QUALITY_REVIEW_PROVENANCE_INVALID')
     return report
+
+
+def validate_media_metrics(case,metrics):
+    """Independently reject impossible/insufficient objective QA evidence.
+
+    The native child computes metrics; the parent must not treat a valid
+    semantic verdict as proof that the measurements themselves are sound.
+    """
+    import math
+
+    def valid_number(value,low,high):
+        return (type(value) in (int,float) and math.isfinite(value)
+                and low<=value<=high)
+
+    if not isinstance(case,dict) or not isinstance(metrics,dict):
+        raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+    width,height=metrics.get('width'),metrics.get('height')
+    if (type(width) is not int or type(height) is not int
+            or not 1<=width<=8192 or not 1<=height<=8192
+            or ('width' in case and width!=case['width'])
+            or ('height' in case and height!=case['height'])):
+        raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+    if case.get('task')=='video_generative':
+        frames=metrics.get('sampled_frames')
+        if (not valid_number(metrics.get('duration'),.01,300)
+                or not isinstance(frames,list) or len(frames)!=3
+                or any(not isinstance(frame,dict)
+                       or not valid_number(frame.get('contrast'),.008,1)
+                       or not valid_number(frame.get('luma'),0,1) for frame in frames)
+                or not valid_number(metrics.get('sampled_luma_jump'),0,.8)
+                or type(metrics.get('audio')) is not bool
+                or type(metrics.get('source_audio')) is not bool):
+            raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+        fps=case.get('fps',8);count=case.get('frames',16)
+        if (type(fps) is not int or type(count) is not int or fps<=0
+                or abs(metrics['duration']-count/fps)>.16):
+            raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+        if metrics['source_audio']:
+            comparison=metrics.get('audio_comparison')
+            if (not metrics['audio'] or not isinstance(comparison,dict)
+                    or not valid_number(comparison.get('best_correlation'),.9,1)):
+                raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+        elif 'audio_comparison' in metrics:
+            raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+    else:
+        if (not valid_number(metrics.get('contrast'),.008,1)
+                or not valid_number(metrics.get('mean_absolute_change'),.001,1)
+                or (case.get('task')=='image_inpaint'
+                    and metrics.get('protected_pixels_exact') is not True)):
+            raise ValueError('LOCAL_QUALITY_REVIEW_METRICS_INVALID')
+    return metrics

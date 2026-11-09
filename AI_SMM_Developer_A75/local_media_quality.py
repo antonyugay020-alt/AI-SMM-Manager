@@ -143,7 +143,7 @@ def objective_quality(case,output,folder):
     if abs(duration-expected)>.16 or geometry!=(case.get('width',256),case.get('height',256)):raise ObjectiveQualityRejected('Video output duration/geometry differs from QA case')
     source_audio=_probe(case['sources'][0])[1]
     if source_audio and not audio:raise ObjectiveQualityRejected('Source audio lost')
-    metrics={'duration':duration,'width':geometry[0],'height':geometry[1],'audio':audio,'sampled_frames':frames,'sampled_luma_jump':jump}
+    metrics={'duration':duration,'width':geometry[0],'height':geometry[1],'audio':audio,'source_audio':source_audio,'sampled_frames':frames,'sampled_luma_jump':jump}
     if source_audio:metrics['audio_comparison']=compare_audio(case['sources'][0],output,case.get('start',0),duration)
     return metrics
 

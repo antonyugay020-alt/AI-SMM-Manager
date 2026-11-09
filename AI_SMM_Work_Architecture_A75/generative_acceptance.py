@@ -228,6 +228,12 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                         reviewed=clicked is not None and question.standardButton(clicked)==QMessageBox.Yes
                         break
                     if not reviewed:raise RuntimeError('OPERATOR_REJECTED_VISUAL_RESULT')
+                # Bind the final acceptance to the same immutable originals and
+                # output that were inspected, including time spent in human QA.
+                if any(digest(path)!=sha for path,sha in original.items()):
+                    raise ValueError('Protected source changed during review')
+                if digest(job[2])!=receipt[1]:
+                    raise ValueError('Generated output changed during review')
                 window.grab().save(str(output/('qt_case_'+str(index)+'.png')))
                 if lifecycle and lifecycle_proof is None:
                     from media_lifecycle_acceptance import exercise

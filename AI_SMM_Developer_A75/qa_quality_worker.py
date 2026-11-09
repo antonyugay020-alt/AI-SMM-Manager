@@ -7,7 +7,7 @@ owning Windows Job Object on timeout, and cannot call a paid provider.
 import argparse
 import json
 import os
-from qa_receipt_provenance import make_request,validate_output_binding,validate_provenance
+from qa_receipt_provenance import make_request,validate_output_binding,validate_provenance,validate_media_metrics
 from pathlib import Path
 import sys
 import time
@@ -17,32 +17,34 @@ def review_child(payload_path):
     from durable_json import atomic_write_json
     from local_media_quality import LocalVision,objective_quality,ObjectiveQualityRejected
     payload=json.loads(Path(payload_path).read_text(encoding='utf-8'))
-    if not isinstance(payload,dict) or set(payload)!={'case','output','folder','vision_model','vision_digest','request_id','output_sha256'}:
+    if not isinstance(payload,dict) or set(payload)!={'case','output','folder','vision_model','vision_digest','request_id','output_sha256','source_sha256'}:
         raise ValueError('Invalid local quality request')
     folder=Path(payload['folder']).resolve()
     output=Path(payload['output']).resolve()
     if not folder.is_dir() or not output.is_file():
         raise ValueError('Local quality inputs missing')
-    validate_output_binding(payload,output)
+    validate_output_binding(payload,output,payload['case'])
     vision=LocalVision(payload['vision_model'])
     if vision.installed()!=payload['vision_digest']:
         raise ValueError('Vision model digest changed after qualification')
     try:
         metrics=objective_quality(payload['case'],output,folder)
         verdict=vision.review(payload['case'],output,folder,metrics)
-        validate_output_binding(payload,output)
+        validate_output_binding(payload,output,payload['case'])
         atomic_write_json(folder/'quality.json',{
             **verdict,'metrics':metrics,'request_id':payload['request_id'],
-            'output_sha256':payload['output_sha256']})
+            'output_sha256':payload['output_sha256'],
+            'source_sha256':payload['source_sha256']})
         return 0
     except ObjectiveQualityRejected as exc:
         # Quality is a per-engine verdict. Keep the exact failure evidence,
         # return normally so later independent engines are still inspected.
         # The supervisor's final status remains BLOCKED.
-        validate_output_binding(payload,output)
+        validate_output_binding(payload,output,payload['case'])
         atomic_write_json(folder/'quality.json',{'status':'BLOCKED',
             'model':vision.model,'digest':vision.digest,
             'request_id':payload['request_id'],'output_sha256':payload['output_sha256'],
+            'source_sha256':payload['source_sha256'],
             'objective_rejection':str(exc)[:800],
             'scope':'failed objective media quality; not a semantic PASS'})
         return 0
@@ -90,6 +92,7 @@ def validate_quality_receipt(report,case,model,digest):
                 or not isinstance(metrics.get('contrast'),(int,float))
                 or not isinstance(metrics.get('mean_absolute_change'),(int,float))):
             raise ValueError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID')
+    validate_media_metrics(case,metrics)
     if report['status']=='PASS':
         if (verdict.get('verdict')!='PASS'
                 or any(verdict.get(k)!='PASS' for k in required)
@@ -121,7 +124,7 @@ class BoundedQualityReview:
         folder.mkdir(parents=True,exist_ok=True)
         payload=folder/'quality_request.json'
         output=Path(output).resolve()
-        request=make_request(output)
+        request=make_request(output,case)
         # A prior run's receipt/error must never certify this invocation.
         for name in ('quality.json','quality_process_error.json'):
             (folder/name).unlink(missing_ok=True)
@@ -145,7 +148,7 @@ class BoundedQualityReview:
                         raise RuntimeError('LOCAL_QUALITY_REVIEW_PROCESS_FAILED')
             report=json.loads((folder/'quality.json').read_text(encoding='utf-8'))
             try:
-                validate_provenance(report,request,output)
+                validate_provenance(report,request,output,case)
                 return validate_quality_receipt(report,case,self.model,self.digest)
             except ValueError as exc:
                 raise RuntimeError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID') from exc
