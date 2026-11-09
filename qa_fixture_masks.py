@@ -79,3 +79,28 @@ def prepare_qa_plan(plan_path,installed,reports_root,session):
     effective=session/'effective_plan.json'
     effective.write_text(json.dumps(plan,indent=2,ensure_ascii=False),encoding='utf-8')
     return str(effective)
+
+
+def stage_qa_evidence(session,report_folder):
+    """Embed checksum-verified QA masks and provenance in the child QA ZIP.
+
+    The Windows acceptance child removes stale top-level JSON at startup;
+    subdirectory evidence is retained and included by the recursive ZIP packer.
+    """
+    session=Path(session)
+    audit=json.loads((session/'qa_fixture_mask_provenance.json').read_text(encoding='utf-8'))
+    folder=Path(report_folder)/'qa_fixtures'
+    folder.mkdir(parents=True,exist_ok=True)
+    (folder/'qa_fixture_mask_provenance.json').write_text(
+        json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
+    for item in audit['items']:
+        origin=Path(item['mask_path'])
+        if not origin.is_file() or _sha(origin)!=item['mask_sha256']:
+            raise ValueError('QA mask changed before attested execution')
+        output=folder/('case_'+str(item['case'])+'_mask.png')
+        if output.exists() and _sha(output)!=item['mask_sha256']:
+            raise ValueError('Archived QA mask unexpectedly changed')
+        if not output.exists():
+            from shutil import copyfile
+            copyfile(origin,output)
+    return folder
