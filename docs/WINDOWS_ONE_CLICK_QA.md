@@ -108,7 +108,7 @@ InstructPix2Pix, SD 1.5 IP-Adapter, inpainting, AnimateDiff V2V с IP-Adapter.
 
 ## Одна папка для всех результатов
 
-**`%LOCALAPPDATA%\AI_SMM_Manager\QA`**
+**`%USERPROFILE%\Desktop\AI_SMM_REPORTS`**
 
 - `STATUS.json` — актуальный этап, статус и целевой счётчик.
 - `LATEST.json` — путь последней сессии.
@@ -145,7 +145,25 @@ Qt/генеративные сценарии. Он принудительно п
 длины и SHA-256. Предыдущие FAIL не заменяются PASS: если свежая квалификация
 не проходит, текстовая приёмка остаётся BLOCKED. Большие модели не скачиваются.
 
-Все результаты остаются в **%LOCALAPPDATA%\AI_SMM_Manager\QA**. Сначала
+Все результаты остаются в **%USERPROFILE%\Desktop\AI_SMM_REPORTS**. Сначала
 откройте **STATUS.json / LATEST.json**; они указывают текущую папку сессии
 и **DIAGNOSTICS.zip**. JSON и текстовые логи сохранены в UTF-8. Старые отчёты
 не удаляются; прежняя аттестация не действует для изменённых исходников.
+
+
+## First real Windows QA follow-up (2026-11-09)
+
+Reports use the single desktop folder `%USERPROFILE%\Desktop\AI_SMM_REPORTS`.
+When a nonmask image was selected as an inpaint auxiliary, the QA supervisor
+creates deterministic, binary, checksum-recorded, QA-only PNG masks in its
+`QA_FIXTURES` subfolder and preserves the user's original source bytes.
+Provenance is written into each QA session as `qa_fixture_mask_provenance.json`.
+A true matching binary PNG mask is accepted unchanged. This is test input
+preparation, not proof of artistic quality or a production mask generator.
+
+The independent reviewer six-control oracle and family requirements remain
+unchanged; the local candidate's cold-start network deadline is 180 seconds,
+with no cloud/API fallback. CUDA generation emits stage markers, gives a
+nonresponding child 180 seconds to start, bounds GPU device-lock waiting,
+and retains failure job evidence. No success is inferred from interrupted
+or hung generation, and Windows 0/10 remains until verified on both hosts.
