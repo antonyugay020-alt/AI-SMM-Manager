@@ -19,12 +19,19 @@ from generative_models import verify_bundle
 from project_file_boundary import reject_path_link
 
 
+def _stage(name):
+    # Captured by the owning local worker, never sent to an external service.
+    print(json.dumps({'stage':name,'monotonic_s':round(time.monotonic(),3)}),flush=True)
+
+
 @contextmanager
-def device_lock(path=None,*,wait=True):
+def device_lock(path=None,*,wait=True,max_wait_seconds=180):
     path=reject_path_link(Path(path) if path is not None else Path(tempfile.gettempdir())/'ai-smm-generative-device0.lock')
     with path.open('a+b') as handle:
         if path.stat().st_size==0:handle.write(b'0');handle.flush()
         announced=False
+        started=time.monotonic()
+        if max_wait_seconds<=0:raise ValueError('Positive device-lock deadline required')
         while True:
             handle.seek(0)
             try:
@@ -36,8 +43,12 @@ def device_lock(path=None,*,wait=True):
                     fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
                 break
             except OSError as exc:
-                if not wait or exc.errno not in (errno.EACCES,errno.EAGAIN,errno.EDEADLK):raise
-                if not announced:print(json.dumps({'stage':'waiting_for_local_device'}),flush=True);announced=True
+                busy=(exc.errno in (errno.EACCES,errno.EAGAIN,errno.EDEADLK)
+                    or (os.name=='nt' and getattr(exc,'winerror',None) in (32,33)))
+                if not wait or not busy:raise
+                if not announced:_stage('waiting_for_local_device');announced=True
+                if time.monotonic()-started>=max_wait_seconds:
+                    raise TimeoutError('LOCAL_DEVICE_LOCK_TIMEOUT') from exc
                 time.sleep(.2)
         try:yield
         finally:
@@ -93,10 +104,14 @@ def image(path,width,height,*,mask=False):
 
 def run(request,inputs,target,*,pipeline_loader=load_pipeline):
     validate_generation(request);profile=request['generation']
+    _stage('verifying_model_bundle')
     verify_bundle(profile)
+    _stage('importing_torch')
     import torch
     width=request.get('width',512);height=request.get('height',512)
+    _stage('loading_pipeline')
     pipe,dtype=pipeline_loader(request,torch)
+    _stage('pipeline_loaded')
     seed=request.get('seed',0)
     kwargs={'prompt':request['prompt'],'num_inference_steps':request.get('steps',20),
             'guidance_scale':request.get('guidance',7.5),'generator':torch.Generator(device='cpu').manual_seed(seed)}
@@ -112,7 +127,9 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline):
         if len(frames)!=request.get('frames',16):raise ValueError('Prepared input frame count mismatch')
         kwargs.update(video=[image(path,width,height) for path in frames],width=width,height=height,strength=request.get('strength',.65),decode_chunk_size=1)
         if len(inputs)==2:kwargs['ip_adapter_image']=image(inputs[1],width,height)
+    _stage('inference_started')
     with torch.inference_mode():result=pipe(**kwargs)
+    _stage('inference_complete')
     if task=='video_generative':
         outputs=result.frames[0]
         if len(outputs)!=request.get('frames',16):raise ValueError('Generated frame count mismatch')
@@ -131,11 +148,13 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline):
     receipt={'runtime_versions':runtime_versions,'engine':profile['engine'],'manifest_sha256':profile['manifest_sha256'],
         'device':profile['device'],'dtype':str(dtype),'torch_version':torch.__version__,'diffusers_version':__import__('diffusers').__version__ if pipeline_loader is load_pipeline else 'fixture','peak_cuda_bytes':torch.cuda.max_memory_allocated(0) if profile['device']=='cuda' else None,'peak_cuda_reserved_bytes':torch.cuda.max_memory_reserved(0) if profile['device']=='cuda' else None,'seed':seed,'frames':request.get('frames') if task=='video_generative' else None}
     (target.parent/'generation_receipt.json').write_text(json.dumps(receipt),encoding='utf-8')
+    _stage('receipt_written')
 
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--request',required=True)
     args=parser.parse_args()
+    _stage('runner_started')
     # stdin is a parent-owned pipe, never a console. Parent death closes it.
     def parent_watch():
         while os.read(sys.stdin.fileno(),1024):pass
@@ -144,7 +163,11 @@ def main():
     data=json.loads(Path(args.request).read_text(encoding='utf-8'))
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
     os.environ['HF_HUB_DISABLE_TELEMETRY']='1';os.environ['DO_NOT_TRACK']='1'
-    with device_lock():run(data['request'],[Path(p) for p in data['inputs']],Path(data['target']))
+    _stage('acquiring_device_lock')
+    with device_lock():
+        _stage('device_lock_acquired')
+        run(data['request'],[Path(p) for p in data['inputs']],Path(data['target']))
+    _stage('runner_completed')
     return 0
 
 
