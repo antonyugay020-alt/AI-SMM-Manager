@@ -52,18 +52,37 @@ class NativeRuntimeLifecycle(unittest.TestCase):
             parent=subprocess.Popen([sys.executable,'-c',code,str(ROOT/'AI_SMM_Work_Architecture_A75'),str(busy),str(ready),str(root/'child.log')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             target=None
             try:
-                pid=int(parent.stdout.readline());target=psutil.Process(pid)
+                launcher_pid=int(parent.stdout.readline())
                 self.assertTrue(ready.is_file())
-                self.assertEqual(int(ready.read_text()),pid)
+                runtime_pid=int(ready.read_text())
+                # Windows venv python.exe can be a launcher/redirector which
+                # starts a second interpreter process with a DIFFERENT PID.
+                # Check the OS ancestry, then follow the real Python PID
+                # recorded by the native workload, not the launcher PID.
+                launcher=psutil.Process(launcher_pid)
+                descendants={child.pid for child in launcher.children(recursive=True)}
+                self.assertIn(runtime_pid,{launcher_pid,*descendants})
+                target=psutil.Process(runtime_pid)
                 parent.terminate();parent.wait(timeout=5)
                 until=time.monotonic()+5
                 while time.monotonic()<until:
-                    if not target.is_running() or target.status()==psutil.STATUS_ZOMBIE:break
+                    try:
+                        alive=target.is_running() and target.status()!=psutil.STATUS_ZOMBIE
+                    except psutil.NoSuchProcess:
+                        alive=False
+                    if not alive:break
                     time.sleep(.03)
-                self.assertTrue(not target.is_running() or target.status()==psutil.STATUS_ZOMBIE)
+                try:
+                    self.assertTrue(not target.is_running() or target.status()==psutil.STATUS_ZOMBIE)
+                except psutil.NoSuchProcess:
+                    pass
             finally:
                 if parent.poll() is None:parent.kill();parent.wait(timeout=5)
-                if target is not None and target.is_running() and target.status()!=psutil.STATUS_ZOMBIE:target.kill()
+                if target is not None:
+                    try:
+                        if target.is_running() and target.status()!=psutil.STATUS_ZOMBIE:target.kill()
+                    except psutil.NoSuchProcess:
+                        pass
                 parent.stdout.close();parent.stderr.close()
 
     def test_qwen14b_is_supported_but_coder_derivative_does_not_create_independence(self):
