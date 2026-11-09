@@ -72,21 +72,30 @@ def image(path,width,height,*,mask=False):
         return ImageOps.pad(value,(width,height),method=Image.Resampling.NEAREST if mask else Image.Resampling.LANCZOS,color=0 if mask else 'white')
 
 
-def run(request,inputs,target,*,pipeline_loader=load_pipeline):
-    validate_generation(request);profile=request['generation']
-    _stage('verifying_model_bundle')
-    verify_bundle(profile)
+def initialize_python_torch():
+    """Phase 1: initialize native CPU libraries before obtaining the GPU lease.
+
+    Preflight and production both run the same import path. Importing PyTorch
+    under a GPU mutex previously hung on native Windows despite a successful
+    isolated CUDA probe. The following phase may acquire GPU resources, but
+    this import phase must never access a model, CUDA context or user data.
+    """
     _stage('importing_torch')
-    # On Windows a native extension import may stall without raising a Python
-    # exception. Emit Python thread stacks periodically into the parent-owned
-    # child log so the QA can distinguish Python import waits from CUDA inference.
     import faulthandler
-    faulthandler.dump_traceback_later(60,repeat=True,file=sys.stderr)
+    faulthandler.dump_traceback_later(45,repeat=True,file=sys.stderr)
     try:
         import torch
     finally:
         faulthandler.cancel_dump_traceback_later()
     _stage('torch_imported')
+    return torch
+
+
+def run(request,inputs,target,*,pipeline_loader=load_pipeline,preloaded_torch=None):
+    validate_generation(request);profile=request['generation']
+    _stage('verifying_model_bundle')
+    verify_bundle(profile)
+    torch=preloaded_torch if preloaded_torch is not None else initialize_python_torch()
     width=request.get('width',512);height=request.get('height',512)
     _stage('loading_pipeline')
     pipe,dtype=pipeline_loader(request,torch)
@@ -143,10 +152,16 @@ def main():
     data=json.loads(Path(args.request).read_text(encoding='utf-8'))
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
     os.environ['HF_HUB_DISABLE_TELEMETRY']='1';os.environ['DO_NOT_TRACK']='1'
+    # Check offline bundle integrity before loading expensive libraries.
+    validate_generation(data['request'])
+    _stage('verifying_model_bundle')
+    verify_bundle(data['request']['generation'])
+    torch=initialize_python_torch()
     _stage('acquiring_device_lock')
     with device_lock():
         _stage('device_lock_acquired')
-        run(data['request'],[Path(p) for p in data['inputs']],Path(data['target']))
+        run(data['request'],[Path(p) for p in data['inputs']],Path(data['target']),
+            preloaded_torch=torch)
     _stage('runner_completed')
     return 0
 
