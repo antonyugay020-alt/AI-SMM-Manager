@@ -37,12 +37,17 @@ def isolated_quality_module(tmp_path,monkeypatch):
         ' def installed(self):self.digest="a"*64;return self.digest\n'
         ' def review(self,case,output,folder,metrics):\n'
         '  if case.get("behavior")=="hang":time.sleep(30)\n'
-        '  return {"status":"BLOCKED" if case.get("behavior")=="reject" else "PASS",'
-        '"model":self.model,"digest":self.digest,"scope":"synthetic CPU fixture"}\n'
+        '  state="BLOCKED" if case.get("behavior")=="reject" else "PASS"\n'
+        '  return {"status":state,"model":self.model,"digest":self.digest,'
+        '"verdict":{"verdict":"FAIL" if state=="BLOCKED" else "PASS",'
+        '"instruction":"UNCERTAIN" if state=="BLOCKED" else "PASS",'
+        '"preservation":"PASS","reference_or_mask":"NOT_APPLICABLE",'
+        '"temporal":"NOT_APPLICABLE","observations":"The subject remains legible and the composition is preserved."},'
+        '"scope":"synthetic CPU fixture"}\n'
         'def objective_quality(case,output,folder):\n'
         ' if case.get("behavior")=="blank":raise ObjectiveQualityRejected("Blank generated image")\n'
         ' if case.get("behavior")=="infra":raise RuntimeError("Local codec failure")\n'
-        ' return {"fixture":"CPU_ONLY"}\n',
+        ' return {"width":256,"height":256,"contrast":.2,"mean_absolute_change":.25}\n',
         encoding='utf-8')
     monkeypatch.syspath_prepend(str(tmp_path))
     # Import the byte-identical QA worker from an isolated file location.
