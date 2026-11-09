@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-set "QA_REPORTS=%LOCALAPPDATA%\AI_SMM_Manager\QA"
+set "QA_REPORTS=%USERPROFILE%\Desktop\AI_SMM_REPORTS"
 if not exist "%QA_REPORTS%" mkdir "%QA_REPORTS%"
 echo AI SMM Manager - Windows source QA. No model downloads or paid APIs.
 echo 1. RTX 3080 Ti - preliminary full Windows check
