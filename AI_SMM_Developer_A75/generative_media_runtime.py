@@ -28,7 +28,9 @@ def _stage_deadline(stage,video):
         'waiting_for_local_device':240,
         'device_lock_acquired':300,
         'verifying_model_bundle':300,
-        'importing_torch':480,
+        # The same CUDA Python already passed a 90-second import preflight.
+        # Bound a stalled native import separately from GPU inference.
+        'importing_torch':180,
         'loading_pipeline':1200,
         'pipeline_loaded':300,
         'inference_started':3600 if video else 1500,
