@@ -760,9 +760,11 @@ if __name__=='__main__':
                     from local_media_quality import LocalVision,objective_quality
                     from durable_json import atomic_write_json
                     vision=LocalVision(os.environ['AI_SMM_QA_VISION_MODEL'])
-                    # Release only explicitly allowed QA models after live text tests.
-                    for model in json.loads(os.environ['AI_SMM_QA_ALLOWED_MODELS']):
-                        vision.call('/api/generate',{'model':model,'prompt':'','stream':False,'keep_alive':0},timeout=60)
+                    # Text qualification already requests keep_alive=0.
+                    # Loading every 14B/8B candidate again just to unload it
+                    # consumes GPU memory and can falsely timeout the media QA.
+                    # Do not touch unrelated local Ollama workloads; the real
+                    # per-case nvidia-smi gate handles insufficient headroom.
                     qualification=vision.qualify(OUT/'vision_qualification')
                     atomic_write_json(OUT/'vision_qualification.json',qualification)
                     def callback(case,path,folder):
