@@ -20,8 +20,8 @@ WORK=ROOT/'AI_SMM_Work_Architecture_A75'
 
 @pytest.fixture
 def isolated_quality_module(tmp_path,monkeypatch):
-    for name in ('qa_quality_worker.py','native_process_runtime.py',
-                 'windows_process_group.py'):
+    for name in ('qa_quality_worker.py','qa_receipt_provenance.py',
+                 'native_process_runtime.py','windows_process_group.py'):
         shutil.copyfile(WORK/name,tmp_path/name)
     (tmp_path/'durable_json.py').write_text(
         'import json\nfrom pathlib import Path\n'
@@ -67,6 +67,9 @@ def test_real_owned_child_returns_checked_local_receipt(isolated_quality_module,
     assert result['status']=='PASS'
     assert result['model']=='gemma3:4b'
     assert result['digest']=='a'*64
+    from hashlib import sha256
+    assert result['output_sha256']==sha256(b'fixture').hexdigest()
+    assert len(result['request_id'])==32
     assert (tmp_path/'proof'/'quality_process.log').is_file()
 
 
@@ -99,3 +102,11 @@ def test_real_codec_failure_still_aborts_and_keeps_diagnostics(isolated_quality_
     info=json.loads((tmp_path/'proof'/'quality_process_error.json').read_text(encoding='utf-8'))
     assert info['error_type']=='RuntimeError'
     assert (tmp_path/'proof'/'quality.json').is_file()
+
+
+def test_real_owned_child_repeated_folder_never_reuses_receipt(isolated_quality_module,tmp_path):
+    first=_call(isolated_quality_module,tmp_path,'pass',5)
+    second=_call(isolated_quality_module,tmp_path,'pass',5)
+    assert first['status']==second['status']=='PASS'
+    assert first['request_id']!=second['request_id']
+    assert first['output_sha256']==second['output_sha256']

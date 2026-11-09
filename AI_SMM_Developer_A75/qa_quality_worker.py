@@ -7,6 +7,7 @@ owning Windows Job Object on timeout, and cannot call a paid provider.
 import argparse
 import json
 import os
+from qa_receipt_provenance import make_request,validate_output_binding,validate_provenance
 from pathlib import Path
 import sys
 import time
@@ -16,26 +17,32 @@ def review_child(payload_path):
     from durable_json import atomic_write_json
     from local_media_quality import LocalVision,objective_quality,ObjectiveQualityRejected
     payload=json.loads(Path(payload_path).read_text(encoding='utf-8'))
-    if not isinstance(payload,dict) or set(payload)!={'case','output','folder','vision_model','vision_digest'}:
+    if not isinstance(payload,dict) or set(payload)!={'case','output','folder','vision_model','vision_digest','request_id','output_sha256'}:
         raise ValueError('Invalid local quality request')
     folder=Path(payload['folder']).resolve()
     output=Path(payload['output']).resolve()
     if not folder.is_dir() or not output.is_file():
         raise ValueError('Local quality inputs missing')
+    validate_output_binding(payload,output)
     vision=LocalVision(payload['vision_model'])
     if vision.installed()!=payload['vision_digest']:
         raise ValueError('Vision model digest changed after qualification')
     try:
         metrics=objective_quality(payload['case'],output,folder)
         verdict=vision.review(payload['case'],output,folder,metrics)
-        atomic_write_json(folder/'quality.json',{'metrics':metrics,**verdict})
+        validate_output_binding(payload,output)
+        atomic_write_json(folder/'quality.json',{
+            **verdict,'metrics':metrics,'request_id':payload['request_id'],
+            'output_sha256':payload['output_sha256']})
         return 0
     except ObjectiveQualityRejected as exc:
         # Quality is a per-engine verdict. Keep the exact failure evidence,
         # return normally so later independent engines are still inspected.
         # The supervisor's final status remains BLOCKED.
+        validate_output_binding(payload,output)
         atomic_write_json(folder/'quality.json',{'status':'BLOCKED',
             'model':vision.model,'digest':vision.digest,
+            'request_id':payload['request_id'],'output_sha256':payload['output_sha256'],
             'objective_rejection':str(exc)[:800],
             'scope':'failed objective media quality; not a semantic PASS'})
         return 0
@@ -113,8 +120,14 @@ class BoundedQualityReview:
         folder=Path(folder)
         folder.mkdir(parents=True,exist_ok=True)
         payload=folder/'quality_request.json'
-        atomic_write_json(payload,{'case':case,'output':str(Path(output).resolve()),
-            'folder':str(folder.resolve()),'vision_model':self.model,'vision_digest':self.digest})
+        output=Path(output).resolve()
+        request=make_request(output)
+        # A prior run's receipt/error must never certify this invocation.
+        for name in ('quality.json','quality_process_error.json'):
+            (folder/name).unlink(missing_ok=True)
+        atomic_write_json(payload,{'case':case,'output':str(output),
+            'folder':str(folder.resolve()),'vision_model':self.model,
+            'vision_digest':self.digest,**request})
         log_path=folder/'quality_process.log'
         started=time.monotonic()
         child=None
@@ -132,6 +145,7 @@ class BoundedQualityReview:
                         raise RuntimeError('LOCAL_QUALITY_REVIEW_PROCESS_FAILED')
             report=json.loads((folder/'quality.json').read_text(encoding='utf-8'))
             try:
+                validate_provenance(report,request,output)
                 return validate_quality_receipt(report,case,self.model,self.digest)
             except ValueError as exc:
                 raise RuntimeError('LOCAL_QUALITY_REVIEW_RECEIPT_INVALID') from exc

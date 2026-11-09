@@ -19,12 +19,19 @@ from qa_quality_worker import BoundedQualityReview
 class Child:
     pid=345678
     returncode=None
-    def __init__(self,after=3,receipt=None):
+    def __init__(self,after=3,receipt=None,mutate_output=False):
         self.polls=0;self.after=after;self.receipt=receipt
+        self.mutate_output=mutate_output
     def poll(self):
         self.polls+=1
         if self.receipt is not None and self.polls==self.after:
             path,record=self.receipt
+            request=json.loads((path.parent/'quality_request.json').read_text(encoding='utf-8'))
+            record=dict(record)
+            for key in ('request_id','output_sha256'):
+                record.setdefault(key,request[key])
+            if self.mutate_output:
+                (path.parent.parent/'result.png').write_bytes(b'changed-output')
             path.write_text(json.dumps(record),encoding='utf-8')
         if self.after and self.polls>=self.after:
             self.returncode=0
@@ -59,7 +66,9 @@ def test_owned_quality_pass_proves_matching_model_and_digest(tmp_path):
     folder=tmp_path/'quality';report=folder/'quality.json'
     receipt=complete_receipt()
     result,closed,_=run_with_mock(tmp_path,Child(receipt=(report,receipt)))
-    assert result==receipt
+    assert all(result.get(key)==value for key,value in receipt.items())
+    assert len(result['request_id'])==32
+    assert len(result['output_sha256'])==64
     assert closed==[True]
     assert (folder/'quality_request.json').is_file()
 
@@ -129,3 +138,25 @@ def test_unproven_reference_or_video_temporal_quality_never_passes():
     report['verdict']['temporal']='NOT_APPLICABLE'
     with pytest.raises(ValueError,match='RECEIPT_INVALID'):
         validate_quality_receipt(report,{'task':'video_generative','sources':['a']},'gemma3:4b','a'*64)
+
+
+def test_stale_pass_receipt_is_never_reused_after_successful_child_exit(tmp_path):
+    folder=tmp_path/'quality';folder.mkdir()
+    (folder/'quality.json').write_text(json.dumps(complete_receipt()),encoding='utf-8')
+    with pytest.raises(FileNotFoundError):
+        run_with_mock(tmp_path,Child(after=2))
+    assert not (folder/'quality.json').exists()
+    assert (folder/'quality_process_error.json').is_file()
+
+
+def test_receipt_from_another_request_is_rejected(tmp_path):
+    receipt={**complete_receipt(),'request_id':'f'*32}
+    with pytest.raises(RuntimeError,match='RECEIPT_INVALID'):
+        run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt)))
+
+
+def test_output_changed_while_reviewing_is_rejected(tmp_path):
+    receipt=complete_receipt()
+    with pytest.raises(RuntimeError,match='RECEIPT_INVALID'):
+        run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt),
+                                     mutate_output=True))

@@ -1,3 +1,11 @@
+# Quality-review receipt provenance hardening — 2026-11-10 (unreleased)
+
+A full semantic verdict was previously accepted without binding its evidence to the **current** child invocation or the exact output bytes. The QA output folder may be reused; an earlier `quality.json` could survive a successful but non-writing child. This is now addressed as one lifecycle contract: parent deletes stale receipt/error, creates a fresh 128-bit request ID and SHA-256 of generated media, child verifies output bytes before and after objective/semantic review and includes both in PASS/BLOCKED receipts, and parent re-hashes output and checks both before accepting any status. A failed child cannot turn a prior report into PASS. Objective quality rejection still remains BLOCKED rather than a native infrastructure PASS.
+
+Work/Developer/Developer-tests copies of the worker and new pure provenance module are synchronized; CI mocked-child and real isolated subprocess fixtures now cover repeated folder, stale receipt, mismatched nonce, mutated output, SHA proof and ordinary objective rejection. The new pure provenance module's six CPU cases passed in an isolated Python 3.13.5 environment. **Full original-repository 263-module and complete CI execution remains unverified on this new source; no Windows Qt/CUDA run, 3080 Ti preliminary or 2080 Super 10/10 claim.** No GitHub Actions, paid API, downloads, main merge, live bot/monitor change or reboot. Next gate remains complete frozen-HEAD offline regression, then single preliminary Windows QA.
+
+---
+
 # Quality-proof closure after native QA ownership — November 9, 2026
 
 **Source updated on existing draft PR #4**, starting from `a421aa79b2d2e0d52f344026d48edf879f79c7f4`. Real Windows QA has **not** been repeated, target remains 0/10.
