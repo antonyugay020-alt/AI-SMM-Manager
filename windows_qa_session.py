@@ -304,6 +304,59 @@ def execute(config,role,session,state):
     return 0
 
 
+
+def publish_latest_diagnostics(session,root):
+    """One stable user-facing ZIP; retain the complete per-session evidence.
+
+    Publish after the QA completes, even if bootstrap/child execution failed.
+    Never pick a successful archive from an earlier run in a ten-run session.
+    """
+    from zipfile import ZipFile,ZIP_DEFLATED
+    session=Path(session);root=Path(root)
+    destination=root/'DIAGNOSTICS.zip'
+    if destination.is_symlink():
+        raise RuntimeError('Refusing to replace a linked latest diagnostic archive')
+    runs=sorted(path for path in session.glob('run_*') if path.is_dir())
+    active=runs[-1] if runs else None
+    source=active/'report'/'DIAGNOSTICS.zip' if active is not None else None
+    temp=root/('.DIAGNOSTICS_'+uuid.uuid4().hex+'.tmp')
+    try:
+        if source is not None and source.is_file():
+            with ZipFile(source) as archive:
+                bad=archive.testzip()
+                if bad is not None:raise RuntimeError('Invalid generated QA ZIP entry: '+bad)
+            shutil.copyfile(source,temp)
+        else:
+            # A failure before source QA emitted DIAGNOSTICS.zip must still
+            # provide one useful archive instead of asking the user to locate
+            # twenty nested status/log files.
+            with ZipFile(temp,'w',compression=ZIP_DEFLATED,compresslevel=6) as archive:
+                for name in ('STATUS.json','REPORT_MANIFEST.json','HOST.json',
+                             'PREREQUISITES.json','qa_model_roster.json',
+                             'preflight.json','runner_error.json'):
+                    file=session/name
+                    if file.is_file():
+                        archive.write(file,arcname='QA_SESSION/'+name)
+                if active is not None:
+                    for name in ('console.log','runner_error.json','vram_error.json',
+                                 'vram_samples.jsonl'):
+                        file=active/name
+                        if file.is_file():
+                            archive.write(file,arcname='QA_SESSION/latest_run/'+name)
+                    report=active/'report'
+                    if report.is_dir():
+                        for file in sorted(report.rglob('*')):
+                            if file.is_file() and not file.is_symlink() and file.suffix.lower()!='.zip':
+                                archive.write(file,arcname='VALIDATION_RESULTS/'+file.relative_to(report).as_posix())
+            with ZipFile(temp) as archive:
+                bad=archive.testzip()
+                if bad is not None:raise RuntimeError('Invalid fallback QA ZIP entry: '+bad)
+        os.replace(temp,destination)
+        return destination
+    finally:
+        if temp.exists():temp.unlink()
+
+
 def bootstrap_inventory(folder):
     from importlib.metadata import PackageNotFoundError
     dependencies={}
@@ -350,7 +403,17 @@ def main():
         # Complete local diagnostics, not a candidate build or release archive.
         files={p.relative_to(session).as_posix():sha(p) for p in session.rglob('*') if p.is_file() and p.name!='REPORT_MANIFEST.json'}
         write_json(session/'REPORT_MANIFEST.json',{'files':files})
-        print('QA diagnostics:',session,flush=True)
+        try:
+            latest_zip=publish_latest_diagnostics(session,root)
+            print('ONE QA ZIP:',latest_zip,flush=True)
+        except Exception as exc:
+            # A missing/failed handoff is itself a failed QA run, never silent.
+            state.update(status='BLOCKED',release_eligible=False,
+                         reason='Unable to publish latest QA diagnostics: '+str(exc))
+            write_json(session/'STATUS.json',state);write_json(root/'STATUS.json',state)
+            code=2
+            print('QA ZIP PUBLISH FAILED:',type(exc).__name__,str(exc),flush=True)
+        print('QA diagnostics history:',session,flush=True)
         print('Status:',state['status'],'target counter:',state['target_clean_consecutive'],'/10',flush=True)
     return code
 
