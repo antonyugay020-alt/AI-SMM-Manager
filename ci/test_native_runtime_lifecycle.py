@@ -55,14 +55,16 @@ class NativeRuntimeLifecycle(unittest.TestCase):
                 launcher_pid=int(parent.stdout.readline())
                 self.assertTrue(ready.is_file())
                 runtime_pid=int(ready.read_text())
-                # Windows venv python.exe can be a launcher/redirector which
-                # starts a second interpreter process with a DIFFERENT PID.
-                # Check the OS ancestry, then follow the real Python PID
-                # recorded by the native workload, not the launcher PID.
-                launcher=psutil.Process(launcher_pid)
-                descendants={child.pid for child in launcher.children(recursive=True)}
-                self.assertIn(runtime_pid,{launcher_pid,*descendants})
+                # A Windows venv launcher may exit immediately after creating
+                # its redirected interpreter. psutil ancestry is a snapshot,
+                # not reliable evidence of Job Object membership after that
+                # launcher has exited. Prove identity from the real workload
+                # process and its immutable command line, then prove its death.
                 target=psutil.Process(runtime_pid)
+                self.assertTrue(target.is_running())
+                self.assertNotEqual(target.status(),psutil.STATUS_ZOMBIE)
+                self.assertIn(str(busy),target.cmdline())
+                self.assertGreater(launcher_pid,0)
                 parent.terminate();parent.wait(timeout=5)
                 until=time.monotonic()+5
                 while time.monotonic()<until:
