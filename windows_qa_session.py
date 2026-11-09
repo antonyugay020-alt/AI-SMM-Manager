@@ -306,10 +306,11 @@ def execute(config,role,session,state):
 
 
 def publish_latest_diagnostics(session,root):
-    """One stable user-facing ZIP; retain the complete per-session evidence.
+    """One stable ZIP with the FINAL supervisor verdict and latest child evidence.
 
-    Publish after the QA completes, even if bootstrap/child execution failed.
-    Never pick a successful archive from an earlier run in a ten-run session.
+    The report folder may have a child PASS before source integrity/VRAM/owner
+    checks fail. Never copy that child-only ZIP as if it were the final verdict.
+    History and sources stay in their original session; the user sees one path.
     """
     from zipfile import ZipFile,ZIP_DEFLATED
     session=Path(session);root=Path(root)
@@ -321,36 +322,45 @@ def publish_latest_diagnostics(session,root):
     source=active/'report'/'DIAGNOSTICS.zip' if active is not None else None
     temp=root/('.DIAGNOSTICS_'+uuid.uuid4().hex+'.tmp')
     try:
-        if source is not None and source.is_file():
-            with ZipFile(source) as archive:
-                bad=archive.testzip()
-                if bad is not None:raise RuntimeError('Invalid generated QA ZIP entry: '+bad)
-            shutil.copyfile(source,temp)
-        else:
-            # A failure before source QA emitted DIAGNOSTICS.zip must still
-            # provide one useful archive instead of asking the user to locate
-            # twenty nested status/log files.
-            with ZipFile(temp,'w',compression=ZIP_DEFLATED,compresslevel=6) as archive:
-                for name in ('STATUS.json','REPORT_MANIFEST.json','HOST.json',
-                             'PREREQUISITES.json','qa_model_roster.json',
-                             'preflight.json','runner_error.json'):
-                    file=session/name
+        with ZipFile(temp,'w',compression=ZIP_DEFLATED,compresslevel=6) as out:
+            entries=set()
+            if source is not None and source.is_file():
+                with ZipFile(source) as archived:
+                    bad=archived.testzip()
+                    if bad is not None:raise RuntimeError('Invalid generated QA ZIP entry: '+bad)
+                    for member in archived.infolist():
+                        if member.is_dir():continue
+                        name=member.filename
+                        if (name in entries or name.startswith(('/','\\'))
+                                or '\\' in name or '..' in name.split('/')):
+                            raise ValueError('Unsafe or duplicated QA archive member')
+                        with archived.open(member) as reader,out.open(name,'w') as writer:
+                            shutil.copyfileobj(reader,writer,length=1024*1024)
+                        entries.add(name)
+            elif active is not None:
+                # Child failed before it could create its own full archive.
+                report=active/'report'
+                if report.is_dir():
+                    for file in sorted(report.rglob('*')):
+                        if file.is_file() and not file.is_symlink() and file.suffix.lower()!='.zip':
+                            name='VALIDATION_RESULTS/'+file.relative_to(report).as_posix()
+                            out.write(file,arcname=name);entries.add(name)
+            # Supervisor status takes priority over an earlier child verdict.
+            for name in ('STATUS.json','REPORT_MANIFEST.json','HOST.json',
+                         'PREREQUISITES.json','qa_model_roster.json',
+                         'preflight.json','runner_error.json'):
+                file=session/name
+                if file.is_file():
+                    out.write(file,arcname='QA_SESSION/'+name)
+            if active is not None:
+                for name in ('console.log','runner_error.json','vram_error.json',
+                             'vram_samples.jsonl'):
+                    file=active/name
                     if file.is_file():
-                        archive.write(file,arcname='QA_SESSION/'+name)
-                if active is not None:
-                    for name in ('console.log','runner_error.json','vram_error.json',
-                                 'vram_samples.jsonl'):
-                        file=active/name
-                        if file.is_file():
-                            archive.write(file,arcname='QA_SESSION/latest_run/'+name)
-                    report=active/'report'
-                    if report.is_dir():
-                        for file in sorted(report.rglob('*')):
-                            if file.is_file() and not file.is_symlink() and file.suffix.lower()!='.zip':
-                                archive.write(file,arcname='VALIDATION_RESULTS/'+file.relative_to(report).as_posix())
-            with ZipFile(temp) as archive:
-                bad=archive.testzip()
-                if bad is not None:raise RuntimeError('Invalid fallback QA ZIP entry: '+bad)
+                        out.write(file,arcname='QA_SESSION/latest_run/'+name)
+        with ZipFile(temp) as archive:
+            bad=archive.testzip()
+            if bad is not None:raise RuntimeError('Invalid final QA ZIP entry: '+bad)
         os.replace(temp,destination)
         return destination
     finally:
