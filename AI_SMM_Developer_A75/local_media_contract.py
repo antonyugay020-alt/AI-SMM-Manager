@@ -1,6 +1,6 @@
 """Provider/Qt-free technical contract for every supported local media task."""
 import math
-from generative_contract import GEN_TASKS,validate_generation
+from generative_contract import GEN_TASKS,validate_generation,source_kind
 
 TASKS=frozenset(('image_resize','video_cut','video_format','video_montage','video_from_images'))
 
@@ -56,6 +56,32 @@ def available_local_tasks(catalog,capabilities):
     return local+tuple(task for task,engine in ENGINES.items() if resources[task] and any(isinstance(p,dict) and p.get('engine')==engine for p in installed.values()))
 
 
+def generative_source_ids_schema(task,catalog):
+    """Expose the same ordered image/video roles enforced by the host.
+
+    A video edit takes a video first, optionally followed by an image
+    reference. An unrestricted union of both types would advertise invalid
+    requests to the model and waste attempts on host-side rejection.
+    """
+    if task not in GEN_TASKS:
+        raise ValueError('Unknown generative source role')
+    maximum=1 if task=='image_instruction' else 2
+    roles=[source_kind({'task':task},index) for index in range(maximum)]
+    by_role={role:[ident for ident,item in catalog.items() if item['kind']==role]
+             for role in set(roles)}
+    required=2 if task in ('image_reference','image_inpaint') else 1
+    if any(not by_role[role] for role in roles[:required]):
+        raise ValueError('Unadvertisable generative source role')
+    if task=='video_generative' and not by_role['image']:
+        roles=roles[:1]
+    allowed=sorted(set(ident for role in roles for ident in by_role[role]))
+    return {'type':'array','items':{'type':'string','enum':allowed},
+            'prefixItems':[{'type':'string','enum':by_role[role]} for role in roles],
+            'minItems':required,'maxItems':len(roles),'uniqueItems':True,
+            'description':'Ordered source roles: '+', '.join(roles)+
+                          '. Video must precede its optional image reference.'}
+
+
 def local_media_schema(catalog,capabilities):
     """Expose task-specific constraints to native decoding as well as the host."""
     variants=[{'type':'null'}]
@@ -77,9 +103,8 @@ def local_media_schema(catalog,capabilities):
     for task in available_local_tasks(catalog,capabilities):
         if task not in GEN_TASKS:continue
         video=task=='video_generative'
-        ids=[ident for ident,item in catalog.items() if video or item['kind']=='image']
         properties={'task':{'type':'string','enum':[task]},
-            'source_ids':{'type':'array','items':{'type':'string','enum':ids},'minItems':2 if task in ('image_reference','image_inpaint') else 1,'maxItems':1 if task=='image_instruction' else 2,'uniqueItems':True},
+            'source_ids':generative_source_ids_schema(task,catalog),
             'profile':{'type':'string','enum':[name for name,p in capabilities['generative_profiles'].items() if p['engine']==ENGINES[task]]},
             'prompt':{'type':'string','minLength':1,'maxLength':6000},
             'width':{'type':'integer','minimum':64,'maximum':384 if video else 512,'multipleOf':8},

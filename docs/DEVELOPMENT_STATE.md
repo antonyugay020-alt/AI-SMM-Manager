@@ -1,3 +1,11 @@
+# Ordered media-source role schema integration — 2026-11-10 (unreleased)
+
+Baseline `72dccbafacf96b6851193d531ff5aeee9afed032` in existing draft PR #4. Root cause: model-facing `video_generative.source_ids` previously used the union of **all** issued video and image IDs in either position. The host already enforced first=video and optional second=image; thus valid-looking structured model plans could be rejected downstream, causing avoidable AI retries and mismatched advertised capabilities. A single `generative_source_ids_schema` now derives per-position `prefixItems` from the existing authoritative `generative_contract.source_kind`. The video-only case exposes one source slot, while video+image enables a second reference slot; image instruction/reference/inpaint roles remain unchanged. `items` retains the union as a conservative legacy-decoder fallback; the host remains fail-closed on incorrect roles.
+
+Changed runtime source is identical in Work, Developer, Developer/tests. New `ci/test_generative_source_role_schema.py` checks schema/host role alignment, reversed video/reference, two videos, missing image reference and no-video capabilities. A standalone Python 3.11+ JSON Schema Draft202012 simulation of the proposed role constraints passed 12 checks (not a complete checkout or an actual Ollama decoder). **The complete 263-module and CI regression on the resulting HEAD has not been executed.** Windows RTX 3080 Ti and RTX 2080 Super full Qt/CUDA E2E remain unverified (0/10). Do not use this checkpoint as a release or paid-service authorization. Next gate: complete frozen-HEAD offline suite, then one consolidated Windows QA; no main/Actions/model downloads/live-bot changes.
+
+---
+
 # Media QA source integrity and objective evidence contract — 2026-11-10 (unreleased)
 
 Baseline for this integrated draft PR #4 change: `2e66e2f0122d95f903b17c19ba0e205a56b3cf13`. Scope: QA provenance, independent objective metrics, real-media final readback, and CPU regression. **No release and no completed full original-repository regression**.
