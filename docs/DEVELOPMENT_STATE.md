@@ -1,3 +1,54 @@
+# Windows QA bdc7477 — consolidated remediation (2026-11-09)
+
+The actual Windows RTX 3080 Ti preliminary run tested source
+`bdc7477e4971b3278982510fedf592d549f5861e`.
+Received `DIAGNOSTICS(4).zip`; verdict remains **BLOCKED, 0/10**.
+Native Torch/Diffusers preflights PASS, real InstructPix2Pix output and
+SQLite receipt completed (old native-import stall not reproduced), 10366 MiB
+free VRAM before case 0. Image quality was rejected: vision model
+`gemma3:4b` returned UNCERTAIN and observed no convincing watercolor conversion.
+This is **not** accepted as image-quality PASS.
+
+Windows developer regression **263 modules / 2066 PASS / 1045 subtests**;
+live Qt smoke PASS; source CI **339 PASS / 1 FAIL / 2 skipped /
+77 subtests PASS**. CI defect: `test_actual_parent_death_stops_child_even_when_native_code_holds_gil`
+compared Windows venv launcher PID with the actual Python interpreter PID,
+which may differ due redirector process. Revised test now validates actual
+interpreter ancestry, checks its termination on owner loss and handles
+NoSuchProcess races; protection has NOT been relaxed.
+
+Reviewer admission: **0 eligible qualified reviewers**, hence text work
+and live full GUI are NOT_TESTED. The exact Ollama inventory contained
+`qwen2.5-coder:7b, qwen3:8b, llama3.1:8b, deepseek-r1:8b, mistral:7b, gemma3:4b`
+plus two cloud tags excluded from local-only QA. **`qwen2.5:14b`
+was absent from the actual server inventory; prior 14B code support does
+not install or admit a model automatically. Controls remain unchanged.
+
+Integrated improvements on PR #4 after this run:
+- one stable user-facing latest report ZIP:
+  `%USERPROFILE%\Desktop\AI_SMM_REPORTS\DIAGNOSTICS.zip`; existing
+  timestamped sessions remain internal for evidence; early Python bootstrap
+  failure also yields a ZIP at the same path; fallback cannot reuse a
+  previous successful run when the later run failed;
+- independent media-quality failures are collected across the entire
+  four-engine Windows QA matrix, without treating a rejected image as PASS;
+  native/cancellation/infrastructure failures still fail fast;
+- Windows native parent-death test follows actual interpreter PID while
+  retaining full child ancestry and death assertions;
+- targeted offline ZIP publication tests and fail-closed quality aggregation
+  tests added; 4 standalone ZIP tests and 4 lightweight status examples
+  passed locally. **The complete original-repository CI and native Windows
+  tests have not run on this modified HEAD.**
+
+Next development gate: complete offline regression on the final PR #4
+source bytes; fix any failures together. On next real Windows QA check
+all native process-tree, image quality, separate engines, text reviewer
+family capacity, and receipt integrity. Do not ask user to browse nested
+folders or repeat unfinished QA. Do not modify main, bots, monitors,
+start paid APIs, GitHub Actions, merge or release.
+
+---
+
 # Current checkpoint — native startup and reviewer integration after c6d1ec8
 
 Baseline `c6d1ec892b9409968d8ce5ba53cdaf45f45858d2`, same integration branch/draft
