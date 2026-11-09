@@ -83,7 +83,19 @@ def test_windows_acceptance_uses_the_owned_process_not_an_inline_http_call():
     assert 'callback=BoundedQualityReview(vision.model,vision.digest,timeout=900)' in source
     assert 'def callback(case,path,folder):' not in source
     acceptance=(ROOT/'AI_SMM_Work_Architecture_A75/generative_acceptance.py').read_text(encoding='utf-8')
-    assert "if not callable(getattr(quality_callback,'run_with_pump',None)):" in acceptance
+    assert "quality_callback=_bounded_quality_callback(quality_callback)" in acceptance
     assert "raise TypeError('BOUNDED_QUALITY_EXECUTOR_REQUIRED')" in acceptance
     assert 'pump=app.processEvents' in acceptance
     assert 'ThreadPoolExecutor' not in acceptance
+
+
+def test_unowned_quality_callback_rejected_before_any_gpu_work():
+    from generative_acceptance import _bounded_quality_callback
+    with pytest.raises(TypeError,match='BOUNDED_QUALITY_EXECUTOR_REQUIRED'):
+        _bounded_quality_callback(lambda case,output,folder: {'status':'PASS'})
+    assert _bounded_quality_callback(None) is None
+    class Owned:
+        def run_with_pump(self,case,output,folder,*,pump):
+            return {'status':'BLOCKED'}
+    owned=Owned()
+    assert _bounded_quality_callback(owned) is owned
