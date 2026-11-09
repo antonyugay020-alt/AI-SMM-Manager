@@ -243,6 +243,8 @@ def execute(config,role,session,state):
             source=ROOT/name;target=staged/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
         verify_snapshot(staged,fingerprint)
         report_folder=run/'report';report_folder.mkdir()
+        from qa_fixture_masks import stage_qa_evidence
+        stage_qa_evidence(session,report_folder)
         run_env={**env,'AI_SMM_QA_ROLE':role,'AI_SMM_QA_HARDWARE':json.dumps(hardware),
             'AI_SMM_QA_SNAPSHOT':str(session/'source_manifest.json'),'AI_SMM_QA_RUN_OUTPUT':str(report_folder),
             'AI_SMM_QA_ML_VERSIONS':json.dumps({name:{key:info for key,info in runtimes[profile['python']].items() if key in ('torch','diffusers','transformers','accelerate','safetensors')} for name,profile in installed.items()}),'AI_SMM_QA_VISION_MODEL':config['vision_model'],'AI_SMM_GENERATIVE_ACCEPTANCE_PLAN':config['plan'],
