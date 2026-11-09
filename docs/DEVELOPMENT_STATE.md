@@ -1,3 +1,11 @@
+# Atomic legacy task identity and document-effect migrations — 2026-11-10 (unreleased)
+
+The same transaction-boundary audit that covered the document-effect outbox also identified a multi-row legacy task registry backfill with no savepoint. A conflict in the second pending assignment could leave the first task and its context partially migrated, while an application transaction remained open. `task_registry.ensure_registry` now uses the shared `sqlite_transaction_core.compose` boundary around schema creation, index, legacy task rows and context binding. The installer either commits its own complete migration or joins an existing application transaction without committing it. Both this change and the preceding outbox schema upgrade preserve legacy records, do not touch running tasks, and do not use paid providers.
+
+Three `task_registry.py` runtime mirrors updated identically. New `ci/test_task_registry_atomic_migration.py` checks two-row success/idempotence, conflict after one would-be migration, outer rollback, context binding and missing legacy table. **5/5 isolated SQLite tests passed** on the matching migration logic under Python 3.13.5, plus **5/5** earlier outbox migration tests. No full original 263-module/complete CI regression has been executed on this HEAD; no Windows Qt/CUDA QA, RTX 2080 Super still **0/10**. No release/merge/Actions/API/model download/live-bot change/reboot.
+
+---
+
 # Atomic document-outbox schema migration — 2026-11-10 (unreleased)
 
 Baseline `1fa9b44a1f1c8a1e14f342531de2a78fbab857de` on draft PR #4. The document-effect outbox had a legacy SQLite ALTER/CREATE/COPY/DROP migration without a transaction when invoked from a clean replay connection. A process crash between DDL statements could strand the sole receipt table under a temporary name and prevent document completion. The migration now uses the existing shared `sqlite_transaction_core.compose` savepoint: schema installation, legacy copy, index and cleanup are atomic, and an enclosing document transaction is never committed by the installer. No change to existing effect ordering, authorization, paid APIs, media jobs or runtime paths.
