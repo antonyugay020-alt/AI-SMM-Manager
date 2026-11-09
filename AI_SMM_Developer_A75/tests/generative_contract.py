@@ -5,6 +5,43 @@ ENGINES={'image_instruction':'instruct_pix2pix','image_reference':'sd15_ip_adapt
          'image_inpaint':'sd15_inpaint','video_generative':'animatediff_v2v'}
 GEN_TASKS=frozenset(ENGINES)
 
+# One authoritative set of scalar limits for host validation and the
+# structured model-facing schema. Keep optional defaults separate from
+# required model-facing fields; the host remains the final authority.
+GEN_INT_LIMITS=(('width',512,64,512),('height',512,64,512),
+                ('steps',20,2,50),('seed',0,0,2147483647))
+GEN_FLOAT_LIMITS=(('strength',.65,.05,1),('guidance',7.5,1,15))
+VIDEO_INT_LIMITS=(('frames',16,4,16),('fps',8,1,12))
+VIDEO_START_LIMIT=(0,0,3600)
+VIDEO_DIMENSION_LIMIT=384
+
+
+def generation_scalar_schema(task):
+    """Project host numeric bounds into the model-facing JSON Schema.
+
+    Return fresh nested dictionaries, never a mutable shared schema.
+    """
+    if task not in ENGINES:
+        raise ValueError('Known generative task required')
+    video=task=='video_generative'
+    result={}
+    for key,default,low,high in GEN_INT_LIMITS:
+        limit=min(high,VIDEO_DIMENSION_LIMIT) if video and key in ('width','height') else high
+        entry={'type':'integer','minimum':low,'maximum':limit}
+        if key in ('width','height'):
+            entry['multipleOf']=8
+        result[key]=entry
+    for key,default,low,high in GEN_FLOAT_LIMITS:
+        result[key]={'type':'number','minimum':low,'maximum':high}
+    if video:
+        for key,default,low,high in VIDEO_INT_LIMITS:
+            result[key]={'type':'integer','minimum':low,'maximum':high}
+        default,low,high=VIDEO_START_LIMIT
+        result['start']={'type':'number','minimum':low,'maximum':high}
+    return result
+
+
+
 
 def output_kind(request):
     return 'image' if request['task'].startswith('image_') else 'video'
@@ -46,11 +83,11 @@ def validate_generation(request):
     if not isinstance(profile['bundle'],str) or not profile['bundle']:raise ValueError('Local model bundle required')
     sha=profile['manifest_sha256']
     if not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha):raise ValueError('Model manifest digest required')
-    for key,default,low,high in [('width',512,64,512),('height',512,64,512),('steps',20,2,50),('seed',0,0,2147483647)]:
+    for key,default,low,high in GEN_INT_LIMITS:
         value=request.get(key,default)
         if type(value) is not int or not low<=value<=high:raise ValueError('Generative limit: '+key)
         if key in ('width','height') and value%8:raise ValueError('Generative dimensions must be multiples of 8')
-    for key,default,low,high in [('strength',.65,.05,1),('guidance',7.5,1,15)]:
+    for key,default,low,high in GEN_FLOAT_LIMITS:
         value=request.get(key,default)
         if type(value) not in (int,float) or not math.isfinite(value) or not low<=value<=high:raise ValueError('Generative limit: '+key)
     # InstructPix2Pix has no denoising-strength parameter: the same UI knob
@@ -59,10 +96,11 @@ def validate_generation(request):
     if task!='image_instruction' and int(request.get('steps',20)*request.get('strength',.65))<1:
         raise ValueError('Strength must permit at least one denoising step')
     if task=='video_generative':
-        if request.get('width',512)>384 or request.get('height',512)>384:raise ValueError('8 GB video profile supports at most 384 pixels per side')
-        for key,default,low,high in [('frames',16,4,16),('fps',8,1,12)]:
+        if request.get('width',512)>VIDEO_DIMENSION_LIMIT or request.get('height',512)>VIDEO_DIMENSION_LIMIT:raise ValueError('8 GB video profile supports at most 384 pixels per side')
+        for key,default,low,high in VIDEO_INT_LIMITS:
             value=request.get(key,default)
             if type(value) is not int or not low<=value<=high:raise ValueError('Video generation limit: '+key)
-        start=request.get('start',0)
-        if type(start) not in (int,float) or not math.isfinite(start) or not 0<=start<=3600:raise ValueError('Video start invalid')
+        default,low,high=VIDEO_START_LIMIT
+        start=request.get('start',default)
+        if type(start) not in (int,float) or not math.isfinite(start) or not low<=start<=high:raise ValueError('Video start invalid')
     elif any(key in request for key in ('frames','fps','start')):raise ValueError('Video options supplied to image engine')

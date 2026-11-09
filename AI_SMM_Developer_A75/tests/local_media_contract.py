@@ -1,6 +1,6 @@
 """Provider/Qt-free technical contract for every supported local media task."""
 import math
-from generative_contract import GEN_TASKS,validate_generation,source_kind
+from generative_contract import GEN_TASKS,validate_generation,source_kind,generation_scalar_schema
 
 TASKS=frozenset(('image_resize','video_cut','video_format','video_montage','video_from_images'))
 
@@ -107,10 +107,6 @@ def local_media_schema(catalog,capabilities):
             'source_ids':generative_source_ids_schema(task,catalog),
             'profile':{'type':'string','enum':[name for name,p in capabilities['generative_profiles'].items() if p['engine']==ENGINES[task]]},
             'prompt':{'type':'string','minLength':1,'maxLength':6000},
-            'width':{'type':'integer','minimum':64,'maximum':384 if video else 512,'multipleOf':8},
-            'height':{'type':'integer','minimum':64,'maximum':384 if video else 512,'multipleOf':8},
-            'steps':{'type':'integer','minimum':2,'maximum':50},'seed':{'type':'integer','minimum':0,'maximum':2147483647},
-            'strength':{'type':'number','minimum':.05,'maximum':1},'guidance':{'type':'number','minimum':1,'maximum':15}}
-        if video:properties.update(frames={'type':'integer','minimum':4,'maximum':16},fps={'type':'integer','minimum':1,'maximum':12},start={'type':'number','minimum':0})
+            **generation_scalar_schema(task)}
         variants.append({'type':'object','additionalProperties':False,'required':list(properties),'properties':properties})
     return {'anyOf':variants}
