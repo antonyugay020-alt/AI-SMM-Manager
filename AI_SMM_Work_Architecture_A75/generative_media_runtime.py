@@ -15,6 +15,46 @@ class OfflineGenerationError(RuntimeError):
         super().__init__(code)
 
 
+def _stage_deadline(stage,video):
+    """Maximum seconds without a new subprocess stage, never a quality PASS.
+
+    Native video inference on 8GB GPUs requires a longer budget than image
+    generation; loading, lock acquisition, and interpreter startup are bounded
+    separately. This does not change the total job deadline.
+    """
+    return {
+        'runner_started':180,
+        'acquiring_device_lock':240,
+        'waiting_for_local_device':240,
+        'device_lock_acquired':300,
+        'verifying_model_bundle':300,
+        'importing_torch':480,
+        'loading_pipeline':1200,
+        'pipeline_loaded':300,
+        'inference_started':3600 if video else 1500,
+        'inference_complete':300,
+        'receipt_written':180,
+        'runner_completed':180,
+    }.get(stage,180)
+
+
+def _last_child_stage(log_path):
+    """Read a bounded UTF-8 tail; no parsing of model output as instructions."""
+    if not log_path.exists():return None
+    with log_path.open('rb') as stream:
+        size=stream.seek(0,2)
+        stream.seek(max(0,size-8192))
+        raw=stream.read()
+    for line in reversed(raw.splitlines()):
+        try:
+            item=json.loads(line)
+            if isinstance(item,dict) and isinstance(item.get('stage'),str):
+                return item['stage'][:80]
+        except (ValueError,UnicodeDecodeError):
+            continue
+    return None
+
+
 def render_generation(request,sources,target,check,*,tool,probe):
     verify_bundle(request['generation'],check)
     width=request.get('width',512);height=request.get('height',512)
@@ -36,19 +76,29 @@ def render_generation(request,sources,target,check,*,tool,probe):
         process=subprocess.Popen([request['generation'].get('python',sys.executable),str(Path(__file__).with_name('generative_runner.py')),'--request',str(payload)],
             stdin=subprocess.PIPE,stdout=log,stderr=log,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         deadline=time.monotonic()+7200
-        startup_deadline=time.monotonic()+180
+        stage=None
+        last_stage_at=time.monotonic()
+        last_check_at=0
         try:
             from durable_json import atomic_write_json
             atomic_write_json(target.parent/'generation_process.json',{'pid':process.pid,'parent_pid':os.getpid(),'started_at':time.time()})
             while process.poll() is None:
                 check()
-                # A fresh child must produce its first stage before expensive
-                # torch/Diffusers loading. No stdout for 180 s means a startup
-                # stall, not evidence of CUDA inference.
-                if time.monotonic()>startup_deadline and log_path.stat().st_size==0:
-                    raise OfflineGenerationError('LOCAL_MODEL_STARTUP_TIMEOUT',
-                        {'pid':process.pid,'startup_deadline_s':180,'log_bytes':0})
-                if time.monotonic()>deadline:raise TimeoutError('Offline generative deadline exceeded')
+                current=time.monotonic()
+                if current-last_check_at>=1:
+                    observed=_last_child_stage(log_path)
+                    if observed and observed!=stage:
+                        stage=observed
+                        last_stage_at=current
+                    last_check_at=current
+                elapsed=current-last_stage_at
+                stage_limit=_stage_deadline(stage,video)
+                if elapsed>stage_limit:
+                    raise OfflineGenerationError(
+                        'LOCAL_MODEL_STARTUP_TIMEOUT' if stage is None else 'LOCAL_MODEL_STAGE_TIMEOUT',
+                        {'pid':process.pid,'last_stage':stage or 'no_runner_output',
+                         'idle_seconds':round(elapsed,1),'stage_limit_s':stage_limit})
+                if current>deadline:raise TimeoutError('Offline generative deadline exceeded')
                 time.sleep(.1)
             check()
             if process.returncode:
