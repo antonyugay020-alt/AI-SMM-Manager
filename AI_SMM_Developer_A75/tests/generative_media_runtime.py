@@ -31,6 +31,9 @@ def _stage_deadline(stage,video):
         # The same CUDA Python already passed a 90-second import preflight.
         # Bound a stalled native import separately from GPU inference.
         'importing_torch':180,
+        'torch_imported':180,
+        'importing_diffusers':180,
+        'diffusers_imported':300,
         'loading_pipeline':1200,
         'pipeline_loaded':300,
         'inference_started':3600 if video else 1500,
@@ -73,54 +76,48 @@ def render_generation(request,sources,target,check,*,tool,probe):
     payload=target.parent/'generation_request.json'
     payload.write_text(json.dumps({'request':request,'inputs':[str(p) for p in sources],'target':str(target)},ensure_ascii=False),encoding='utf-8')
     log_path=target.parent/'generation_process.log'
-    env={**os.environ,'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_HUB_DISABLE_TELEMETRY':'1','DO_NOT_TRACK':'1'}
-    with log_path.open('wb') as log:
-        process=subprocess.Popen([request['generation'].get('python',sys.executable),str(Path(__file__).with_name('generative_runner.py')),'--request',str(payload)],
-            stdin=subprocess.PIPE,stdout=log,stderr=log,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+    from native_process_runtime import native_command,owned_native_process
+    command=native_command(request['generation'].get('python',sys.executable),
+        Path(__file__).with_name('generative_runner.py'),'--request',payload)
+    with log_path.open('wb') as log,owned_native_process(command,
+            env=os.environ,stdout=log,stderr=log) as process:
         deadline=time.monotonic()+7200
         stage=None
         last_stage_at=time.monotonic()
         last_check_at=0
-        try:
-            from durable_json import atomic_write_json
-            atomic_write_json(target.parent/'generation_process.json',{'pid':process.pid,'parent_pid':os.getpid(),'started_at':time.time()})
-            while process.poll() is None:
-                check()
-                current=time.monotonic()
-                if current-last_check_at>=1:
-                    observed=_last_child_stage(log_path)
-                    if observed and observed!=stage:
-                        stage=observed
-                        last_stage_at=current
-                    last_check_at=current
-                elapsed=current-last_stage_at
-                stage_limit=_stage_deadline(stage,video)
-                if elapsed>stage_limit:
-                    raise OfflineGenerationError(
-                        'LOCAL_MODEL_STARTUP_TIMEOUT' if stage is None else 'LOCAL_MODEL_STAGE_TIMEOUT',
-                        {'pid':process.pid,'last_stage':stage or 'no_runner_output',
-                         'idle_seconds':round(elapsed,1),'stage_limit_s':stage_limit})
-                if current>deadline:raise TimeoutError('Offline generative deadline exceeded')
-                time.sleep(.1)
+        from durable_json import atomic_write_json
+        atomic_write_json(target.parent/'generation_process.json',{'pid':process.pid,'parent_pid':os.getpid(),'started_at':time.time()})
+        while process.poll() is None:
             check()
-            if process.returncode:
-                # Keep a bounded safe diagnostic; never return raw provider/model paths to chat.
-                code='LOCAL_MODEL_EXECUTION_FAILED'
-                with log_path.open('rb') as handle:
-                    handle.seek(max(0,log_path.stat().st_size-32768));tail=handle.read().decode('utf-8','replace')
-                for line in tail.splitlines():
-                    try:
-                        item=json.loads(line);detail=item.get('detail')
-                    except (ValueError,AttributeError):continue
-                    if detail in ('CUDA_NOT_AVAILABLE','CUDA_MEMORY_OR_CAPABILITY_INSUFFICIENT','SYSTEM_RAM_INSUFFICIENT','LOCAL_DEVICE_LOCK_TIMEOUT'):code=detail
-                    if item.get('error_code')=='OutOfMemoryError':code='CUDA_OUT_OF_MEMORY'
-                raise OfflineGenerationError(code,{'returncode':process.returncode,'last_stage':_last_child_stage(log_path) or stage or 'no_runner_output','log_tail':tail[-8192:]})
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                try:process.wait(timeout=5)
-                except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
-            if process.stdin is not None:process.stdin.close()
+            current=time.monotonic()
+            if current-last_check_at>=1:
+                observed=_last_child_stage(log_path)
+                if observed and observed!=stage:
+                    stage=observed
+                    last_stage_at=current
+                last_check_at=current
+            elapsed=current-last_stage_at
+            stage_limit=_stage_deadline(stage,video)
+            if elapsed>stage_limit:
+                raise OfflineGenerationError(
+                    'LOCAL_MODEL_STARTUP_TIMEOUT' if stage is None else 'LOCAL_MODEL_STAGE_TIMEOUT',
+                    {'pid':process.pid,'last_stage':stage or 'no_runner_output',
+                     'idle_seconds':round(elapsed,1),'stage_limit_s':stage_limit})
+            if current>deadline:raise TimeoutError('Offline generative deadline exceeded')
+            time.sleep(.1)
+        check()
+        if process.returncode:
+            # Keep a bounded safe diagnostic; never return raw provider/model paths to chat.
+            code='LOCAL_MODEL_EXECUTION_FAILED'
+            with log_path.open('rb') as handle:
+                handle.seek(max(0,log_path.stat().st_size-32768));tail=handle.read().decode('utf-8','replace')
+            for line in tail.splitlines():
+                try:
+                    item=json.loads(line);detail=item.get('detail')
+                except (ValueError,AttributeError):continue
+                if detail in ('CUDA_NOT_AVAILABLE','CUDA_MEMORY_OR_CAPABILITY_INSUFFICIENT','SYSTEM_RAM_INSUFFICIENT','LOCAL_DEVICE_LOCK_TIMEOUT'):code=detail
+                if item.get('error_code')=='OutOfMemoryError':code='CUDA_OUT_OF_MEMORY'
+            raise OfflineGenerationError(code,{'returncode':process.returncode,'last_stage':_last_child_stage(log_path) or stage or 'no_runner_output','log_tail':tail[-8192:]})
     receipt_path=target.parent/'generation_receipt.json'
     if not receipt_path.is_file() or receipt_path.stat().st_size>8192:raise ValueError('Generative execution receipt missing')
     receipt=json.loads(receipt_path.read_text(encoding='utf-8'))

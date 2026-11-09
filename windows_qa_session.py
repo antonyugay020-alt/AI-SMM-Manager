@@ -105,11 +105,9 @@ def wizard(path):
     finally:root.destroy()
 
 
-def probe_runtime(python,env):
-    code='import json,torch,diffusers,transformers,accelerate,safetensors;print(json.dumps({"cuda":torch.cuda.is_available(),"name":torch.cuda.get_device_name(0) if torch.cuda.is_available() else "","capability":list(torch.cuda.get_device_capability(0)) if torch.cuda.is_available() else [],"total":torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0,"torch":torch.__version__,"diffusers":diffusers.__version__,"transformers":transformers.__version__,"accelerate":accelerate.__version__,"safetensors":safetensors.__version__,"device_count":torch.cuda.device_count()}))'
-    result=subprocess.run([python,'-c',code],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=90,env=env)
-    if result.returncode:raise RuntimeError('ML runtime preflight failed: '+result.stderr[-2000:])
-    return json.loads(result.stdout)
+def probe_runtime(python,env,diagnostic_path=None):
+    from native_process_runtime import probe_native_runtime
+    return probe_native_runtime(python,env,diagnostic_path=diagnostic_path)
 
 
 def input_binding(config,profiles):
@@ -223,7 +221,7 @@ def execute(config,role,session,state):
     runtimes={}
     for profile in installed.values():
         python=profile.get('python')
-        if python not in runtimes:runtimes[python]=probe_runtime(python,env)
+        if python not in runtimes:runtimes[python]=probe_runtime(python,env,session/('native_preflight_'+hashlib.sha256(python.encode()).hexdigest()[:12]+'.json'))
         if not hardware_matches(runtimes[python],role):raise ValueError('Actual CUDA GPU does not match selected phase: '+role)
     hardware=next(iter(runtimes.values()))
     roster={m['name']:m['digest'] for m in inventory if m['name'] in allowed}
@@ -272,6 +270,8 @@ def execute(config,role,session,state):
         write_json(qa_roster_folder/'qa_model_roster.json',qa_roster)
         from qa_fixture_masks import stage_qa_evidence
         stage_qa_evidence(session,report_folder)
+        native_folder=report_folder/'native_preflight';native_folder.mkdir()
+        for record in session.glob('native_preflight_*.json'):shutil.copyfile(record,native_folder/record.name)
         run_env={**env,'AI_SMM_QA_ROLE':role,'AI_SMM_QA_HARDWARE':json.dumps(hardware),
             'AI_SMM_QA_SNAPSHOT':str(session/'source_manifest.json'),'AI_SMM_QA_RUN_OUTPUT':str(report_folder),
             'AI_SMM_QA_ML_VERSIONS':json.dumps({name:{key:info for key,info in runtimes[profile['python']].items() if key in ('torch','diffusers','transformers','accelerate','safetensors')} for name,profile in installed.items()}),'AI_SMM_QA_VISION_MODEL':config['vision_model'],'AI_SMM_GENERATIVE_ACCEPTANCE_PLAN':config['plan'],

@@ -10,7 +10,6 @@ from pathlib import Path
 import sys
 import threading
 import time
-from PIL import Image,ImageOps
 from generative_contract import validate_generation
 from generative_models import verify_bundle
 from project_file_boundary import reject_path_link
@@ -37,9 +36,24 @@ def device_policy(torch,device):
     return torch.float16
 
 
-def load_pipeline(request,torch):
-    from diffusers import (StableDiffusionInstructPix2PixPipeline,StableDiffusionImg2ImgPipeline,
+def initialize_pipeline_types():
+    """Identical instrumented native library order for preflight and inference."""
+    import faulthandler
+    _stage('importing_diffusers')
+    faulthandler.dump_traceback_later(45,repeat=True,file=sys.stderr)
+    try:
+        from PIL import Image,ImageOps
+        from diffusers import (StableDiffusionInstructPix2PixPipeline,StableDiffusionImg2ImgPipeline,
+            StableDiffusionInpaintPipeline,AnimateDiffVideoToVideoPipeline,MotionAdapter)
+    finally:faulthandler.cancel_dump_traceback_later()
+    _stage('diffusers_imported')
+    return (StableDiffusionInstructPix2PixPipeline,StableDiffusionImg2ImgPipeline,
         StableDiffusionInpaintPipeline,AnimateDiffVideoToVideoPipeline,MotionAdapter)
+
+
+def load_pipeline(request,torch):
+    (StableDiffusionInstructPix2PixPipeline,StableDiffusionImg2ImgPipeline,
+        StableDiffusionInpaintPipeline,AnimateDiffVideoToVideoPipeline,MotionAdapter)=initialize_pipeline_types()
     profile=request['generation'];root=Path(profile['bundle']);device=profile['device']
     dtype=device_policy(torch,device)
     if device=='cuda':
@@ -48,6 +62,7 @@ def load_pipeline(request,torch):
         if psutil.virtual_memory().available<minimum*2**30:raise RuntimeError('SYSTEM_RAM_INSUFFICIENT')
     common={'torch_dtype':dtype,'local_files_only':True,'use_safetensors':True}
     task=request['task']
+    _stage('loading_pipeline')
     if task=='image_instruction':pipe=StableDiffusionInstructPix2PixPipeline.from_pretrained(root/'model',**common)
     elif task=='image_reference':pipe=StableDiffusionImg2ImgPipeline.from_pretrained(root/'model',**common)
     elif task=='image_inpaint':pipe=StableDiffusionInpaintPipeline.from_pretrained(root/'model',**common)
@@ -67,6 +82,7 @@ def load_pipeline(request,torch):
 
 
 def image(path,width,height,*,mask=False):
+    from PIL import Image,ImageOps
     with Image.open(path) as value:
         value=ImageOps.exif_transpose(value).convert('L' if mask else 'RGB')
         return ImageOps.pad(value,(width,height),method=Image.Resampling.NEAREST if mask else Image.Resampling.LANCZOS,color=0 if mask else 'white')
@@ -100,6 +116,7 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline,preloaded_torch=No
     _stage('loading_pipeline')
     pipe,dtype=pipeline_loader(request,torch)
     _stage('pipeline_loaded')
+    from PIL import Image,ImageOps
     seed=request.get('seed',0)
     kwargs={'prompt':request['prompt'],'num_inference_steps':request.get('steps',20),
             'guidance_scale':request.get('guidance',7.5),'generator':torch.Generator(device='cpu').manual_seed(seed)}
@@ -140,15 +157,41 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline,preloaded_torch=No
     _stage('receipt_written')
 
 
+def runtime_preflight(torch):
+    # Same import order as model loading, entirely inside GPU ownership.
+    initialize_pipeline_types()
+    import diffusers,transformers,accelerate,safetensors
+    cuda=torch.cuda.is_available()
+    return {'cuda':cuda,'name':torch.cuda.get_device_name(0) if cuda else '',
+        'capability':list(torch.cuda.get_device_capability(0)) if cuda else [],
+        'total':torch.cuda.get_device_properties(0).total_memory if cuda else 0,
+        'device_count':torch.cuda.device_count(),'torch':torch.__version__,
+        'diffusers':diffusers.__version__,'transformers':transformers.__version__,
+        'accelerate':accelerate.__version__,'safetensors':safetensors.__version__}
+
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--request',required=True)
+    parser=argparse.ArgumentParser()
+    modes=parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument('--request');modes.add_argument('--preflight',action='store_true')
     args=parser.parse_args()
     _stage('runner_started')
-    # stdin is a parent-owned pipe, never a console. Parent death closes it.
+    # The native launcher arms OS parent-death containment before this module.
+    # Import Torch before creating Python threads/Pillow/Qt; a blocked native
+    # import can hold the GIL, so an EOF thread cannot provide that protection.
+    # Arm the supplementary stdin watcher only after native CPU initialization.
     def parent_watch():
         while os.read(sys.stdin.fileno(),1024):pass
         os._exit(75)
-    threading.Thread(target=parent_watch,daemon=True).start()
+    if args.preflight:
+        torch=initialize_python_torch()
+        threading.Thread(target=parent_watch,daemon=True).start()
+        _stage('acquiring_device_lock')
+        with device_lock():
+            _stage('device_lock_acquired')
+            runtime=runtime_preflight(torch)
+        print(json.dumps({'stage':'runtime_preflight_complete','runtime':runtime}),flush=True)
+        return 0
     data=json.loads(Path(args.request).read_text(encoding='utf-8'))
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
     os.environ['HF_HUB_DISABLE_TELEMETRY']='1';os.environ['DO_NOT_TRACK']='1'
@@ -157,6 +200,7 @@ def main():
     _stage('verifying_model_bundle')
     verify_bundle(data['request']['generation'])
     torch=initialize_python_torch()
+    threading.Thread(target=parent_watch,daemon=True).start()
     _stage('acquiring_device_lock')
     with device_lock():
         _stage('device_lock_acquired')

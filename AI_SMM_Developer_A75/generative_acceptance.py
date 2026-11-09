@@ -97,15 +97,20 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
     cases=plan['cases']
     engines={installed.get(case.get('profile'),{}).get('engine') for case in cases}
     if set(ENGINES.values())-engines:raise ValueError('All four installed image/video engines must be exercised')
+    runtime_cache={}
+    output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True)
     for case in cases:
         if not isinstance(case,dict) or set(case)-{'profile','sources','prompt','width','height','steps','seed','strength','frames','fps','start'}:raise ValueError('Unsupported acceptance case')
         profile=installed[case['profile']]
         if profile['device']!='cuda' or 'python' not in profile:raise ValueError('Separate CUDA runtime required')
         manifest=verify_bundle(profile)
         if manifest['provenance'].get('test_only') or manifest['provenance'].get('fixture') or manifest['provenance'].get('quality_accepted') is False:raise ValueError('Tiny/fixture models cannot count as acceptance')
-        probe=subprocess.run([profile['python'],'-c',
-            'import torch,json;print(json.dumps({"cuda":torch.cuda.is_available(),"name":torch.cuda.get_device_name(0) if torch.cuda.is_available() else "","capability":torch.cuda.get_device_capability(0) if torch.cuda.is_available() else [],"total":torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0}))'],capture_output=True,text=True,check=True,timeout=60)
-        hardware=json.loads(probe.stdout)
+        from native_process_runtime import probe_native_runtime
+        python=profile['python']
+        if python not in runtime_cache:
+            runtime_cache[python]=probe_native_runtime(python,os.environ,
+                diagnostic_path=output/('runtime_'+str(len(runtime_cache))+'.json'))
+        hardware=runtime_cache[python]
         from windows_qa_contract import hardware_matches
         if not hardware_matches(hardware,qa_role):raise RuntimeError('ACTUAL_QA_GPU_ROLE_MISMATCH')
     output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True)

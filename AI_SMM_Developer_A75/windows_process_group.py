@@ -1,4 +1,4 @@
-"""Own only the QA subprocess tree with a Windows kill-on-close Job Object.
+"""Own only the application-created subprocess tree (including QA) with a Windows kill-on-close Job Object.
 
 Child starts suspended, is assigned before executing any application code, then
 resumes. No process-name/global taskkill. Actual Win32 acceptance is unrun here.

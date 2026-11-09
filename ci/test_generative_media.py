@@ -175,7 +175,10 @@ class GenerativeContracts(unittest.TestCase):
                 (target.parent/'generation_receipt.json').write_text(json.dumps({**{key:request['generation'][key] for key in ('engine','manifest_sha256','device')},'seed':12,'frames':4,'dtype':'model-frame-fixture'}))
             def poll(self):return 0
         # Replace only generation's process factory. FFmpeg/ffprobe stay real.
-        with patch.object(runtime,'subprocess',SimpleNamespace(Popen=ProcessFixture,PIPE=subprocess.PIPE)):
+        from contextlib import contextmanager
+        @contextmanager
+        def fixture_process(command,**options):yield ProcessFixture(command,**options)
+        with patch('native_process_runtime.owned_native_process',fixture_process):
             output=jobs.execute_job(self.db,self.workspace,OWNER,job)
         duration,audio=jobs._probe(output)
         from local_media_quality import compare_audio
@@ -262,7 +265,7 @@ class NativeProcessOwnershipTests(unittest.TestCase):
     def test_parent_channel_eof_terminates_the_actual_runner(self):
         import subprocess
         with tempfile.TemporaryDirectory() as temporary:
-            path=Path(temporary)/'request.json';path.write_text(json.dumps({'request':{},'inputs':[],'target':str(Path(temporary)/'output.png')}))
+            path=Path(temporary)/'request.json';path.write_text(json.dumps({'request':{'generation':{}},'inputs':[],'target':str(Path(temporary)/'output.png')}))
             code="import sys,time,contextlib;sys.path.insert(0,sys.argv[1]);import generative_runner as runner\ndef workload(*args,**kwargs):\n print('entered',flush=True);time.sleep(30)\nrunner.run=workload;runner.validate_generation=lambda request:None;runner.verify_bundle=lambda profile:None;runner.initialize_python_torch=lambda:object();runner.device_lock=contextlib.nullcontext;sys.argv=['runner','--request',sys.argv[2]];runner.main()"
             process=subprocess.Popen([sys.executable,'-c',code,str(Path(jobs.__file__).parent),str(path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             try:

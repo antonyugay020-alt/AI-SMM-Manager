@@ -22,7 +22,7 @@ def test_windows_worker_imports_native_torch_before_acquiring_gpu_lease(tmp_path
     for key in ('HF_HUB_OFFLINE','TRANSFORMERS_OFFLINE',
                 'HF_HUB_DISABLE_TELEMETRY','DO_NOT_TRACK'):
         monkeypatch.setenv(key,os.environ.get(key,''))
-    monkeypatch.setattr(runner.threading.Thread,'start',lambda self:None)
+    monkeypatch.setattr(runner.threading.Thread,'start',lambda self:order.append('watch_armed'))
     monkeypatch.setattr(runner,'validate_generation',lambda item:order.append('validate'))
     monkeypatch.setattr(runner,'verify_bundle',lambda p:order.append('verify'))
     module=object()
@@ -42,7 +42,7 @@ def test_windows_worker_imports_native_torch_before_acquiring_gpu_lease(tmp_path
     monkeypatch.setattr(runner,'run',fake_run)
     assert runner.main()==0
     assert order==['validate','verify','import_torch',
-                   'lease_acquired','run','lease_released']
+                   'watch_armed','lease_acquired','run','lease_released']
 
 
 def test_failed_native_import_never_opens_gpu_lease(tmp_path,monkeypatch):

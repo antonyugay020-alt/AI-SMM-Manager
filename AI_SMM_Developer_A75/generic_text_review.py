@@ -102,13 +102,14 @@ def _calibrate_random_pool(models, required, randomizer):
     candidates=list(models)
     randomizer.shuffle(candidates)
     eligible=[]
-    seen=set()
+    seen=set();attempted=set()
     for name in candidates:
-        family=_model_family(name)
-        if family in seen:
+        family=_model_family(name);tag=name.casefold()
+        if family in seen or tag in attempted:
             continue
-        seen.add(family)
+        attempted.add(tag)
         if _has_structured_json_contract(name):
+            seen.add(family)
             eligible.append(name)
             if len(eligible)>=required:
                 break
@@ -217,7 +218,7 @@ def select_reviewer_models(author_model, *, candidates=None, previous_reviewers=
     blocked = {x.casefold() for x in config['exclude']}
     author = str(author_model).strip().casefold()
     author_family = _model_family(author_model)
-    unique = {}
+    unique = {};variants={}
     for name in available:
         lowered = name.casefold()
         if not name or lowered == author or _model_family(name) == author_family or lowered in blocked:
@@ -226,11 +227,12 @@ def select_reviewer_models(author_model, *, candidates=None, previous_reviewers=
             continue
         # Model-size tags from one family are not independent reviewer voices.
         unique.setdefault(_model_family(name), name)
+        variants.setdefault(lowered,name)
     pool = list(unique.values())
-    requested_pool=list(pool)
+    requested_pool=list(variants.values())
     randomizer = chooser or secrets.SystemRandom()
     if candidates is None and not _reviewer_pool_is_prevalidated():
-        pool = _calibrate_random_pool(pool, len(CHECKS)+(1 if reserve_reviser else 0), randomizer)
+        pool = _calibrate_random_pool(requested_pool, len(CHECKS)+(1 if reserve_reviser else 0), randomizer)
     if len(pool) < MIN_REVIEWER_FAMILIES:
         from review_qualification import ReviewerQualificationUnavailable
         raise ReviewerQualificationUnavailable(f'Нужно минимум {MIN_REVIEWER_FAMILIES} независимых моделей-рецензентов, прошедших проверку компетенции; доступно {len(pool)}.',

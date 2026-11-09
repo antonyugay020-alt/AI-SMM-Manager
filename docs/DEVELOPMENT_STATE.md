@@ -1,3 +1,35 @@
+# Current checkpoint — native startup and reviewer integration after c6d1ec8
+
+Baseline `c6d1ec892b9409968d8ce5ba53cdaf45f45858d2`, same integration branch/draft
+PR #4. Result is the commit containing this checkpoint. Shared isolated native
+preflight/inference now imports Torch before Pillow/Python observer/GPU-lock,
+loads framework classes under the common lease, and protects children with OS
+parent-death ownership even when native code holds the GIL. Bounded diagnostic
+and terminate-race cleanup paths are integrated. Qwen 2.5 14B is not hidden by
+failed Coder variants; derivatives do not add an independent family vote.
+
+Frozen runtime fingerprint:
+`3e7b82e87c7e7ea0abd3f81540ced051413cf8497fda384de9a92907720f2125`.
+Final Linux checks: all 263 modules **2109 + 1049 PASS**; real four-shard isolated
+QA **2109 + 1048 PASS**; complete CI and forced-GC CI **340 + 77 PASS, 2 native
+Windows-only skips**. Real isolated CPU Torch/framework preflight and actual
+cached tiny CPU Qt image/video/cancel/owner-death/same-ID retry/SQLite receipt
+recovery PASS. Mirrors/dependencies/bytes/diff PASS, 164 runtime modules.
+
+[Exact code causes, commands, failures and retained evidence](evidence/20261109-c6d1ec8-native-startup).
+Available cloud checks have completed successfully. The old Windows Torch
+stall's precise native cause and its actual elimination remain unproven; no
+Windows/CUDA or trained-model quality PASS is inferred. Live reviewer admission,
+including the exact installed Qwen 2.5 14B candidate, remains a physical-host
+gate with unchanged six controls. Target acceptance is still **0/10**.
+
+Next physical phase uses the existing RUN_WINDOWS_QA.cmd / phase 1 on 3080 Ti
+and the same Desktop AI_SMM_REPORTS root, preserving junction/history. No new
+Windows run was required before cloud checks passed. No main/bot/monitor
+changes, Actions, paid APIs, model downloads, merge, user build or release.
+
+---
+
 # Real Windows QA f967fdd — grouped findings and source remediations (2026-11-09)
 
 - Source that ACTUALLY ran: `f967fdd961038fd5faf02a9f5a3c9e7facdba1da`, fingerprint `56e96005f249381818cf3559f9ebfa841b03c741dd7c5620cc8f10be61af0b2c`; RTX 3080 Ti, QA session `20261109T091019Z_preliminary_3080ti_544e9777`. Result **BLOCKED** (child exit 2), target 0/10. This source's acceptance ZIP is NOT evidence for the repaired head.
