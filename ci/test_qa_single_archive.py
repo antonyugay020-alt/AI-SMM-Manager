@@ -63,3 +63,10 @@ def test_symlink_latest_file_is_refused(tmp_path):
     with pytest.raises(RuntimeError,match='linked latest'):
         publish_latest_diagnostics(session,root)
     assert external.read_bytes()==b'USER_FILE'
+
+
+def test_batch_launcher_fallback_writes_the_same_single_zip():
+    command=(ROOT/'RUN_WINDOWS_QA.cmd').read_text(encoding='utf-8')
+    assert 'Compress-Archive' in command
+    assert "%QA_REPORTS%\\DIAGNOSTICS.zip" in command
+    assert "BOOTSTRAP_CONSOLE.txt" in command
