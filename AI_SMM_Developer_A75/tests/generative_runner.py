@@ -77,7 +77,16 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline):
     _stage('verifying_model_bundle')
     verify_bundle(profile)
     _stage('importing_torch')
-    import torch
+    # On Windows a native extension import may stall without raising a Python
+    # exception. Emit Python thread stacks periodically into the parent-owned
+    # child log so the QA can distinguish Python import waits from CUDA inference.
+    import faulthandler
+    faulthandler.dump_traceback_later(60,repeat=True,file=sys.stderr)
+    try:
+        import torch
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+    _stage('torch_imported')
     width=request.get('width',512);height=request.get('height',512)
     _stage('loading_pipeline')
     pipe,dtype=pipeline_loader(request,torch)
