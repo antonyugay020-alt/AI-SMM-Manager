@@ -27,13 +27,13 @@ class LocalQueueQtTests(unittest.TestCase):
 
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name)
+        self.root=Path(self.temp.name)/'Проект Ё — 你好';self.root.mkdir()
         self.db=sqlite3.connect(self.root/'studio.sqlite');self.addCleanup(self.db.close)
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
         self.db.executemany('INSERT INTO projects VALUES(?)',[(OWNER,),(OTHER,)])
         self.db.execute('CREATE TABLE assets(id TEXT PRIMARY KEY,project_id TEXT,original_name TEXT,stored_path TEXT,sha256 TEXT,imported_at TEXT)')
         self.db.execute('CREATE TABLE project_files(id TEXT PRIMARY KEY,project_id TEXT,kind TEXT,display_name TEXT,path TEXT,created_at TEXT)')
-        source=self.root/OWNER/'originals'/'source.png';source.parent.mkdir(parents=True)
+        source=self.root/OWNER/'originals'/'Съёмка Ё.png';source.parent.mkdir(parents=True)
         with Image.new('RGB',(160,120),(30,50,70)) as image:image.save(source,'PNG')
         self.db.execute('INSERT INTO assets VALUES(?,?,?,?,?,?)',('source',OWNER,'Source image',str(source),jobs.digest_file(source),'now'));self.db.commit()
         self.current=OWNER

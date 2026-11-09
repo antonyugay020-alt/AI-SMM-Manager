@@ -68,7 +68,12 @@ class ReportAuthorityTests(unittest.TestCase):
 
     def test_symlinked_drafts_folder_cannot_escape_project(self):
         with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as foreign:
-            (Path(folder)/'drafts').symlink_to(foreign, target_is_directory=True)
+            try:
+                (Path(folder)/'drafts').symlink_to(foreign, target_is_directory=True)
+            except OSError as exc:
+                if getattr(exc,'winerror',None)==1314:
+                    self.skipTest('Windows account lacks symbolic-link privilege; reparse boundary tested separately')
+                raise
             with self.assertRaises(ValueError):
                 store_delivery_report(folder, self.a, self.report(self.a))
             self.assertEqual(list(Path(foreign).iterdir()), [])

@@ -1,5 +1,6 @@
 """Bounded Ollama retries and per-call diagnostic events (no prompt logging)."""
 import json
+import hashlib
 import os
 import re
 import socket
@@ -12,6 +13,16 @@ from datetime import datetime, timezone
 from provider_errors import OllamaStageError, ProviderHTTPError, AuthorExecutionAborted
 
 _CASE_DEADLINE = ContextVar('a75_ollama_case_deadline', default=None)
+_UTF8_TRANSPORT = ContextVar('a75_utf8_transport',default=None)
+
+@contextmanager
+def capture_utf8_transport():
+    """Opt-in exact wire evidence for synthetic qualification; never alter verdicts."""
+    evidence={}
+    token=_UTF8_TRANSPORT.set(evidence)
+    try:yield evidence
+    finally:_UTF8_TRANSPORT.reset(token)
+
 _MODEL_CALL_ROLE = ContextVar('a75_ollama_model_call_role', default='author')
 
 @contextmanager
@@ -265,7 +276,11 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
     if cloud_model is None:
         req = urllib.request.Request(endpoint,
             data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-            headers={'Content-Type': 'application/json'})
+            headers={'Content-Type': 'application/json; charset=utf-8'})
+        evidence=_UTF8_TRANSPORT.get()
+        if evidence is not None:
+            evidence.update(request_sha256=hashlib.sha256(req.data).hexdigest(),
+                request_bytes=len(req.data),request_utf8=req.data.decode('utf-8',errors='strict'))
     for attempt in range(1, attempts + 1):
         from cooperative_cancellation import check_cancelled
         check_cancelled()
@@ -320,9 +335,15 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                 else:
                     with urllib.request.urlopen(req, timeout=call_timeout) as response:
                         raw_response=response.read()
+                        evidence=_UTF8_TRANSPORT.get()
+                        if evidence is not None:
+                            evidence.update(response_sha256=hashlib.sha256(raw_response).hexdigest(),
+                                response_bytes=len(raw_response),response_utf8_valid=False)
+                        decoded=raw_response.decode('utf-8',errors='strict')
+                        if evidence is not None:evidence['response_utf8_valid']=True
                         record_model_event('model_transport_body',stage=stage,attempt=attempt,
-                            body=raw_response.decode('utf-8','replace'))
-                        result=json.loads(raw_response)
+                            body=decoded)
+                        result=json.loads(decoded)
             else:
                 from text_providers import call_text
                 options = payload.get('options') if isinstance(payload.get('options'), dict) else {}

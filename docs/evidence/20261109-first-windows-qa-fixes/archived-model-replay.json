@@ -1,0 +1,77 @@
+{
+  "scope": "Offline replay of actual archived Windows replies through current validators; NOT a new live model qualification",
+  "models": [
+    {
+      "model": "qwen2.5-coder:7b",
+      "seed": 4712601117639787375,
+      "archived_pass": false,
+      "replayed_pass": false,
+      "archived_controls_passed": 3,
+      "replayed_controls_passed": 3,
+      "raw_reply_utf8_sha256": "f3f1dd650d9e9e77d39c2520fed67815e8c7721836638d6e7f0f6dbb4c570843",
+      "replacement_character_present": false,
+      "external_model_calls": 0,
+      "fixture_calls": 1
+    },
+    {
+      "model": "qwen3:8b",
+      "seed": 4748817076242968493,
+      "archived_pass": false,
+      "replayed_pass": false,
+      "archived_controls_passed": 3,
+      "replayed_controls_passed": 3,
+      "raw_reply_utf8_sha256": "1536a090fc1d2a50ee95ec28f0c7fb2571e3389b0de90a6ed7c23f8eeee53b38",
+      "replacement_character_present": false,
+      "external_model_calls": 0,
+      "fixture_calls": 1
+    },
+    {
+      "model": "llama3.1:8b",
+      "seed": 703776024030785173,
+      "archived_pass": false,
+      "replayed_pass": false,
+      "archived_controls_passed": 4,
+      "replayed_controls_passed": 4,
+      "raw_reply_utf8_sha256": "0e49da67ef4d95de0a1134e97d8bdf35caefa59b6aeb0c1823c55124aae80ee5",
+      "replacement_character_present": false,
+      "external_model_calls": 0,
+      "fixture_calls": 1
+    },
+    {
+      "model": "deepseek-r1:8b",
+      "seed": 5666520002792292735,
+      "archived_pass": false,
+      "replayed_pass": false,
+      "archived_controls_passed": 0,
+      "replayed_controls_passed": 0,
+      "raw_reply_utf8_sha256": "8c7dd401be41d8bb086812203049297ab0985d4244723280ccb44a95e68a903b",
+      "replacement_character_present": false,
+      "external_model_calls": 0,
+      "fixture_calls": 1
+    },
+    {
+      "model": "mistral:7b",
+      "seed": 8647598699752754003,
+      "archived_pass": false,
+      "replayed_pass": false,
+      "archived_controls_passed": 0,
+      "replayed_controls_passed": 0,
+      "raw_reply_utf8_sha256": "22861771bcef28330f5b92e8a648b7df8370db91cc693af48fb42041aa4d1196",
+      "replacement_character_present": false,
+      "external_model_calls": 0,
+      "fixture_calls": 1
+    },
+    {
+      "model": "gemma3:4b",
+      "seed": 16389959641190304630,
+      "archived_pass": false,
+      "replayed_pass": false,
+      "archived_controls_passed": 0,
+      "replayed_controls_passed": 0,
+      "raw_reply_utf8_sha256": "23b37e48d219d46f09406db3ce2678deaf80643d3dc7ae6ba425ec3eaf5bcbeb",
+      "replacement_character_present": false,
+      "external_model_calls": 0,
+      "fixture_calls": 1
+    }
+  ]
+}

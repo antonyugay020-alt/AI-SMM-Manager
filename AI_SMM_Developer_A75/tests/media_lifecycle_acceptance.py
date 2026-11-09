@@ -1,5 +1,6 @@
 """Actual Qt cancellation, owner crash, watchdog, retry and durable reopening."""
 import json
+from contextlib import closing
 import os
 from pathlib import Path
 import sqlite3
@@ -39,7 +40,7 @@ def exercise(window,panel,app,owner,completed_job,folder):
     cancelled=window.local_media.worker(owner,request=request);panel.refresh();panel._launch_worker(cancelled)
     wait_gui(app,lambda:bool(list((workspace/'.local_media_work').glob(cancelled.job_id+'-*/generation_process.json'))))
     marker=next((workspace/'.local_media_work').glob(cancelled.job_id+'-*/generation_process.json'))
-    process_id=json.loads(marker.read_text())['pid']
+    process_id=json.loads(marker.read_text(encoding='utf-8'))['pid']
     handle=psutil.Process(process_id) if psutil.pid_exists(process_id) else None
     panel.table.selectRow(next(row for row in range(panel.table.rowCount()) if panel.table.item(row,3).data(256)==cancelled.job_id))
     panel.stop_button.click();wait_gui(app,lambda:panel._result_worker is None)
@@ -49,13 +50,13 @@ def exercise(window,panel,app,owner,completed_job,folder):
         wait_owned_exit(handle,20)
     # Kill only the QA owner process; its real model child must exit on EOF.
     orphan=create_job(window.db,owner,request)
-    payload=folder/'fault_request.json';payload.write_text(json.dumps({'database':database,'workspace':str(workspace),'owner':owner,'job':orphan}))
+    payload=folder/'fault_request.json';payload.write_text(json.dumps({'database':database,'workspace':str(workspace),'owner':owner,'job':orphan},ensure_ascii=False),encoding='utf-8')
     with (folder/'owner_crash.log').open('wb') as log:
         process=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--fault-owner',str(payload)],stdout=log,stderr=log)
         try:
             wait_gui(app,lambda:bool(list((workspace/'.local_media_work').glob(orphan+'-*/generation_process.json'))))
             marker=next((workspace/'.local_media_work').glob(orphan+'-*/generation_process.json'))
-            child_id=json.loads(marker.read_text())['pid'];child=psutil.Process(child_id) if psutil.pid_exists(child_id) else None
+            child_id=json.loads(marker.read_text(encoding='utf-8'))['pid'];child=psutil.Process(child_id) if psutil.pid_exists(child_id) else None
             process.terminate();process.wait(timeout=15)
             if child is not None:
                 wait_owned_exit(child,25)
@@ -68,7 +69,7 @@ def exercise(window,panel,app,owner,completed_job,folder):
     wait_gui(app,lambda:panel._result_worker is None,7500)
     if window.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(orphan,)).fetchone()!=('completed',):raise ValueError('Recovered task did not complete')
     # Independent SQLite connection, not a GUI cache, validates retained results.
-    with sqlite3.connect(database) as reopened:
+    with closing(sqlite3.connect(database)) as reopened:
         if reopened.execute('PRAGMA integrity_check').fetchone()!=('ok',):raise ValueError('SQLite integrity failure')
         for job in (completed_job,orphan):
             row=reopened.execute('SELECT output_path,result_sha256 FROM local_media_jobs WHERE id=? AND project_id=?',(job,owner)).fetchone()
@@ -84,7 +85,7 @@ def exercise(window,panel,app,owner,completed_job,folder):
 
 if __name__=='__main__':
     if len(sys.argv)!=3 or sys.argv[1]!='--fault-owner' or os.environ.get('AI_SMM_QA_LOCAL_ONLY')!='1':raise SystemExit('QA-only fault subprocess')
-    payload=json.loads(Path(sys.argv[2]).read_text())
+    payload=json.loads(Path(sys.argv[2]).read_text(encoding='utf-8'))
     database=Path(payload['database']).resolve();root=Path(os.environ['AI_SMM_TEST_ROOT']).resolve()
     if not database.is_relative_to(root):raise SystemExit('Fault probe refuses non-QA database')
     from local_media_jobs import execute_job

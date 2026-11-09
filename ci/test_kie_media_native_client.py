@@ -100,13 +100,12 @@ class NativeClientTests(unittest.TestCase):
 
     def test_native_gateway_full_upload_dispatch_and_result_with_real_files(self):
         import sqlite3
+        from contextlib import closing
         from PIL import Image
         from application_paid_media import PaidMediaComposition
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(Path(directory)/'project.sqlite')) as db:
             root=Path(directory)
             owner='a'*32
-            db=sqlite3.connect(root/'project.sqlite')
-            self.addCleanup(db.close)
             db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
             db.execute('INSERT INTO projects VALUES(?)',(owner,))
             db.execute('CREATE TABLE assets(id TEXT PRIMARY KEY,project_id TEXT,stored_path TEXT)')

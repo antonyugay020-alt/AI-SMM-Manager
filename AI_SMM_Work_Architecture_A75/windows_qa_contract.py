@@ -30,13 +30,13 @@ def sha(path):
 
 def source_snapshot(root):
     root=Path(root);files={}
-    paths=list(root.glob('*.py'))+list(root.glob('*.cmd'))+list(root.glob('*.ps1'))
+    paths=list(root.glob('*.md'))+list(root.glob('*.py'))+list(root.glob('*.cmd'))+list(root.glob('*.ps1'))
     if (root/'requirements-qa.txt').is_file():paths.append(root/'requirements-qa.txt')
     for name in ('AI_SMM_Work_Architecture_A75','AI_SMM_Developer_A75','ci','tools'):
         paths.extend((root/name).rglob('*'))
     for path in sorted(set(paths)):
         if not path.is_file() or any(p in ('__pycache__','.pytest_cache','VALIDATION_RESULTS','.venv') for p in path.parts):continue
-        if path.suffix.lower() not in ('.py','.txt','.json','.cmd','.ini'):continue
+        if path.suffix.lower() not in ('.py','.txt','.json','.cmd','.ini','.md','.ps1'):continue
         if path.is_symlink() or getattr(path,'is_junction',lambda:False)():raise ValueError('Source links are not accepted')
         files[path.relative_to(root).as_posix()]=sha(path)
     if not files:raise ValueError('Empty source snapshot')
@@ -113,3 +113,14 @@ def valid_vram_sample(item):
             if len(fields)==5 and fields[0].strip().startswith('GPU-') and total>=6*1024 and 0<=used<=total:return True
         except (ValueError,TypeError,IndexError,StopIteration):continue
     return False
+
+
+def copy_contract_ci(source_root,destination_root,*,required=False):
+    """Preserve the checkout-relative import graph in isolated QA workers."""
+    import shutil
+    source=Path(source_root)/'ci'
+    if not source.is_dir():
+        if required:raise RuntimeError('Source QA checkout is missing CI modules')
+        return
+    shutil.copytree(source,Path(destination_root)/'ci',ignore=shutil.ignore_patterns(
+        '__pycache__','.pytest_cache','*.pyc'))

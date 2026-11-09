@@ -1,5 +1,6 @@
 """Offline paid Kie dispatch: project ownership, quote, monthly cap and crash safety."""
 import sqlite3
+from contextlib import closing
 import sys
 import tempfile
 import unittest
@@ -162,7 +163,7 @@ class PaidKieBoundaryTests(unittest.TestCase):
     def test_legacy_unbound_reservation_cannot_authorize_paid_transport(self):
         task=self.draft()
         self.ledger.set_monthly_cap("20")
-        with self.ledger._connect() as db:
+        with closing(self.ledger._connect()) as db:
             db.execute("""INSERT INTO cost_reservations
                 (id,period,amount,state) VALUES (?,?,?,'reserved')""",
                 ("legacy",self.ledger.period(),1000000))

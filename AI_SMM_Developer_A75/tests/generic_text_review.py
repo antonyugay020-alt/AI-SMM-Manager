@@ -922,10 +922,12 @@ def run_quality_cycle(request, result, context, *, reviewer=review_text,
                 **verdict, 'attempts': 1, 'repair_applied': False}}
         if verdict.get('review_errors'):
             # An unavailable criterion does not certify a content defect.
+            # An explicitly assigned panel is authoritative: do not discard it
+            # and trigger unbounded roster discovery/qualification on failure.
             # Production may try one different independent panel on IDENTICAL
             # bytes. Never repair from incomplete observations, and never
             # promote the original partial verdict to PASS.
-            if (reviewer is review_text and not verdict.get('issues')
+            if (reviewer is review_text and reviewer_models is None and not verdict.get('issues')
                     and not is_first_pass_acceptance(context)):
                 try:
                     if report:

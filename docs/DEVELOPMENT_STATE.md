@@ -1,3 +1,28 @@
+# Current checkpoint — first real Windows QA fixes (2026-11-09)
+
+Existing integration branch / draft PR #4, baseline `8f48fad`. One linked source
+phase fixes Windows media identity (CPython 3.12 ctime semantics), full CI/test
+isolation, SQLite ownership, fixed reviewer-panel call boundaries, UTF-8 wire
+evidence and source snapshot packaging authorities. Security checks and release
+criteria remain enforced. Runtime fingerprint:
+`8ac7247af0f18cc0ad986b8b58e3ac25545b97ab4154bf7494de215f7118949c`.
+
+Available Linux regression: all 263 developer modules **2109 + 1047 PASS**;
+actual QA four-shard isolated layout **2109 + 1046 PASS**; complete CI and forced
+GC **303 + 77 PASS, 2 Windows-only skips**. Actual cached tiny CPU Qt image/video
+inference, cancel/owner-crash/same-ID retry/SQLite receipt recovery PASS. This is
+not Windows/CUDA or media quality acceptance. Six archived reviewer replies
+still FAIL under unchanged validators; live requalification awaits the PC.
+
+[Causes, exact commands, logs, byte manifests and limits](evidence/20261109-first-windows-qa-fixes).
+Next: update this branch on RTX 3080 Ti, run **RUN_WINDOWS_QA.cmd → 1**, return its
+new session DIAGNOSTICS.zip from `%LOCALAPPDATA%\AI_SMM_Manager\QA`.
+No model download, paid calls, Actions, user build, release or merge. Windows
+final acceptance remains **0/10**. Do not repeat completed cloud integration;
+continue from new actual Windows evidence and preserve failed model verdicts.
+
+---
+
 # Current development state — one-launch two-PC Windows QA
 
 Existing integration branch / draft PR #4. User supplies two LAN Windows PCs,

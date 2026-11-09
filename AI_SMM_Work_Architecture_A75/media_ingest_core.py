@@ -14,7 +14,7 @@ import hashlib
 import os
 import re
 import sqlite3
-import stat
+from stable_file_source import source_identity,descriptor_identity,open_source
 from project_file_boundary import require_managed_folder,require_managed_file
 
 _NAME=re.compile(r'[0-9a-f]{32}\.[a-z0-9]{1,12}\Z')
@@ -139,10 +139,8 @@ def _publish_independent_copy(root, source, target, sha, size, kind):
 
 
 def _source_identity(path):
-    """Regular-file identity, checked on the pathname and opened descriptor."""
-    info=os.stat(path,follow_symlinks=False)
-    if not stat.S_ISREG(info.st_mode):raise ValueError('Source is not a regular file')
-    return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+    """Comparable pathname identity without mixing path-stat and descriptor-stat semantics."""
+    return source_identity(path)
 
 
 def stage_source(root,source):
@@ -154,15 +152,21 @@ def stage_source(root,source):
     tmp=require_managed_file(root,folder/('.import-'+uuid4().hex+'.tmp'),('.ingest_spool',))
     sha=hashlib.sha256();length=0
     try:
-        fd=os.open(src,os.O_RDONLY|getattr(os,'O_BINARY',0)|getattr(os,'O_NOFOLLOW',0))
+        fd=open_source(src)
         with os.fdopen(fd,'rb') as reader,tmp.open('xb') as writer:
-            opened=os.fstat(reader.fileno())
-            if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns)!=before:
+            opened=descriptor_identity(reader.fileno(),src)
+            if opened!=before:
                 raise ValueError('Source changed before media staging')
             for block in iter(lambda:reader.read(1024*1024),b''):
                 sha.update(block);length+=len(block);writer.write(block)
-            closed=os.fstat(reader.fileno())
-            if ((closed.st_dev,closed.st_ino,closed.st_size,closed.st_mtime_ns,closed.st_ctime_ns)!=before
+            # Metadata alone misses writes through pre-existing memory mappings
+            # on Windows. Verify copied bytes against the still-owned handle.
+            reader.seek(0);verified=hashlib.sha256()
+            for block in iter(lambda:reader.read(1024*1024),b''):verified.update(block)
+            if verified.digest()!=sha.digest():
+                raise ValueError('Source changed during media staging (content verification)')
+            closed=descriptor_identity(reader.fileno(),src)
+            if (closed!=before
                     or _source_identity(src)!=before or length!=before[2]):
                 raise ValueError('Source changed during media staging')
             writer.flush();os.fsync(writer.fileno())

@@ -22,14 +22,14 @@ OTHER='b'*32
 class LocalMediaJobsTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name)
+        self.root=Path(self.temp.name)/'Проект Ё — 你好';self.root.mkdir()
         self.db=sqlite3.connect(self.root/'studio.sqlite');self.addCleanup(self.db.close)
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
         self.db.executemany('INSERT INTO projects VALUES(?)',[(OWNER,),(OTHER,)])
         self.db.execute('CREATE TABLE assets(id TEXT PRIMARY KEY,project_id TEXT,original_name TEXT,stored_path TEXT,sha256 TEXT,imported_at TEXT)')
         self.db.execute('CREATE TABLE project_files(id TEXT PRIMARY KEY,project_id TEXT,kind TEXT,display_name TEXT,path TEXT,created_at TEXT)')
         self.db.commit()
-        self.image=self.photo('one.png',(20,40,60))
+        self.image=self.photo('Фото №1 ё.png',(20,40,60))
 
     def workspace(self,owner):return self.root/owner
 
@@ -64,7 +64,7 @@ class LocalMediaJobsTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT project_id,kind FROM project_files WHERE id=?',(job,)).fetchone(),(OWNER,'result'))
 
     def test_real_video_cut_and_format_preserve_source(self):
-        video=self.video('clip.mp4',audio=True);before=jobs.digest_file(video)
+        video=self.video('Ролик №1 ё.mp4',audio=True);before=jobs.digest_file(video)
         for task,options in [('video_cut',{'start':.1,'end':.4}),('video_format',{})]:
             job=jobs.create_job(self.db,OWNER,self.request(task,[video],**options))
             output=jobs.execute_job(self.db,self.workspace,OWNER,job)

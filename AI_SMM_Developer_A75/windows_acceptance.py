@@ -243,7 +243,7 @@ def run_isolated_python_regression(test_dir, environment, profile, shard_count=4
     import concurrent.futures
     import re
     modules=sorted(pathlib.Path(test_dir).glob('test_*.py'))
-    if len(modules) < (100 if profile == 'full' else 1):
+    if len(modules) < (263 if profile == 'full' else 1):
         return {'status':'FAIL','reason':'Incomplete Python test module inventory',
                 'module_count':len(modules),'shards':[]}
     count=min(shard_count,len(modules))
@@ -623,6 +623,10 @@ if __name__=='__main__':
                 shutil.copytree(BASE,isolated_app,ignore=shutil.ignore_patterns(
                     '__pycache__','.pytest_cache','VALIDATION_RESULTS','VALIDATION_RESULTS.zip',
                     '*.pyc'))
+                # Tests import the real checkout CI protocol by repository-relative
+                # path. Copy its complete module tree, not selected entry points.
+                from windows_qa_contract import copy_contract_ci
+                copy_contract_ci(BASE.parent,root,required=SOURCE_QA)
                 isolated_dev_application=root/'AI_SMM_Developer_A75'/'application'
                 shutil.copytree(isolated_app,isolated_dev_application)
                 # Legacy AST contracts address AI_SMM_Developer_A75/app.py, while
@@ -830,6 +834,6 @@ if __name__=='__main__':
         for f in sorted(OUT.rglob('*')):
             if f.is_file() and f.name!='DIAGNOSTICS.zip': z.write(f,arcname='VALIDATION_RESULTS/'+f.relative_to(OUT).as_posix())
     if 'test_source_temp' in locals() and test_source_temp is not None: test_source_temp.cleanup()
-    print('Проверка завершена. Пришлите файл VALIDATION_RESULTS.zip из этой папки.',flush=True)
+    print('Проверка завершена. Диагностика: '+str(OUT/'DIAGNOSTICS.zip' if SOURCE_QA else BASE/'VALIDATION_RESULTS.zip'),flush=True)
     # A blocked acceptance is a failed process, even when diagnostics were saved.
     raise SystemExit(0 if RESULT['status']=='PASS' else 2)

@@ -277,25 +277,26 @@ class MediaStageSourceRaceTests(unittest.TestCase):
 
     def test_replacement_before_open_is_rejected(self):
         import media_ingest_core
-        real=os.open
+        real=media_ingest_core.open_source
         def replace(path,*args,**kwargs):
             if Path(path)==self.source:
                 self.source.unlink();self.source.write_bytes(b'replacement')
             return real(path,*args,**kwargs)
-        with patch.object(media_ingest_core.os,'open',side_effect=replace):
+        with patch.object(media_ingest_core,'open_source',side_effect=replace):
             with self.assertRaisesRegex(ValueError,'changed'):
                 media_ingest_core.stage_source(self.root,self.source)
         self.assertEqual(list((self.root/'.ingest_spool').iterdir()),[])
 
     def test_mutation_after_copy_is_rejected(self):
         import media_ingest_core
-        real=os.fstat
+        real=media_ingest_core.descriptor_identity
         calls=[0]
-        def mutate(fd):
+        def mutate(fd,path=None):
             calls[0]+=1
-            if calls[0]==2:self.source.write_bytes(b'modified during source read')
-            return real(fd)
-        with patch.object(media_ingest_core.os,'fstat',side_effect=mutate):
+            identity=real(fd,path)
+            if calls[0]==2:return (*identity[:3],identity[3]+1,identity[4])
+            return identity
+        with patch.object(media_ingest_core,'descriptor_identity',side_effect=mutate):
             with self.assertRaisesRegex(ValueError,'changed'):
                 media_ingest_core.stage_source(self.root,self.source)
         self.assertEqual(list((self.root/'.ingest_spool').iterdir()),[])
