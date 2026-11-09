@@ -11,6 +11,28 @@ from pathlib import Path
 import time
 
 
+def _observed_generation_stage(project_root):
+    """Best-effort actual CUDA child stage for the live Windows QA status.
+
+    Uses only this isolated QA project root. No fabricated progress percentage,
+    timers that falsely imply work, or dependency on image quality heuristics.
+    """
+    from generative_media_runtime import _last_child_stage
+    latest=None
+    latest_mtime=-1
+    for path in Path(project_root).rglob('generation_process.log'):
+        try:
+            mtime=path.stat().st_mtime_ns
+            if mtime>latest_mtime:
+                latest=path
+                latest_mtime=mtime
+        except OSError:
+            continue
+    if latest is None:return None
+    try:return _last_child_stage(latest)
+    except OSError:return None
+
+
 def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality_callback=None,lifecycle=False):
     if os.name!='nt':raise RuntimeError('WINDOWS_HOST_REQUIRED')
     import subprocess
@@ -60,8 +82,22 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                     getattr(panel,'local_'+field).setValue(case.get(field,default))
                 panel.local_generation_button.click();deadline=time.monotonic()+7500
                 if panel._result_worker is None:raise RuntimeError('Actual GUI did not dispatch generation')
+                observed_stage='worker_dispatched'
+                atomic_write_json(output/'active_case.json',
+                    {'case':index,'request':case,'stage':observed_stage})
+                next_poll=0
                 while panel._result_worker is not None and time.monotonic()<deadline:
-                    app.processEvents();time.sleep(.02)
+                    app.processEvents()
+                    current=time.monotonic()
+                    if current>=next_poll:
+                        next_poll=current+2
+                        actual=_observed_generation_stage(output/'projects')
+                        if actual is not None and actual!=observed_stage:
+                            observed_stage=actual
+                            atomic_write_json(output/'active_case.json',
+                                {'case':index,'request':case,'stage':observed_stage,
+                                 'evidence':'actual_child_stdout'})
+                    time.sleep(.02)
                 if panel._result_worker is not None:raise TimeoutError('Windows generation deadline')
                 job=window.db.execute('SELECT id,state,output_path,error_code FROM local_media_jobs WHERE project_id=?',(owner,)).fetchone()
                 if not job or job[1]!='completed':raise RuntimeError('Actual generation did not complete: '+str(job))
