@@ -19,8 +19,11 @@ def test_latest_successful_report_has_one_stable_path(tmp_path):
     with ZipFile(report/'DIAGNOSTICS.zip','w',ZIP_DEFLATED) as archive:
         archive.writestr('VALIDATION_RESULTS/acceptance.json','{"status":"BLOCKED"}')
     expected=(report/'DIAGNOSTICS.zip').read_bytes()
+    (session/'STATUS.json').write_text('{"status":"BLOCKED"}',encoding='utf-8')
     assert publish_latest_diagnostics(session,root)==root/'DIAGNOSTICS.zip'
-    assert (root/'DIAGNOSTICS.zip').read_bytes()==expected
+    with ZipFile(root/'DIAGNOSTICS.zip') as final:
+        assert final.read('VALIDATION_RESULTS/acceptance.json')==b'{"status":"BLOCKED"}'
+        assert final.read('QA_SESSION/STATUS.json')==b'{"status":"BLOCKED"}'
     assert (report/'DIAGNOSTICS.zip').read_bytes()==expected
 
 
@@ -70,3 +73,25 @@ def test_batch_launcher_fallback_writes_the_same_single_zip():
     assert 'Compress-Archive' in command
     assert "%QA_REPORTS%\\DIAGNOSTICS.zip" in command
     assert "BOOTSTRAP_CONSOLE.txt" in command
+
+
+def test_supervisor_blocked_overrides_child_pass(tmp_path):
+    root=tmp_path/'AI_SMM_REPORTS';root.mkdir()
+    session=root/'latest';report=session/'run_01'/'report';report.mkdir(parents=True)
+    with ZipFile(report/'DIAGNOSTICS.zip','w',ZIP_DEFLATED) as child:
+        child.writestr('VALIDATION_RESULTS/acceptance.json','{"status":"PASS"}')
+    (session/'STATUS.json').write_text('{"status":"BLOCKED","reason":"SOURCE_CHANGED"}')
+    with ZipFile(publish_latest_diagnostics(session,root)) as final:
+        assert final.read('VALIDATION_RESULTS/acceptance.json')==b'{"status":"PASS"}'
+        assert b'"status":"BLOCKED"' in final.read('QA_SESSION/STATUS.json')
+
+
+def test_archive_does_not_extract_or_copy_unsafe_members(tmp_path):
+    root=tmp_path/'AI_SMM_REPORTS';root.mkdir()
+    session=root/'latest';report=session/'run_01'/'report';report.mkdir(parents=True)
+    with ZipFile(report/'DIAGNOSTICS.zip','w',ZIP_DEFLATED) as child:
+        child.writestr('../bad.json','invalid')
+    import pytest
+    with pytest.raises(ValueError,match='Unsafe'):
+        publish_latest_diagnostics(session,root)
+    assert not (root/'DIAGNOSTICS.zip').exists()
