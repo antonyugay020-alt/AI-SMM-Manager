@@ -177,7 +177,8 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
             input_bytes=len(encoded),input_payload=body,encoding='utf-8',strict_roundtrip=json.loads(encoded.decode('utf-8'))==body)
         with capture_utf8_transport() as wire_evidence:
             try:
-                response=send(body,stage='проверка компетенции модели-рецензента',timeout=45,attempts=1,report=report)
+                # Allow local 14B cold-start and 8K-context generation; admission oracle remains unchanged.
+                response=send(body,stage='проверка компетенции модели-рецензента',timeout=180,attempts=1,report=report)
             finally:
                 utf8_evidence['wire']=wire_evidence
         from ollama_resilience import response_diagnostics as diagnostics
