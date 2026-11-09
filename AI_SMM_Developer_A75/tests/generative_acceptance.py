@@ -86,6 +86,13 @@ def _observed_generation_stage(project_root):
     except OSError:return None
 
 
+def _media_case_status(results,expected,*,review,quality_callback):
+    """Fail closed if any independently executed media case fails visual review."""
+    if len(results)!=expected or any(item.get('status')!='PASS' for item in results):
+        return 'BLOCKED'
+    return 'PASS' if review or quality_callback is not None else 'TECHNICAL_PASS_PENDING_VISUAL_REVIEW'
+
+
 def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality_callback=None,lifecycle=False):
     if os.name!='nt':raise RuntimeError('WINDOWS_HOST_REQUIRED')
     import subprocess
@@ -120,7 +127,7 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
     from app import Studio,now
     from kie_media_queue_ui import KieMediaQueuePanel
     from qt_worker_lifecycle import drain_finished_workers
-    app=QApplication.instance() or QApplication([]);window=Studio();window.show();results=[];lifecycle_proof=None
+    app=QApplication.instance() or QApplication([]);window=Studio();window.show();results=[];quality_failures=[];lifecycle_proof=None
     try:
         for index,case in enumerate(cases):
             from durable_json import atomic_write_json
@@ -207,7 +214,7 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                 if lifecycle and lifecycle_proof is None:
                     from media_lifecycle_acceptance import exercise
                     lifecycle_proof=exercise(window,panel,app,owner,job[0],output/'lifecycle')
-                results.append({'automatic_quality':automatic,'visual_review':reviewed,'case':index,'engine':installed[case['profile']]['engine'],'project_id':owner,
+                results.append({'status':'PASS','automatic_quality':automatic,'visual_review':reviewed,'case':index,'engine':installed[case['profile']]['engine'],'project_id':owner,
                     'job_id':job[0],'output':job[2],'sha256':receipt[1],'execution':proof,'originals':original})
                 (output/'cases_progress.json').write_text(json.dumps({'cases':results,'lifecycle':lifecycle_proof},indent=2),encoding='utf-8')
             except BaseException as exc:
@@ -231,6 +238,25 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                 atomic_write_json(output/('case_'+str(index)+'_error.json'),
                     {'case':index,'error':type(exc).__name__,'reason':str(exc),
                      'traceback':traceback.format_exc(),'job_evidence':evidence})
+                # A finished job rejected by the independent quality reviewer
+                # is NOT a broken native executor. Preserve its failure and
+                # continue to the next independent engine; never turn it into PASS.
+                # Timeouts, CUDA errors, cancellation failures, and unexpected
+                # exceptions still fail fast and clean up under the same owner.
+                quality_rejected=(type(exc) is ValueError
+                    and str(exc)=='Automated local quality review did not pass'
+                    and panel._result_worker is None)
+                if quality_rejected:
+                    blocked={'case':index,'engine':installed[case['profile']]['engine'],
+                        'reason':'Automated local quality review did not pass',
+                        'quality_report':'quality_'+str(index)+'/quality.json'}
+                    quality_failures.append(blocked)
+                    results.append({'case':index,'engine':blocked['engine'],
+                        'status':'BLOCKED_QUALITY','quality_report':blocked['quality_report']})
+                    atomic_write_json(output/'cases_progress.json',
+                        {'cases':results,'quality_failures':quality_failures,
+                         'lifecycle':lifecycle_proof})
+                    continue
                 raise
             finally:
                 if panel._result_worker is not None:
@@ -243,8 +269,8 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
         if not drain_finished_workers(app,window,15):raise RuntimeError('Native workers remain alive')
         if not window.close():raise RuntimeError('Actual Studio close refused')
         window.deleteLater();QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete);app.processEvents()
-    report={'status':'PASS' if review or quality_callback is not None else 'TECHNICAL_PASS_PENDING_VISUAL_REVIEW','windows_executed':True,'target_hardware':hardware,
-        'cases':results,'paid_api_calls':0,'qa_role':qa_role,'lifecycle':lifecycle_proof,'semantic_quality':'LOCAL_MODEL_VERIFIED' if quality_callback is not None else 'OPERATOR_VERIFIED' if review else 'NOT_VERIFIED','windows_e2e_counter_advanced':False}
+    report={'status':_media_case_status(results,len(cases),review=review,quality_callback=quality_callback),'windows_executed':True,'target_hardware':hardware,
+        'cases':results,'quality_failures':quality_failures,'paid_api_calls':0,'qa_role':qa_role,'lifecycle':lifecycle_proof,'semantic_quality':'NOT_VERIFIED' if quality_failures else 'LOCAL_MODEL_VERIFIED' if quality_callback is not None else 'OPERATOR_VERIFIED' if review else 'NOT_VERIFIED','windows_e2e_counter_advanced':False}
     (output/'generative_results.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     return report
 
