@@ -176,6 +176,15 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                 receipt=window.db.execute('SELECT receipt_json,output_sha256 FROM local_generation_receipts WHERE job_id=?',(job[0],)).fetchone()
                 if not receipt or digest(job[2])!=receipt[1]:raise ValueError('Output execution receipt mismatch')
                 proof=json.loads(receipt[0])
+                # Assert the real model used the exact UI strength, rather than
+                # merely producing any image with a valid SHA/seed.
+                actual_strength=case.get('strength',.65)
+                if proof.get('requested_strength')!=actual_strength:
+                    raise ValueError('CUDA model ignored or changed user edit strength')
+                if installed[case['profile']]['engine']=='instruct_pix2pix':
+                    from generative_contract import instruction_image_guidance
+                    if proof.get('instruction_image_guidance_scale')!=instruction_image_guidance(actual_strength):
+                        raise ValueError('CUDA Pix2Pix image guidance differs from user edit strength')
                 atomic_write_json(output/'active_case.json',{'case':index,'request':case,'stage':'generated','output':job[2],'execution':proof})
                 expected_versions=json.loads(os.environ.get('AI_SMM_QA_ML_VERSIONS','{}')).get(case['profile'])
                 if os.environ.get('AI_SMM_QA_LOCAL_ONLY')=='1' and proof.get('runtime_versions')!=expected_versions:raise ValueError('ML runtime changed during QA')
