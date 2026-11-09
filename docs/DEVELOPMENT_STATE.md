@@ -1,3 +1,15 @@
+# Quality-proof closure after native QA ownership — November 9, 2026
+
+**Source updated on existing draft PR #4**, starting from `a421aa79b2d2e0d52f344026d48edf879f79c7f4`. Real Windows QA has **not** been repeated, target remains 0/10.
+
+Root issue in the previous owned quality-review interface: the Qt parent only checked `quality.json.status`, `model`, and `digest`. Thus a fabricated or prematurely incomplete child `{"status":"PASS","model":...,"digest":...}` receipt could certify a semantic QA step despite having no objective-media metrics or independent reviewer verdict. **This is now rejected by the supervisor**. The new `validate_quality_receipt` checks concrete objective measurements, all explicit review fields, image instruction/preservation PASS, reference/mask PASS when present, video temporal PASS with sampled frames, and nontrivial reviewer observations. For an objective rejection, a nonempty `objective_rejection` remains BLOCKED; hard errors still abort. The child itself still uses the previously established bounded, OS-owned subprocess (900s) and preserves process log/error receipts.
+
+Changes applied to all three identical `qa_quality_worker.py` mirrors plus the mocked and real-child CPU CI fixtures. The synthetic child tests now return full metrics/verdict objects, not status-only fake successes. New missing-verdict, reference-scope and temporal-evidence rejection tests added. Independently checked six isolated pure receipt decisions, including one completed image PASS, a legitimate objective BLOCKED, and four malformed/unsupported PASS rejections. These are not physical CUDA/Qt/vision tests. GitHub tree confirms **165 shared Work/Developer modules byte-identical**, five critical modules all match across Work/Developer/Developer tests; 263 developer tests and 46 CI test modules present. **Full test execution on final source is not yet proven**.
+
+**Next required gate**: run complete offline 263-module + full CI suite on the exact final PR HEAD, then one Windows RTX 3080 Ti preliminary, then ten consecutive RTX 2080 Super full E2E only after preliminary PASS. Live admission must establish two qualified independent reviewer families; the past Windows Ollama roster did not show Qwen2.5:14b, and no model was installed or billed. A real uncertain watercolor visual review remains a quality BLOCKED. Never count synthetic tests as user-facing image quality. Preserve single user-visible output `Desktop\\AI_SMM_REPORTS\\DIAGNOSTICS.zip`; no changes to main, paid services, GitHub Actions, bots, or Windows restart.
+
+---
+
 # Unified Windows QA quality-review ownership — verification checkpoint (2026-11-09)
 
 Baseline `1658c05eb8aaabba3505117416456ed413bd5e1a`; current draft PR #4 only. This integrated change addresses a **systemic** unbounded-operation risk in all real-media acceptance. Previously, the GUI waited forever in `ThreadPoolExecutor` for a `quality_callback` to finish; a stuck HTTP/Ollama/native media worker could strand the entire QA despite a bounded Diffusers generator. The old thread path has been eliminated, not merely given an ineffective timeout.
