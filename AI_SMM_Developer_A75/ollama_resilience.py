@@ -7,7 +7,7 @@ import socket
 import time
 import urllib.error
 import urllib.request
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from provider_errors import OllamaStageError, ProviderHTTPError, AuthorExecutionAborted
@@ -272,6 +272,9 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
         allowed=json.loads(__import__('os').environ.get('AI_SMM_QA_ALLOWED_MODELS','[]'))
         from text_providers import is_ollama_cloud_tag
         if cloud_model is not None or is_ollama_cloud_tag(model) or model not in allowed:raise RuntimeError('QA forbids unapproved/cloud model transport')
+    from text_providers import is_ollama_cloud_tag
+    local_compute=cloud_model is None and not is_ollama_cloud_tag(model)
+    if local_compute:payload={**payload,'keep_alive':0}
     req = None
     if cloud_model is None:
         req = urllib.request.Request(endpoint,
@@ -328,22 +331,28 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
         record_model_event('model_transport_request',stage=stage,attempt=attempt,role=role,payload=payload)
         try:
             if cloud_model is None:
-                from local_text_runtime import configured_for,request_local
-                if configured_for(model):
-                    result=request_local(payload,timeout=call_timeout)
-                    record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
-                else:
-                    with urllib.request.urlopen(req, timeout=call_timeout) as response:
-                        raw_response=response.read()
-                        evidence=_UTF8_TRANSPORT.get()
-                        if evidence is not None:
-                            evidence.update(response_sha256=hashlib.sha256(raw_response).hexdigest(),
-                                response_bytes=len(raw_response),response_utf8_valid=False)
-                        decoded=raw_response.decode('utf-8',errors='strict')
-                        if evidence is not None:evidence['response_utf8_valid']=True
-                        record_model_event('model_transport_body',stage=stage,attempt=attempt,
-                            body=decoded)
-                        result=json.loads(decoded)
+                from local_compute_lease import device_lease
+                lease=(device_lease(max_wait_seconds=call_timeout,check=check_cancelled)
+                       if local_compute else nullcontext(0.0))
+                with lease as waited:
+                    local_timeout=call_timeout-waited
+                    if local_timeout<=0:raise TimeoutError('Local compute lease exhausted call deadline')
+                    from local_text_runtime import configured_for,request_local
+                    if configured_for(model):
+                        result=request_local(payload,timeout=local_timeout)
+                        record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
+                    else:
+                        with urllib.request.urlopen(req, timeout=local_timeout) as response:
+                            raw_response=response.read()
+                            evidence=_UTF8_TRANSPORT.get()
+                            if evidence is not None:
+                                evidence.update(response_sha256=hashlib.sha256(raw_response).hexdigest(),
+                                    response_bytes=len(raw_response),response_utf8_valid=False)
+                            decoded=raw_response.decode('utf-8',errors='strict')
+                            if evidence is not None:evidence['response_utf8_valid']=True
+                            record_model_event('model_transport_body',stage=stage,attempt=attempt,
+                                body=decoded)
+                            result=json.loads(decoded)
             else:
                 from text_providers import call_text
                 options = payload.get('options') if isinstance(payload.get('options'), dict) else {}

@@ -24,7 +24,7 @@ def _parse_cuda_vram(sample):
     return {'free_mib':free,'total_mib':total,'used_mib':total-free}
 
 
-def _require_cuda_headroom(output,case_index,minimum_free_mib=3072,max_wait_seconds=90):
+def _require_cuda_headroom(output,case_index,minimum_free_mib=3072,max_wait_seconds=90,*,pump=None):
     """Fail closed when another local process occupies native QA VRAM.
 
     Does not kill other GPU processes, change their Ollama residency, or
@@ -32,30 +32,36 @@ def _require_cuda_headroom(output,case_index,minimum_free_mib=3072,max_wait_seco
     """
     import subprocess
     from durable_json import atomic_write_json
-    snapshots=[]
+    snapshots=[];output=Path(output)
     limit=time.monotonic()+max_wait_seconds
-    while True:
-        try:
+    evidence={'minimum_free_mib':minimum_free_mib,'samples':snapshots,'status':'WAITING'}
+    try:
+        while True:
             probe=subprocess.run(
                 ['nvidia-smi','--query-gpu=memory.free,memory.total',
                  '--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=12)
+            evidence['last_probe']={'exit_code':probe.returncode,
+                'stdout':probe.stdout[-1024:],'stderr':getattr(probe,'stderr','')[-1024:]}
             if probe.returncode:raise RuntimeError('QA_CUDA_MEMORY_PROBE_FAILED')
             sample=_parse_cuda_vram(probe.stdout)
-            sample['observed_at_unix']=time.time()
-            snapshots.append(sample)
-            atomic_write_json(Path(output)/('vram_case_'+str(case_index)+'.json'),
-                {'minimum_free_mib':minimum_free_mib,'samples':snapshots,
-                 'status':'PASS' if sample['free_mib']>=minimum_free_mib else 'WAITING'})
-            if sample['free_mib']>=minimum_free_mib:return sample
-        except (OSError,subprocess.TimeoutExpired) as exc:
+            sample['observed_at_unix']=time.time();snapshots.append(sample)
+            evidence['status']='PASS' if sample['free_mib']>=minimum_free_mib else 'WAITING'
+            atomic_write_json(output/('vram_case_'+str(case_index)+'.json'),evidence)
+            if evidence['status']=='PASS':return sample
+            if time.monotonic()>=limit:
+                raise RuntimeError('QA_CUDA_INSUFFICIENT_FREE_VRAM: only '+str(sample['free_mib'])+' MiB free')
+            until=min(limit,time.monotonic()+5)
+            while time.monotonic()<until:
+                if pump is not None:pump()
+                time.sleep(min(.1,max(0,until-time.monotonic())))
+    except Exception as exc:
+        code=(str(exc).split(':',1)[0] if isinstance(exc,RuntimeError)
+              else 'QA_CUDA_MEMORY_PROBE_FAILED')
+        evidence.update(status='BLOCKED',error_code=code,error_type=type(exc).__name__)
+        atomic_write_json(output/('vram_case_'+str(case_index)+'.json'),evidence)
+        if isinstance(exc,(OSError,subprocess.TimeoutExpired)):
             raise RuntimeError('QA_CUDA_MEMORY_PROBE_FAILED') from exc
-        if time.monotonic()>=limit:
-            atomic_write_json(Path(output)/('vram_case_'+str(case_index)+'.json'),
-                {'minimum_free_mib':minimum_free_mib,'samples':snapshots,
-                 'status':'BLOCKED','error_code':'QA_CUDA_INSUFFICIENT_FREE_VRAM'})
-            raise RuntimeError('QA_CUDA_INSUFFICIENT_FREE_VRAM: only '+
-                               str(snapshots[-1]['free_mib'])+' MiB free')
-        time.sleep(min(5,max(0,limit-time.monotonic())))
+        raise
 
 
 def _observed_generation_stage(project_root):
@@ -115,7 +121,7 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
             from durable_json import atomic_write_json
             atomic_write_json(output/'active_case.json',{'case':index,'request':case,'stage':'starting'})
             try:
-                _require_cuda_headroom(output,index)
+                _require_cuda_headroom(output,index,pump=app.processEvents)
             except BaseException as exc:
                 atomic_write_json(output/'active_case.json',
                     {'case':index,'request':case,'stage':'blocked_vram',
@@ -145,7 +151,7 @@ def run_cases(plan_path,output,*,review=False,qa_role="target_2080super",quality
                     current=time.monotonic()
                     if current>=next_poll:
                         next_poll=current+2
-                        actual=_observed_generation_stage(output/'projects')
+                        actual=_observed_generation_stage(window.core.workspace(owner))
                         if actual is not None and actual!=observed_stage:
                             observed_stage=actual
                             atomic_write_json(output/'active_case.json',

@@ -242,6 +242,20 @@ class GenerativeContracts(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT error_code FROM local_media_jobs').fetchone(),('CUDA_NOT_AVAILABLE',))
         self.assertEqual(json.loads(self.db.execute('SELECT diagnostic_json FROM local_generation_diagnostics').fetchone()[0])['returncode'],1)
 
+    def test_invalid_post_inference_receipt_retains_durable_stage_evidence(self):
+        request=self.request();job=jobs.create_job(self.db,OWNER,request)
+        def fixture(request,sources,target,check):
+            with Image.new('RGB',(64,64),(50,70,90)) as image:image.save(target,'PNG')
+            (target.parent/'generation_process.log').write_text('{"stage":"receipt_written"}\n',encoding='utf-8')
+            (target.parent/'generation_receipt.json').write_text(json.dumps({
+                **{k:request['generation'][k] for k in ('engine','manifest_sha256','device')},'seed':999}),encoding='utf-8')
+        with patch.object(jobs,'_render',side_effect=fixture):
+            with self.assertRaisesRegex(ValueError,'seed differs'):jobs.execute_job(self.db,self.workspace,OWNER,job)
+        row=self.db.execute('SELECT diagnostic_json FROM local_generation_diagnostics WHERE job_id=?',(job,)).fetchone()
+        self.assertIn('receipt_written',json.loads(row[0])['stage_log_tail'])
+        self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('failed',))
+        self.assertIsNone(self.db.execute('SELECT id FROM project_files WHERE id=?',(job,)).fetchone())
+
 if __name__=='__main__':unittest.main()
 
 class NativeProcessOwnershipTests(unittest.TestCase):
@@ -252,6 +266,10 @@ class NativeProcessOwnershipTests(unittest.TestCase):
             code="import sys,time,contextlib;sys.path.insert(0,sys.argv[1]);import generative_runner as runner\ndef workload(*args):\n print('entered',flush=True);time.sleep(30)\nrunner.run=workload;runner.device_lock=contextlib.nullcontext;sys.argv=['runner','--request',sys.argv[2]];runner.main()"
             process=subprocess.Popen([sys.executable,'-c',code,str(Path(jobs.__file__).parent),str(path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             try:
+                for stage in ('runner_started','acquiring_device_lock','device_lock_acquired'):
+                    event=json.loads(process.stdout.readline())
+                    self.assertEqual(event['stage'],stage)
+                    self.assertIsInstance(event['monotonic_s'],(int,float))
                 self.assertEqual(process.stdout.readline().strip(),'entered')
                 process.stdin.close();process.wait(timeout=10)
                 self.assertEqual(process.returncode,75)
@@ -287,7 +305,8 @@ class NativeProcessOwnershipTests(unittest.TestCase):
                 self.assertEqual(first.stdout.readline().strip(),'locked')
                 second=subprocess.Popen([sys.executable,'-c',prefix+"with device_lock(sys.argv[2]):\n print('acquired',flush=True)\n",str(Path(jobs.__file__).parent),str(lock)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
                 waiting=json.loads(second.stdout.readline())
-                self.assertEqual(waiting,{'stage':'waiting_for_local_device'})
+                self.assertEqual(waiting['stage'],'waiting_for_local_device')
+                self.assertIsInstance(waiting['monotonic_s'],(int,float))
                 first.terminate();first.wait(timeout=5)
                 output,error=second.communicate(timeout=10)
                 self.assertEqual(second.returncode,0,error);self.assertIn('acquired',output)

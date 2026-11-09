@@ -52,3 +52,25 @@ def test_failed_nvidia_smi_never_becomes_a_pass():
             try:_require_cuda_headroom(Path(directory),0,max_wait_seconds=0)
             except RuntimeError as error:assert 'QA_CUDA_MEMORY_PROBE_FAILED' in str(error)
             else:raise AssertionError('Failed GPU probe counted as ready')
+
+
+def test_invalid_driver_output_preserves_failed_probe_evidence():
+    with tempfile.TemporaryDirectory() as directory:
+        with patch('subprocess.run',return_value=SimpleNamespace(returncode=0,stdout='N/A, 8192',stderr='driver unavailable')):
+            try:_require_cuda_headroom(Path(directory),1,max_wait_seconds=0)
+            except RuntimeError:pass
+            else:raise AssertionError('Invalid driver output passed')
+        evidence=json.loads((Path(directory)/'vram_case_1.json').read_text())
+        assert evidence['status']=='BLOCKED'
+        assert evidence['last_probe']['stdout']=='N/A, 8192'
+        assert evidence['samples']==[]
+
+
+def test_preflight_services_qt_events_while_waiting_for_real_headroom():
+    ticks=iter([0,0,0,0,0,1,6,6,6,6])
+    samples=[SimpleNamespace(returncode=0,stdout='100, 8192'),SimpleNamespace(returncode=0,stdout='4096, 8192')]
+    pumped=[]
+    with tempfile.TemporaryDirectory() as directory:
+        with patch('subprocess.run',side_effect=samples),patch('generative_acceptance.time.monotonic',side_effect=lambda:next(ticks,6)),patch('generative_acceptance.time.sleep'):
+            result=_require_cuda_headroom(Path(directory),3,max_wait_seconds=90,pump=lambda:pumped.append(True))
+        assert pumped and result['free_mib']==4096

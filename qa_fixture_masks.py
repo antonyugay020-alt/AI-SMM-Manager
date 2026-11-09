@@ -8,7 +8,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 
 def _sha(path):
@@ -22,8 +22,9 @@ def _valid_mask(path,size):
     if path.suffix.lower()!='.png' or not path.is_file():return False
     try:
         with Image.open(path) as image:
-            if image.size!=size or image.mode not in ('1','L'):return False
-            counts=image.convert('L').getcolors(maxcolors=257)
+            oriented=ImageOps.exif_transpose(image)
+            if oriented.size!=size or oriented.mode not in ('1','L'):return False
+            counts=oriented.convert('L').getcolors(maxcolors=257)
             return counts is not None and {value for count,value in counts}=={0,255}
     except (OSError,ValueError):return False
 
@@ -50,11 +51,15 @@ def prepare_qa_plan(plan_path,installed,reports_root,session):
             raise ValueError('Inpainting QA requires source photo and separate mask')
         photo=Path(sources[0]);auxiliary=Path(sources[1])
         if not photo.is_file():raise ValueError('Inpainting source photograph is missing')
-        with Image.open(photo) as image:size=image.size
+        with Image.open(photo) as image:size=ImageOps.exif_transpose(image).size
         if min(size)<8:raise ValueError('Inpainting QA image is too small for a meaningful mask')
         kind='background' if mask_index==0 else 'object'
         mask_index+=1
-        if _valid_mask(auxiliary,size):continue
+        if _valid_mask(auxiliary,size):
+            audit.append({'case':index,'kind':kind,'source_sha256':_sha(photo),
+                'source_path':str(photo),'mask_sha256':_sha(auxiliary),'mask_path':str(auxiliary),
+                'fixture':'selected_existing_binary_mask'})
+            continue
         mask=Image.new('L',size,255 if kind=='background' else 0)
         box=(size[0]//4,size[1]//5,size[0]*3//4,size[1]*4//5)
         ImageDraw.Draw(mask).ellipse(box,fill=0 if kind=='background' else 255)
@@ -70,7 +75,7 @@ def prepare_qa_plan(plan_path,installed,reports_root,session):
             pending.write_bytes(payload);pending.replace(dest)
         case['sources'][1]=str(dest.resolve())
         audit.append({'case':index,'kind':kind,'source_sha256':source_hash,
-            'mask_sha256':fixture_hash,'mask_path':str(dest),
+            'source_path':str(photo),'mask_sha256':fixture_hash,'mask_path':str(dest),
             'replaced_invalid_auxiliary':str(auxiliary),'fixture':'deterministic_binary_QA_only'})
         print('QA inpaint mask prepared:',index,kind,flush=True)
     session=Path(session)
@@ -94,6 +99,9 @@ def stage_qa_evidence(session,report_folder):
     (folder/'qa_fixture_mask_provenance.json').write_text(
         json.dumps(audit,ensure_ascii=False,indent=2),encoding='utf-8')
     for item in audit['items']:
+        photo=Path(item['source_path'])
+        if not photo.is_file() or _sha(photo)!=item['source_sha256']:
+            raise ValueError('QA source changed after mask provenance was recorded')
         origin=Path(item['mask_path'])
         if not origin.is_file() or _sha(origin)!=item['mask_sha256']:
             raise ValueError('QA mask changed before attested execution')

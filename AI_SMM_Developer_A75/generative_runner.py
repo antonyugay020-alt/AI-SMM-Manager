@@ -4,13 +4,10 @@ APIs pinned to diffusers 0.36.0. Parent owns cancellation; EOF watchdog prevents
 an orphan CUDA workload when the GUI process dies. No GPU acceptance is implied.
 """
 import argparse
-import errno
-from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import threading
 import time
 from PIL import Image,ImageOps
@@ -24,37 +21,10 @@ def _stage(name):
     print(json.dumps({'stage':name,'monotonic_s':round(time.monotonic(),3)}),flush=True)
 
 
-@contextmanager
 def device_lock(path=None,*,wait=True,max_wait_seconds=180):
-    path=reject_path_link(Path(path) if path is not None else Path(tempfile.gettempdir())/'ai-smm-generative-device0.lock')
-    with path.open('a+b') as handle:
-        if path.stat().st_size==0:handle.write(b'0');handle.flush()
-        announced=False
-        started=time.monotonic()
-        if max_wait_seconds<=0:raise ValueError('Positive device-lock deadline required')
-        while True:
-            handle.seek(0)
-            try:
-                if os.name=='nt':
-                    import msvcrt
-                    msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1)
-                else:
-                    import fcntl
-                    fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
-                break
-            except OSError as exc:
-                busy=(exc.errno in (errno.EACCES,errno.EAGAIN,errno.EDEADLK)
-                    or (os.name=='nt' and getattr(exc,'winerror',None) in (32,33)))
-                if not wait or not busy:raise
-                if not announced:_stage('waiting_for_local_device');announced=True
-                if time.monotonic()-started>=max_wait_seconds:
-                    raise TimeoutError('LOCAL_DEVICE_LOCK_TIMEOUT') from exc
-                time.sleep(.2)
-        try:yield
-        finally:
-            handle.seek(0)
-            if os.name=='nt':msvcrt.locking(handle.fileno(),msvcrt.LK_UNLCK,1)
-            else:fcntl.flock(handle.fileno(),fcntl.LOCK_UN)
+    from local_compute_lease import device_lease
+    return device_lease(path,wait=wait,max_wait_seconds=max_wait_seconds,
+        on_wait=lambda:_stage('waiting_for_local_device'))
 
 
 def device_policy(torch,device):
@@ -119,7 +89,8 @@ def run(request,inputs,target,*,pipeline_loader=load_pipeline):
     if task=='image_instruction':kwargs.update(image=first,image_guidance_scale=1.5)
     elif task=='image_inpaint':
         with Image.open(inputs[0]) as source,Image.open(inputs[1]) as mask:
-            if source.size!=mask.size:raise ValueError('Mask geometry must match source')
+            if ImageOps.exif_transpose(source).size!=ImageOps.exif_transpose(mask).size:
+                raise ValueError('Mask geometry must match oriented source')
         kwargs.update(image=first,mask_image=image(inputs[1],width,height,mask=True),strength=request.get('strength',.65),width=width,height=height)
     elif task=='image_reference':kwargs.update(image=first,ip_adapter_image=image(inputs[1],width,height),strength=request.get('strength',.65))
     else:
@@ -174,5 +145,7 @@ def main():
 if __name__=='__main__':
     try:raise SystemExit(main())
     except Exception as exc:
-        print(json.dumps({'error_code':type(exc).__name__,'detail':str(exc)[:400]}),file=sys.stderr,flush=True)
+        import traceback
+        print(json.dumps({'error_code':type(exc).__name__,'detail':str(exc)[:400],
+            'traceback':traceback.format_exc()[-8192:]}),file=sys.stderr,flush=True)
         raise SystemExit(1)

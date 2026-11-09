@@ -110,9 +110,9 @@ def render_generation(request,sources,target,check,*,tool,probe):
                     try:
                         item=json.loads(line);detail=item.get('detail')
                     except (ValueError,AttributeError):continue
-                    if detail in ('CUDA_NOT_AVAILABLE','CUDA_MEMORY_OR_CAPABILITY_INSUFFICIENT','SYSTEM_RAM_INSUFFICIENT'):code=detail
+                    if detail in ('CUDA_NOT_AVAILABLE','CUDA_MEMORY_OR_CAPABILITY_INSUFFICIENT','SYSTEM_RAM_INSUFFICIENT','LOCAL_DEVICE_LOCK_TIMEOUT'):code=detail
                     if item.get('error_code')=='OutOfMemoryError':code='CUDA_OUT_OF_MEMORY'
-                raise OfflineGenerationError(code,{'returncode':process.returncode,'log_tail':tail[-8192:]})
+                raise OfflineGenerationError(code,{'returncode':process.returncode,'last_stage':_last_child_stage(log_path) or stage or 'no_runner_output','log_tail':tail[-8192:]})
         finally:
             if process.poll() is None:
                 process.terminate()

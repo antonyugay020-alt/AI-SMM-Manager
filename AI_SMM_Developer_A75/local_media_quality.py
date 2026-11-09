@@ -28,7 +28,13 @@ class LocalVision:
 
     def call(self,path,data=None,timeout=300):
         req=request.Request(self.base+path,data=None if data is None else json.dumps(data).encode(),headers={'Content-Type':'application/json'})
-        with self.http(req,timeout=timeout) as response:raw=response.read(16*1024*1024+1)
+        from contextlib import nullcontext
+        from local_compute_lease import device_lease
+        lease=device_lease(max_wait_seconds=timeout) if path=='/api/chat' else nullcontext(0.0)
+        with lease as waited:
+            remaining=timeout-waited
+            if remaining<=0:raise TimeoutError('Local vision lease exhausted call deadline')
+            with self.http(req,timeout=remaining) as response:raw=response.read(16*1024*1024+1)
         if len(raw)>16*1024*1024:raise ValueError('Local vision response too large')
         return json.loads(raw)
 

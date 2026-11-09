@@ -1,3 +1,31 @@
+# Current integration checkpoint — full regression after 3838bc9
+
+Baseline `3838bc94413a918438aa549d6c99ee2e7cd84e2f`, same draft PR #4 / integration
+branch. The commit containing this checkpoint completes shared app-owned
+Ollama/vision/Diffusers compute ownership, single-call cold-start contracts,
+native stage/lifecycle tests, durable post-inference diagnostics, current-case
+Qt progress, auditable VRAM failures and EXIF-consistent mask provenance.
+
+Final runtime fingerprint:
+`5e247e039c11904d6a3a9d06de72d1e80bb3d8b78279150093a03095da0cebcc`.
+All 263 developer modules **2109 + 1048 PASS**; actual four-shard isolated QA
+layout **2109 + 1047 PASS**; complete CI and forced-GC CI **326 + 77 PASS,
+2 native-Windows-only skips**. Actual cached tiny CPU Qt image/video generation,
+stop/owner-death/same-ID retry/SQLite reopen/receipt adoption PASS. Mirrors and
+dependency checks PASS (163 runtime modules). No live Windows, CUDA, full-size
+model quality or current Ollama admission is inferred from those results.
+
+[Source bytes, defects, exact commands and complete evidence](evidence/20261109-3838bc9-integrated-regression).
+Next physical step: current source **RUN_WINDOWS_QA.cmd → 1**, RTX 3080 Ti,
+reports only **%USERPROFILE%\Desktop\AI_SMM_REPORTS**; preserve any existing
+junction/history. Live text model admission must be rerun, including the exact
+installed Qwen 2.5 14B tag if selected by the verified local roster. Windows
+Qt/CUDA acceptance remains **0/10**. No main changes, paid calls, Actions,
+model downloads, user builds, release or merge. Continue from new Windows
+evidence rather than repeating completed cloud integration.
+
+---
+
 # QA remediation checkpoint — 2026-11-09, pre-Windows acceptance
 
 Source baseline: `af2532124a4bbafb58952226dd1f2a2e982ec8bd`, new integration PR #4 head before checkpoint: `cd9a6eb024f055d26efdbb9e61cc8b6bfdebb9dc` (draft). No merge, main change, paid API, Actions invocation, model download or user release.

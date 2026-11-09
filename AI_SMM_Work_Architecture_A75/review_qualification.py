@@ -14,6 +14,9 @@ from threading import RLock
 from review_arbitration import adjudicate_findings, FindingReviewUnavailable
 from ollama_resilience import model_call_role, request_chat, capture_utf8_transport
 
+# One request may include a local 14B cold start; quality oracle is unchanged.
+LOCAL_REVIEW_TIMEOUT_SECONDS = 180
+
 PROTOCOL = 'review_qualification_host_scope_r77_v2'
 CERT_ENV = 'AI_SMM_REVIEW_QUALIFICATIONS'
 _CACHE = {}
@@ -178,7 +181,7 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
         with capture_utf8_transport() as wire_evidence:
             try:
                 # Allow local 14B cold-start and 8K-context generation; admission oracle remains unchanged.
-                response=send(body,stage='проверка компетенции модели-рецензента',timeout=180,attempts=1,report=report)
+                response=send(body,stage='проверка компетенции модели-рецензента',timeout=LOCAL_REVIEW_TIMEOUT_SECONDS,attempts=1,report=report)
             finally:
                 utf8_evidence['wire']=wire_evidence
         from ollama_resilience import response_diagnostics as diagnostics

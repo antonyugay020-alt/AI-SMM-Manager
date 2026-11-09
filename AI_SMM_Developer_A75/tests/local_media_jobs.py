@@ -379,30 +379,30 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
             target=temp/('output.mp4' if is_video else 'output.png')
             try:
                 _render(request,sources,target,check)
+                check()
+                validate_media_bytes(target,is_video=is_video)
+                _verify_output(request,sources,target)
+                if request['task'] in GEN_TASKS:
+                    receipt_path=temp/'generation_receipt.json'
+                    if not receipt_path.is_file() or receipt_path.stat().st_size>8192:raise ValueError('Missing local generation receipt')
+                    generation=json.loads(receipt_path.read_text(encoding='utf-8'))
+                    for key in ('engine','manifest_sha256','device'):
+                        if generation.get(key)!=request['generation'][key]:raise ValueError('Generation receipt differs from durable request')
+                    if generation.get('seed')!=request.get('seed',0):raise ValueError('Generation seed differs from durable request')
+                    db.execute('INSERT OR REPLACE INTO local_generation_receipts VALUES(?,?,?,?)',
+                        (job,owner,json.dumps(generation,sort_keys=True),digest_file(target)));db.commit()
+                check()
+                receipt=ingest(db,workspace,target,project_id=owner,kind='video' if is_video else 'result',
+                               item_id=job,original_name=request['task']+target.suffix,authorize=check)
+                if not receipt.published:raise RuntimeError('Local publication pending recovery')
+                _finish_linked(db,workspace,owner,job,str(receipt.final_path))
+                db.execute("UPDATE local_media_jobs SET state='completed',output_path=?,result_sha256=?,updated_at=? WHERE id=? AND project_id=? AND claim=?",
+                           (str(receipt.final_path),digest_file(receipt.final_path),now(),job,owner,claim))
+                _event(db,owner,job,'completed');db.commit()
+                return str(receipt.final_path)
             except BaseException as exc:
                 if request['task'] in GEN_TASKS:_retain_generation_failure(temp,exc)
                 raise
-            check()
-            validate_media_bytes(target,is_video=is_video)
-            _verify_output(request,sources,target)
-            if request['task'] in GEN_TASKS:
-                receipt_path=temp/'generation_receipt.json'
-                if not receipt_path.is_file() or receipt_path.stat().st_size>8192:raise ValueError('Missing local generation receipt')
-                generation=json.loads(receipt_path.read_text(encoding='utf-8'))
-                for key in ('engine','manifest_sha256','device'):
-                    if generation.get(key)!=request['generation'][key]:raise ValueError('Generation receipt differs from durable request')
-                if generation.get('seed')!=request.get('seed',0):raise ValueError('Generation seed differs from durable request')
-                db.execute('INSERT OR REPLACE INTO local_generation_receipts VALUES(?,?,?,?)',
-                    (job,owner,json.dumps(generation,sort_keys=True),digest_file(target)));db.commit()
-            check()
-            receipt=ingest(db,workspace,target,project_id=owner,kind='video' if is_video else 'result',
-                           item_id=job,original_name=request['task']+target.suffix,authorize=check)
-            if not receipt.published:raise RuntimeError('Local publication pending recovery')
-            _finish_linked(db,workspace,owner,job,str(receipt.final_path))
-            db.execute("UPDATE local_media_jobs SET state='completed',output_path=?,result_sha256=?,updated_at=? WHERE id=? AND project_id=? AND claim=?",
-                       (str(receipt.final_path),digest_file(receipt.final_path),now(),job,owner,claim))
-            _event(db,owner,job,'completed');db.commit()
-            return str(receipt.final_path)
     except BaseException as exc:
         if db.in_transaction:db.rollback()
         state='cancelled' if isinstance(exc,LocalMediaStopped) else 'failed'

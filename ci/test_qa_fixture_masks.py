@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 import tempfile
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from PIL import Image,ImageDraw
 from qa_fixture_masks import prepare_qa_plan,stage_qa_evidence,_valid_mask,_sha
 
@@ -45,7 +47,10 @@ def test_existing_matching_binary_mask_is_not_replaced():
         result=json.loads(Path(selected).read_text())
         assert result['cases'][0]['sources'][1]==str(mask)
         assert _sha(mask)==hash_before
-        assert json.loads((session/'qa_fixture_mask_provenance.json').read_text())['items']==[]
+        audit=json.loads((session/'qa_fixture_mask_provenance.json').read_text(encoding='utf-8'))['items']
+        assert len(audit)==1 and audit[0]['fixture']=='selected_existing_binary_mask'
+        staged=stage_qa_evidence(session,root/'report')
+        assert _sha(staged/'case_0_mask.png')==hash_before
 
 
 def test_diagnostics_refuse_mask_evidence_mutation():
@@ -63,3 +68,21 @@ def test_diagnostics_refuse_mask_evidence_mutation():
         except ValueError as error:
             assert 'QA mask changed' in str(error)
         else:raise AssertionError('Mutated QA mask was accepted')
+
+
+def test_exif_orientation_drives_mask_geometry_and_provenance():
+    with tempfile.TemporaryDirectory() as directory:
+        root=Path(directory);photo=root/'rotated.jpg'
+        exif=Image.Exif();exif[274]=6
+        with Image.new('RGB',(80,48),(100,70,40)) as image:image.save(photo,exif=exif)
+        bad=root/'other.jpg';bad.write_bytes(photo.read_bytes())
+        plan=root/'plan.json';plan.write_text(json.dumps({'version':1,'cases':[
+            {'profile':'inpaint','sources':[str(photo),str(bad)]}]}),encoding='utf-8')
+        session=root/'session';session.mkdir()
+        prepared=prepare_qa_plan(plan,{'inpaint':{'engine':'sd15_inpaint'}},root,session)
+        mask=Path(json.loads(Path(prepared).read_text())['cases'][0]['sources'][1])
+        assert _valid_mask(mask,(48,80))
+        photo.write_bytes(b'changed photo')
+        try:stage_qa_evidence(session,root/'report')
+        except ValueError as error:assert 'QA source changed' in str(error)
+        else:raise AssertionError('Stale source provenance was accepted')

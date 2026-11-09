@@ -167,3 +167,19 @@ with no cloud/API fallback. CUDA generation emits stage markers, gives a
 nonresponding child 180 seconds to start, bounds GPU device-lock waiting,
 and retains failure job evidence. No success is inferred from interrupted
 or hung generation, and Windows 0/10 remains until verified on both hosts.
+
+## Интеграционная регрессия после 3838bc9
+
+После обновления ветки используйте тот же **RUN_WINDOWS_QA.cmd → 1**. В Work
+проверены все 263 модуля, полный CI и изолированный четырёхпроцессный QA;
+это не Windows/CUDA PASS. Вызовы локальных моделей и Diffusers используют
+единый lock приложения; отмена и ожидание ограничены, запросы приложения не
+оставляют Ollama-модели резидентными. Чужие процессы не завершаются.
+
+Квалификация сохраняет прежние шесть критериев и один вызов с потолком 180 с.
+Недоступная модель не получает PASS. Маски учитывают ориентацию EXIF; в отчёт
+попадают точные PNG и происхождение как сгенерированных QA-масок, так и
+подходящих выбранных масок. Ошибки после инференса сохраняют диагностику
+до удаления временных файлов. Корень отчётов остаётся единственным:
+**%USERPROFILE%\Desktop\AI_SMM_REPORTS**. Существующая junction и история
+не перемещаются. Windows-счётчик остаётся 0/10 до фактической приёмки.
