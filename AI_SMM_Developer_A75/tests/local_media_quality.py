@@ -15,6 +15,10 @@ from generative_runner import image as prepared_image
 from local_text_runtime import endpoint_for
 
 
+class ObjectiveQualityRejected(ValueError):
+    """An actual generated-media quality failure, not a broken QA service."""
+
+
 class NoRedirect(request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):raise ValueError('Local QA redirects forbidden')
 
@@ -115,15 +119,15 @@ def objective_quality(case,output,folder):
     video=Path(output).suffix.lower()=='.mp4'
     if not video:
         metrics=pixel_metrics(case['sources'][0],output)
-        if metrics['contrast']<.008 or metrics['mean_absolute_change']<.001:raise ValueError('Blank or unchanged generated image')
+        if metrics['contrast']<.008 or metrics['mean_absolute_change']<.001:raise ObjectiveQualityRejected('Blank or unchanged generated image')
         if case.get('task')=='image_inpaint':
             mask=prepared_image(case['sources'][1],metrics['width'],metrics['height'],mask=True)
-            if mask.getextrema()!=(0,255):raise ValueError('QA mask needs protected and editable pixels')
+            if mask.getextrema()!=(0,255):raise ObjectiveQualityRejected('QA mask needs protected and editable pixels')
             with Image.open(output) as result:
                 difference=ImageChops.difference(prepared_image(case['sources'][0],*result.size),result.convert('RGB'))
                 protected=mask.point(lambda v:255 if v==0 else 0)
                 leakage=ImageChops.multiply(difference,protected.convert('RGB'))
-                if leakage.getbbox() is not None:raise ValueError('Protected mask pixels changed')
+                if leakage.getbbox() is not None:raise ObjectiveQualityRejected('Protected mask pixels changed')
             metrics['protected_pixels_exact']=True
         return metrics
     from local_media_jobs import _probe
@@ -132,13 +136,13 @@ def objective_quality(case,output,folder):
         frame=folder/('objective_'+str(index)+'.png')
         subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-ss',str(t),'-i',str(output),'-frames:v','1',str(frame)],check=True,capture_output=True,timeout=60)
         with Image.open(frame) as value:frames.append({'contrast':sum(ImageStat.Stat(value.convert('RGB')).stddev)/3/255,'luma':ImageStat.Stat(value.convert('L')).mean[0]/255})
-    if any(f['contrast']<.008 for f in frames):raise ValueError('Blank generated video frame')
+    if any(f['contrast']<.008 for f in frames):raise ObjectiveQualityRejected('Blank generated video frame')
     jump=max(abs(frames[i]['luma']-frames[i-1]['luma']) for i in (1,2))
-    if jump>.8:raise ValueError('Severe sampled video flicker')
+    if jump>.8:raise ObjectiveQualityRejected('Severe sampled video flicker')
     expected=case.get('frames',16)/case.get('fps',8)
-    if abs(duration-expected)>.16 or geometry!=(case.get('width',256),case.get('height',256)):raise ValueError('Video output duration/geometry differs from QA case')
+    if abs(duration-expected)>.16 or geometry!=(case.get('width',256),case.get('height',256)):raise ObjectiveQualityRejected('Video output duration/geometry differs from QA case')
     source_audio=_probe(case['sources'][0])[1]
-    if source_audio and not audio:raise ValueError('Source audio lost')
+    if source_audio and not audio:raise ObjectiveQualityRejected('Source audio lost')
     metrics={'duration':duration,'width':geometry[0],'height':geometry[1],'audio':audio,'sampled_frames':frames,'sampled_luma_jump':jump}
     if source_audio:metrics['audio_comparison']=compare_audio(case['sources'][0],output,case.get('start',0),duration)
     return metrics
@@ -151,7 +155,7 @@ def compare_audio(source,result,start,duration):
         data=subprocess.run(command,capture_output=True,check=True,timeout=60).stdout
         values=array('h');values.frombytes(data);return list(values)[::4]
     a=pcm(source,start);b=pcm(result,0)
-    if not a or not b:raise ValueError('Missing decoded source/result audio')
+    if not a or not b:raise ObjectiveQualityRejected('Missing decoded source/result audio')
     best=-1
     for lag in range(-128,129,2):
         pairs=list(zip(a[max(0,lag):],b[max(0,-lag):]))[:3000]
@@ -160,5 +164,5 @@ def compare_audio(source,result,start,duration):
         aa=sum((x-ma)**2 for x,y in pairs);bb=sum((y-mb)**2 for x,y in pairs)
         correlation=sum((x-ma)*(y-mb) for x,y in pairs)/math.sqrt(aa*bb) if aa*bb else (1 if max(abs(x-y) for x,y in pairs)<16 else 0)
         best=max(best,correlation)
-    if best<.9:raise ValueError('Decoded interval audio no longer matches source')
+    if best<.9:raise ObjectiveQualityRejected('Decoded interval audio no longer matches source')
     return {'best_correlation':best,'scope':'up to 2 seconds, ±64 ms alignment; not full perceptual audio quality'}
