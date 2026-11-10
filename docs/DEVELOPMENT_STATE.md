@@ -1,3 +1,11 @@
+# Immutable Kie intent-to-paid-payload recovery boundary — 2026-11-10 (unreleased)
+
+Baseline `1b5c3fad32150e0b7a79e26b583c3cfe7602032a` in existing draft PR #4. Architectural audit identified that crash recovery adopted an existing prepared Kie task if only model and prompt matched, without verifying other immutable source/format parameters. This could attach an unrelated prepared payload to a user-approved intent. New intent-driven tasks now atomically bind (project ID, job ID, full immutable intent SHA-256, full prepared payload SHA-256) in the same SQLite transaction as the task. Recovery fails closed on any mismatch or a missing legacy binding, preserving the original task for manual reconciliation instead of silently adopting or retrying it. Direct non-intent prepare remains backward compatible.
+
+Local Linux/Python isolated SQLite verification of the exact new binding helper: **5/5 PASS** (transaction rollback, owner/intent/payload mismatch, duplicate binding, missing legacy binding, caller-owned transaction). The original repository integration CI module is added but **not executed**; the full 263 developer modules + all CI and Windows Qt/CUDA acceptance remain unrun. RTX 2080 Super remains **0/10**. No paid dispatch, GitHub Actions, model download, merge, live bot modification or reboot.
+
+---
+
 # Bounded Kie result transport and native diagnostics — 2026-11-10 (unreleased)
 
 Baseline `0a5badb876c31c2e4fb563ae2c02ec43fb1941ff`, existing draft PR #4. A cross-service cancellation/resource audit of Kie result worker → durable completion → default HTTPS downloader → media verification and local FFmpeg/ffprobe identified two incomplete resource fences. Kie result downloads previously used a single 90-second socket timeout with no total deadline and no cooperative cancellation during streaming; a trickling server could occupy a Qt worker indefinitely, and completion did not forward the worker's cancellation callback to result validation. Separately, owned native media stderr was spooled to a temporary file without any disk budget for a process that continually emits diagnostics.

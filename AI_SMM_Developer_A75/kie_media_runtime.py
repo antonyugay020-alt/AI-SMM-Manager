@@ -90,7 +90,7 @@ class KieMediaGateway:
 
     def prepare_image(self, project_id, *, prompt, sources, pro=True,
                       aspect_ratio="1:1",resolution="1K",output_format=None,
-                      explicit_upload_consent=False,job_id=None):
+                      explicit_upload_consent=False,job_id=None,intent_sha256=None):
         """No model generation; external source upload requires separate consent."""
         sources=list(sources)
         if sources and explicit_upload_consent is not True:
@@ -116,13 +116,14 @@ class KieMediaGateway:
         else:
             payload=nano_banana_edit(prompt, urls,aspect_ratio,
                                      output_format or "png")
-        return prepare(self.db,project_id,payload,job_id=job_id)
+        binding={'intent_sha256':intent_sha256} if intent_sha256 is not None else {}
+        return prepare(self.db,project_id,payload,job_id=job_id,**binding)
 
     def prepare_video(self, project_id, *, prompt, source_video=None,
                       source_images=(), reference_mode=True,
                       duration=5, resolution="720p",aspect_ratio=None,
                       audio=None, multi_prompt=(), explicit_upload_consent=False,job_id=None,
-                      cancel_check=None):
+                      cancel_check=None,intent_sha256=None):
         """Reference mode creates from images; transformation edits existing video."""
         images=list(source_images)
         if (images or source_video is not None) and explicit_upload_consent is not True:
@@ -161,7 +162,8 @@ class KieMediaGateway:
                 raise ValueError("Transformation requires source video")
             payload=kling_omni_transformation(
                 prompt,video_url,metadata,urls,resolution,aspect_ratio)
-        return prepare(self.db,project_id,payload,job_id=job_id)
+        binding={'intent_sha256':intent_sha256} if intent_sha256 is not None else {}
+        return prepare(self.db,project_id,payload,job_id=job_id,**binding)
 
     def start(self, project_id, job_id, *, explicit_paid_consent=False,
               approval_token=None):

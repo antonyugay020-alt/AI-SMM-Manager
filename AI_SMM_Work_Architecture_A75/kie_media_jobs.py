@@ -57,7 +57,7 @@ def _project_exists(db, project_id):
         raise ValueError("unknown project owner")
 
 
-def prepare(db, project_id, payload, *, job_id=None):
+def prepare(db, project_id, payload, *, job_id=None, intent_sha256=None):
     """Record immutable paid intent. Caller provides approved uploaded URLs."""
     if db.in_transaction:
         raise RuntimeError("foreign SQLite transaction in progress")
@@ -79,11 +79,14 @@ def prepare(db, project_id, payload, *, job_id=None):
         install(db)
         from media_task_control import check_active
         check_active(db,project_id,ident)
+        payload_digest=hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         db.execute("""INSERT INTO kie_media_tasks
             (id, project_id, model, payload_json, payload_sha256, state,
              created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'prepared', ?, ?)""",
-            (ident,project_id,payload["model"],canonical,
-             hashlib.sha256(canonical.encode("utf-8")).hexdigest(),at,at))
+            (ident,project_id,payload["model"],canonical,payload_digest,at,at))
+        if intent_sha256 is not None:
+            from media_intent_binding import bind
+            bind(db,project_id,ident,intent_sha256,payload_digest)
         db.commit()
     except BaseException:
         db.rollback()

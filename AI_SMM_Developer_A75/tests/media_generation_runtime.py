@@ -116,6 +116,8 @@ def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=Fa
         original=json.loads(row[0])
         if existing[0]!=row[4] or saved.get('prompt')!=original.get('prompt'):
             raise ValueError('Prepared task differs from intent')
+        from media_intent_binding import require_bound
+        require_bound(db,owner,ident,row[1],existing[2])
         db.execute("UPDATE media_generation_intents SET state='prepared',updated_at=? WHERE id=? AND project_id=?",(utcnow(),ident,owner))
         db.commit()
         return ident
@@ -157,12 +159,13 @@ def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=Fa
             options={key:request[key] for key in ('prompt','aspect_ratio','resolution') if key in request}
             if request['mode'].startswith('image'):
                 job=gateway.prepare_image(owner,sources=images,pro=request['mode']=='image_pro',
-                    explicit_upload_consent=True,job_id=ident,**options)
+                    explicit_upload_consent=True,job_id=ident,intent_sha256=row[1],**options)
             else:
                 job=gateway.prepare_video(owner,source_video=video,source_images=images,
                     reference_mode=request['mode']=='video_reference',duration=request.get('duration',5),
                     explicit_upload_consent=True,job_id=ident,
-                    cancel_check=lambda:check_intent(db,owner,ident),**options)
+                    cancel_check=lambda:check_intent(db,owner,ident),
+                    intent_sha256=row[1],**options)
         finally:gateway.upload_file=original_upload
         db.execute("UPDATE media_generation_intents SET state='prepared',updated_at=? WHERE id=? AND claim=?",(utcnow(),ident,claim));db.commit()
         check_intent(db,owner,ident)
