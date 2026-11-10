@@ -46,7 +46,7 @@ def test_very_large_stderr_does_not_accumulate_in_memory():
 def test_endless_stderr_is_stopped_before_media_deadline():
     started=time.monotonic()
     with pytest.raises(ValueError,match='safe disk bound'):
-        run('import os\\nwhile True:os.write(2,b"X"*65536)',timeout=5)
+        run('import os\nwhile True:os.write(2,b"X"*65536)',timeout=5)
     assert time.monotonic()-started<4
 
 
