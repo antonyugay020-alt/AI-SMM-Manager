@@ -6,7 +6,9 @@ into an exclusive temporary file, fsync and publish atomically. Full image
 and video media validity is checked separately by kie_media_jobs.
 """
 from __future__ import annotations
+import math
 import os
+import time
 from pathlib import Path
 import re
 from urllib import request, error
@@ -24,12 +26,25 @@ class _NoRedirect(request.HTTPRedirectHandler):
         raise ValueError("Kie result redirect refused")
 
 
-def download_result(url, target, *, opener=None):
+def download_result(url, target, *, opener=None, check=None, total_timeout=900):
     """Persist one file; never overwrite and never log the signed URL.
 
     Network fetch uses HTTPS without redirects; caller verifies media before
     committing it into the durable project asset registry.
     """
+    if check is not None and not callable(check):
+        raise TypeError("Kie download cancellation check must be callable")
+    if (isinstance(total_timeout,bool) or not isinstance(total_timeout,(int,float))
+            or not math.isfinite(total_timeout) or total_timeout<=0):
+        raise ValueError("Invalid Kie download deadline")
+    started=time.monotonic()
+    def checkpoint():
+        if check is not None:check()
+        remaining=total_timeout-(time.monotonic()-started)
+        if remaining<=0:
+            raise TimeoutError("Kie result transfer deadline exceeded")
+        return remaining
+    checkpoint()
     _url(url)
     if not url.startswith("https://"):
         raise ValueError("Kie result must be HTTPS")
@@ -48,7 +63,9 @@ def download_result(url, target, *, opener=None):
     temporary=path.parent/(".downloading-"+uuid4().hex+".tmp")
     total=0
     try:
-        with http(req,timeout=90) as response:
+        # A short socket timeout bounds a stalled read, while the total
+        # monotonic deadline also rejects an endlessly trickling response.
+        with http(req,timeout=min(10,checkpoint())) as response:
             status=getattr(response,"status",200)
             if status!=200:
                 raise ValueError("Kie result returned non-success HTTP status")
@@ -56,20 +73,29 @@ def download_result(url, target, *, opener=None):
             if length is not None and (not length.isdigit() or int(length)>max_bytes):
                 raise ValueError("Kie result content-length invalid")
             with temporary.open("xb") as stream:
+                # HTTPResponse.read(n) can wait for n bytes even if a peer
+                # trickles indefinitely. read1 returns after one socket read,
+                # so cancellation and the total deadline are checked between
+                # bounded reads rather than after an arbitrarily long fill.
+                read_once=getattr(response,"read1",response.read)
                 while True:
-                    chunk=response.read(min(1024*1024,max_bytes+1-total))
+                    checkpoint()
+                    chunk=read_once(min(1024*1024,max_bytes+1-total))
+                    checkpoint()
                     if not chunk:
                         break
                     total+=len(chunk)
                     if total>max_bytes:
                         raise ValueError("Kie result exceeds download size limit")
                     stream.write(chunk)
+                checkpoint()
                 stream.flush()
                 os.fsync(stream.fileno())
         if total==0:
             raise ValueError("Kie result download empty")
         if length is not None and total!=int(length):
             raise ValueError("Kie result content-length mismatch")
+        checkpoint()
         if path.exists() or path.is_symlink():
             raise ValueError("Kie result destination created concurrently")
         os.link(temporary,path)

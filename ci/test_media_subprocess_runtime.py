@@ -43,6 +43,14 @@ def test_very_large_stderr_does_not_accumulate_in_memory():
     rc,out,err=run('import sys;sys.stderr.write("A"*12000000)',timeout=10)
     assert rc==0 and len(err)==8192
 
+def test_endless_stderr_is_stopped_before_media_deadline():
+    started=time.monotonic()
+    with pytest.raises(ValueError,match='safe disk bound'):
+        run('import os\\nwhile True:os.write(2,b"X"*65536)',timeout=5)
+    assert time.monotonic()-started<4
+
+
+
 
 def test_cancelled_before_spawn():
     with patch('media_subprocess_runtime.subprocess.Popen') as spawn:

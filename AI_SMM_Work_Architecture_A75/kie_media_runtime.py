@@ -198,9 +198,9 @@ class KieMediaGateway:
                       enable_paid=True,payment_reservation=reservation,
                       cost_gate=self.cost_gate)
 
-    def refresh(self, project_id, job_id):
+    def refresh(self, project_id, job_id, *, cancel_check=None):
         return complete(self.db,project_id,job_id,self.query_task,
-                        self.fetch_verified_file,self.workspace)
+                        self.fetch_verified_file,self.workspace,cancel_check=cancel_check)
 
     def recover(self, project_id):
         return recover_pending(self.db,project_id)

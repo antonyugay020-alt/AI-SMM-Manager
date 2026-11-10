@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from kie_media_contracts import extract_task_id, TASK_ID
 from media_artifact_validation import digest_file as _digest_file, validate_media_bytes as _validate_media_bytes
+from kie_media_transfer import fetch_result
 
 SUPPORTED = frozenset((
     "nano-banana-pro", "google/nano-banana-edit",
@@ -187,7 +188,7 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         require_managed_file(Path(workspace(project_id)),dest,("processed",))
         if not dest.is_file():
             raise ValueError("completed Kie artifact is missing")
-        _validate_media_bytes(dest,is_video=model.startswith("kling-"))
+        _validate_media_bytes(dest,is_video=model.startswith("kling-"),check=cancel_check)
         if not result_digest or _digest_file(dest)!=result_digest:
             raise ValueError("completed Kie media artifact fingerprint mismatch")
         return str(dest)
@@ -209,7 +210,7 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
         require_managed_file(root,resolved,("processed",))
         if not resolved.is_file():
             raise ValueError("existing media receipt has unsafe location")
-        _validate_media_bytes(resolved,is_video=model.startswith("kling-"))
+        _validate_media_bytes(resolved,is_video=model.startswith("kling-"),check=cancel_check)
         # Do not adopt modified-but-valid media as a new trusted receipt.
         # The ingest outbox recorded the source digest before publication.
         original=db.execute("""SELECT source_sha256,source_size,kind,state
@@ -273,11 +274,11 @@ def complete(db, project_id, job_id, query_task, fetch_verified_file,
     staged=spool/(job_id+"-"+uuid4().hex+ext)
     try:
         ensure_active()
-        fetch_verified_file(urls[0],staged)
+        fetch_result(fetch_verified_file,urls[0],staged,ensure_active)
         ensure_active()
         if not staged.is_file() or staged.is_symlink() or staged.stat().st_size==0:
             raise ValueError("downloaded Kie result missing or invalid")
-        _validate_media_bytes(staged, is_video=model.startswith("kling-"))
+        _validate_media_bytes(staged, is_video=model.startswith("kling-"),check=ensure_active)
         kind="video" if model.startswith("kling-") else "result"
         try:
             receipt=ingest(db,workspace,staged,project_id=project_id,
