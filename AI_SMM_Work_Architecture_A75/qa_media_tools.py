@@ -13,6 +13,10 @@ from media_subprocess_runtime import run_owned_media_process
 from project_file_boundary import reject_path_link
 
 
+MAX_QA_FRAME_BYTES = 8 * 1024 * 1024
+MAX_QA_FRAME_SIDE = 1024
+
+
 def _time(value, *, positive=False):
     if (isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) or (value <= 0 if positive else value < 0)):
@@ -27,16 +31,23 @@ def extract_frame(source, destination, at_seconds):
     target=reject_path_link(Path(destination))
     if not target.parent.is_dir() or target.suffix.lower()!='.png':
         raise ValueError('Invalid QA frame destination')
-    # Do not let an old frame satisfy a new, failed extraction.
+    # The output is a native FFmpeg file, not captured stdout. Bound its
+    # dimensions and on-disk bytes, including for malformed/hostile inputs.
+    # A partial frame must never remain available after timeout or failure.
     target.unlink(missing_ok=True)
-    code,_,_=run_owned_media_process(
-        ['ffmpeg','-nostdin','-v','error','-n','-ss',str(at_seconds),
-         '-i',str(source),'-frames:v','1',str(target)],timeout=60)
-    if code or not target.is_file() or target.is_symlink() or target.stat().st_size==0:
+    try:
+        code,_,_=run_owned_media_process(
+            ['ffmpeg','-nostdin','-v','error','-n','-ss',str(at_seconds),
+             '-i',str(source),
+             '-vf',f"scale=w='min({MAX_QA_FRAME_SIDE},iw)':h='min({MAX_QA_FRAME_SIDE},ih)':force_original_aspect_ratio=decrease",
+             '-frames:v','1','-fs',str(MAX_QA_FRAME_BYTES),str(target)],timeout=60)
+        if (code or not target.is_file() or target.is_symlink()
+                or not 0 < target.stat().st_size <= MAX_QA_FRAME_BYTES):
+            raise ValueError('QA frame extraction failed')
+        return target
+    except BaseException:
         target.unlink(missing_ok=True)
-        raise ValueError('QA frame extraction failed')
-    return target
-
+        raise
 
 def extract_pcm(source, offset, duration):
     """Capture at most two seconds of bounded mono PCM for audio comparison."""

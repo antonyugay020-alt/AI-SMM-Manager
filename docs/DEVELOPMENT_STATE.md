@@ -1,3 +1,11 @@
+# Independent QA native frame artifact budget — 2026-11-10 (unreleased)
+
+Baseline `e82e8e6398fc92ccd2fd49a38966771d4cfd25a0` in existing draft PR #4. All independent image/video QA frame sampling now goes through one bounded `qa_media_tools.extract_frame` contract. Previously FFmpeg had finite process time and bounded stdout/stderr but its **PNG file output had no disk-size or pixel-size limit**, and a native timeout could leave a partial PNG on disk. The shared sampler now caps output dimensions at 1024 pixels per side without upscaling, requests an 8 MiB FFmpeg output budget (`-fs`), independently rejects oversized or missing output, and removes any partial frame on failure, including exceptions. The bounded owned child and existing PCM capture are unchanged.
+
+Before commit, the modified sampler was executed on Linux with a substitute subprocess owner (not a Windows Job Object) and the same FFmpeg argument contract: six isolated tests PASS for real 2048×1400 input, stale/partial cleanup, oversized output rejection, command budget, nonzero exit and unchanged PCM; a real MP4/PCM roundtrip also PASS. This is **not** full original-repository regression, actual Windows Qt/CUDA, or trained semantic review. A corresponding original-repository CI module was added but has not run in this checkout. RTX 2080 Super remains **0/10**. Next gate: complete 263 developer modules plus all CI on a frozen final HEAD, then the single Windows preliminary and ten consecutive target checks. No main merge, paid API, model download, GitHub Actions, live bot or reboot.
+
+---
+
 # Independent media QA native lifecycle closure — 2026-11-10 (unreleased)
 
 Baseline `5c221ad5497c336aa2c78001ec42b2919a90f036` on existing draft PR #4. A cross-layer review of the Windows quality child, objective video sampling, independent visual reviewer, and audio comparison found three direct `subprocess.run` FFmpeg boundaries in `local_media_quality.py` (review frames, objective frames, audio PCM). They bypassed the shared owned FFmpeg/ffprobe lifecycle, left child process-tree ownership to incidental parent-job inheritance, used `capture_output=True` without the native stderr disk cap, and allowed stale sample frames to survive a failed new extraction.
