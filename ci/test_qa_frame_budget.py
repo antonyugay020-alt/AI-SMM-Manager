@@ -72,5 +72,5 @@ def test_nonzero_and_stale_output_fail_closed(tmp_path,monkeypatch):
 
 def test_pcm_capture_contract_unchanged(monkeypatch):
     monkeypatch.setattr(m,'run_owned_media_process',
-                        lambda *args,**kwargs:(0,b'\\x01\\x00'*16000,b''))
+                        lambda *args,**kwargs:(0,bytes((1,0))*16000,b''))
     assert len(m.extract_pcm('unused',0,3))==4000
