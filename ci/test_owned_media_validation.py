@@ -54,7 +54,8 @@ def test_local_render_probes_receive_same_cancel_callback(tmp_path):
         return 2,False
     def stop():pass
     request={'task':'video_format','sources':[str(source)],'width':160,'height':120}
-    with patch.object(jobs,'_probe',side_effect=probe),patch.object(jobs,'_tool') as tool:
+    with patch.object(jobs,'_probe',side_effect=probe),patch.object(jobs,'_tool') as tool,\
+            patch.object(jobs.shutil,'which',return_value='/fixture/ffmpeg'):
         jobs._render(request,[source],tmp_path/'out.mp4',stop)
     assert seen==[stop]
     tool.assert_called_once()
