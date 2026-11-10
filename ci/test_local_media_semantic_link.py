@@ -55,6 +55,8 @@ class SemanticLocalMediaTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):jobs.execute_job(self.db,self.workspace,OWNER,job)
         self.assertEqual(self.db.execute('SELECT state FROM ai_task_intake WHERE dialogue_turn_id=?',(self.turn,)).fetchone()[0],'resolving')
         with patch.object(jobs,'_render',side_effect=AssertionError('no second render')):
+            jobs.recover_jobs(self.db,self.workspace,OWNER)
+            self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('completed',))
             output=jobs.execute_job(self.db,self.workspace,OWNER,job)
         self.assertTrue(Path(output).is_file())
         self.assertEqual(self.db.execute('SELECT state FROM ai_task_intake WHERE dialogue_turn_id=?',(self.turn,)).fetchone()[0],'resolved')

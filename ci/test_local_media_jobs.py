@@ -91,9 +91,34 @@ class LocalMediaJobsTests(unittest.TestCase):
         output=jobs.execute_job(self.db,self.workspace,OWNER,job)
         self.db.execute("UPDATE local_media_jobs SET state='running',output_path=NULL,result_sha256=NULL WHERE id=?",(job,));self.db.commit()
         jobs.recover_jobs(self.db,self.workspace,OWNER)
+        self.assertEqual(self.db.execute('SELECT state,output_path,result_sha256 FROM local_media_jobs WHERE id=?',(job,)).fetchone(),
+                         ('completed',output,jobs.digest_file(output)))
         with patch.object(jobs,'_render',side_effect=AssertionError('no second render')):
             self.assertEqual(jobs.execute_job(self.db,self.workspace,OWNER,job),output)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],1)
+
+    def test_failed_after_commit_is_reconciled_by_recovery_without_render(self):
+        job=jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))
+        with patch.object(jobs,'_finish_linked',side_effect=RuntimeError('crash after ingest')):
+            with self.assertRaisesRegex(RuntimeError,'crash after ingest'):
+                jobs.execute_job(self.db,self.workspace,OWNER,job)
+        self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('failed',))
+        with patch.object(jobs,'_render',side_effect=AssertionError('must not re-render')):
+            jobs.recover_jobs(self.db,self.workspace,OWNER)
+        self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone(),('completed',))
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],1)
+
+    def test_corrupt_committed_output_blocks_recovery_and_never_rerenders(self):
+        job=jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))
+        output=jobs.execute_job(self.db,self.workspace,OWNER,job)
+        self.db.execute("UPDATE local_media_jobs SET state='running' WHERE id=?",(job,));self.db.commit()
+        Path(output).write_bytes(b'corrupt')
+        with patch.object(jobs,'_render',side_effect=AssertionError('must not re-render')):
+            jobs.recover_jobs(self.db,self.workspace,OWNER)
+            with self.assertRaises(ValueError):
+                jobs.execute_job(self.db,self.workspace,OWNER,job)
+        self.assertEqual(self.db.execute('SELECT state,error_code FROM local_media_jobs WHERE id=?',(job,)).fetchone(),
+                         ('failed','RECOVERY_PUBLICATION_BLOCKED'))
 
     def test_cancelled_unpublished_task_survives_reopen_and_never_executes(self):
         job=jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))

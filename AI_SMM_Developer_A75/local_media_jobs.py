@@ -423,10 +423,38 @@ def stop_job(db,owner,job):
 def recover_jobs(db,workspace,owner):
     if db.in_transaction:raise RuntimeError('Foreign transaction owns local recovery')
     _owner(db,owner);install(db)
-    candidates=db.execute("SELECT id FROM local_media_jobs WHERE project_id=? AND state='running'",(owner,)).fetchall()
+    candidates=db.execute('''SELECT j.id FROM local_media_jobs j
+        WHERE j.project_id=? AND (j.state='running' OR
+            (j.state!='completed' AND EXISTS (
+                SELECT 1 FROM project_files p WHERE p.id=j.id AND p.project_id=j.project_id)))
+        ORDER BY j.created_at,j.id''',(owner,)).fetchall()
     for (job,) in candidates:
         with _job_lock(workspace,owner,job) as acquired:
             if not acquired:continue
+            # Once ingest committed its registry, publication owns the outcome.
+            # Reconcile it before labelling the abandoned attempt interrupted;
+            # this also repairs failures between ingest and dialogue completion.
+            registered=db.execute('SELECT 1 FROM project_files WHERE id=? AND project_id=?',
+                                  (job,owner)).fetchone()
+            if registered:
+                try:
+                    row=_row(db,owner,job)
+                    if _adopt_receipt(db,workspace,owner,job,output_kind(json.loads(row[0]))=='video') is None:
+                        raise ValueError('Publication registry vanished during recovery')
+                except Exception:
+                    if db.in_transaction:db.rollback()
+                    try:
+                        db.execute('BEGIN IMMEDIATE')
+                        changed=db.execute("""UPDATE local_media_jobs SET state='failed',
+                            error_code='RECOVERY_PUBLICATION_BLOCKED',updated_at=?
+                            WHERE id=? AND project_id=? AND state!='completed'""",
+                            (now(),job,owner)).rowcount
+                        if changed:_event(db,owner,job,'recovery_publication_blocked')
+                        db.commit()
+                    except BaseException:
+                        if db.in_transaction:db.rollback()
+                        raise
+                continue
             try:
                 db.execute('BEGIN IMMEDIATE')
                 changed=db.execute("UPDATE local_media_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' ELSE 'interrupted' END,updated_at=? WHERE id=? AND project_id=? AND state='running'",(now(),job,owner)).rowcount
