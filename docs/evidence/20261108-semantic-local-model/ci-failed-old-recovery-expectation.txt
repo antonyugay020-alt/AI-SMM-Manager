@@ -1,0 +1,28 @@
+....................................................................................... [ 34%]
+................................................................F....... [ 63%]
+................................................................. [ 89%]
+..........................                                  [100%]
+=================================== FAILURES ===================================
+_ LocalQueueQtTests.test_recovery_fences_old_worker_and_explicit_retry_uses_same_task _
+
+self = <test_local_media_dispatcher_qt.LocalQueueQtTests testMethod=test_recovery_fences_old_worker_and_explicit_retry_uses_same_task>
+
+    def test_recovery_fences_old_worker_and_explicit_retry_uses_same_task(self):
+        entered=threading.Event();release=threading.Event();original=jobs._render
+        def delayed(request,sources,target,check):
+            entered.set()
+            if not release.wait(5):raise TimeoutError('fixture')
+            check();return original(request,sources,target,check)
+        with patch.object(jobs,'_render',side_effect=delayed):
+            self.view.execute_local();self.assertTrue(entered.wait(5))
+            self.service.recover(OWNER);release.set();self.drain()
+        job,state=self.db.execute('SELECT id,state FROM local_media_jobs').fetchone()
+>       self.assertEqual(state,'interrupted')
+E       AssertionError: 'completed' != 'interrupted'
+E       - completed
+E       + interrupted
+
+ci/test_local_media_dispatcher_qt.py:105: AssertionError
+=========================== short test summary info ============================
+FAILED ci/test_local_media_dispatcher_qt.py::LocalQueueQtTests::test_recovery_fences_old_worker_and_explicit_retry_uses_same_task
+1 failed, 249 passed, 77 subtests passed in 6.89s

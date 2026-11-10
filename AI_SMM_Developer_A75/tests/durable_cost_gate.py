@@ -1,0 +1,316 @@
+"""Durable fail-closed payment authorization for the shared AI provider dispatcher.
+
+All paid adapters MUST reserve before network I/O and settle after a confirmed
+provider charge. Never release a reservation after an ambiguous network failure:
+the charge may have succeeded. Reconcile it manually/provider-side instead.
+"""
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timezone
+from decimal import Decimal
+from time import time
+
+MAX_SQLITE_INT = (1 << 63) - 1
+from uuid import uuid4
+from cost_authorization import PaymentDenied, money
+
+SCALE = Decimal("1000000")
+
+
+def units(value):
+    amount = money(value) * SCALE
+    if amount != amount.to_integral_value():
+        raise PaymentDenied("Price precision exceeds micro-USD")
+    if amount > MAX_SQLITE_INT:
+        raise PaymentDenied("Price exceeds safe SQLite range")
+    return int(amount)
+
+
+class DurableCostGate:
+    def __init__(self, database_path):
+        self.database_path = str(database_path)
+        # Serialize schema upgrades across GUI, worker and recovery processes.
+        # SQLite DDL participates in this transaction: a failed migration
+        # cannot leave a half-upgraded database behind.
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_settings (
+                    id INTEGER PRIMARY KEY CHECK(id=1),
+                    cap INTEGER NOT NULL CHECK(cap>=0),
+                    hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))
+                )""")
+                db.execute("INSERT OR IGNORE INTO cost_settings(id,cap) VALUES(1,20000000)")
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_grants (
+                    token TEXT PRIMARY KEY, provider TEXT NOT NULL,
+                    operation TEXT NOT NULL, period TEXT NOT NULL,
+                    maximum INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
+                    expires_at INTEGER NOT NULL DEFAULT 0
+                )""")
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_reservations (
+                    id TEXT PRIMARY KEY, period TEXT NOT NULL,
+                    amount INTEGER NOT NULL, actual INTEGER,
+                    state TEXT NOT NULL CHECK(state IN ('reserved','settled','released')),
+                    grant_token TEXT,
+                    dispatch_claimed INTEGER NOT NULL DEFAULT 0 CHECK(dispatch_claimed IN (0,1))
+                )""")
+                if "grant_token" not in {row[1] for row in db.execute("PRAGMA table_info(cost_reservations)")}:
+                    db.execute("ALTER TABLE cost_reservations ADD COLUMN grant_token TEXT")
+                if "dispatch_claimed" not in {row[1] for row in db.execute("PRAGMA table_info(cost_reservations)")}:
+                    db.execute("ALTER TABLE cost_reservations ADD COLUMN dispatch_claimed INTEGER NOT NULL DEFAULT 0 CHECK(dispatch_claimed IN (0,1))")
+                if "hold" not in {row[1] for row in db.execute("PRAGMA table_info(cost_settings)")}:
+                    db.execute("ALTER TABLE cost_settings ADD COLUMN hold INTEGER NOT NULL DEFAULT 0 CHECK(hold IN (0,1))")
+                # Invalidate unused legacy grants instead of silently
+                # treating them as permanent payment authorizations.
+                if "expires_at" not in {row[1] for row in db.execute("PRAGMA table_info(cost_grants)")}:
+                    db.execute("ALTER TABLE cost_grants ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
+                db.execute("""CREATE TABLE IF NOT EXISTS cost_audit (
+                    id TEXT PRIMARY KEY, event TEXT NOT NULL,
+                    reservation_id TEXT, evidence TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                )""")
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+
+    def _connect(self):
+        db = sqlite3.connect(self.database_path, timeout=30, isolation_level=None)
+        db.execute("PRAGMA busy_timeout=30000")
+        return db
+
+    @staticmethod
+    def period():
+        return datetime.now(timezone.utc).strftime("%Y-%m")
+
+    def set_monthly_cap(self, amount_usd):
+        cap = units(amount_usd)
+        with closing(self._connect()) as db:
+            db.execute("UPDATE cost_settings SET cap=? WHERE id=1", (cap,))
+
+    def approve(self, provider, operation, max_usd):
+        if not provider or not operation:
+            raise PaymentDenied("Missing provider or operation")
+        token = uuid4().hex
+        with closing(self._connect()) as db:
+            db.execute(
+                "INSERT INTO cost_grants(token,provider,operation,period,maximum,expires_at) VALUES(?,?,?,?,?,?)",
+                (token, provider, operation, self.period(), units(max_usd), int(time()) + 600))
+        return token
+
+    @staticmethod
+    def _totals(db, period):
+        """Exact integer accounting even after multiple unexpected overcharges.
+
+        SQLite SUM() overflows at 2**63-1; a single verified charge is bounded
+        to that range, but the sum of several provider overcharges is not.
+        Never use floating-point total() for money or silently lose evidence.
+        """
+        spent = pending = 0
+        for amount, actual, state in db.execute(
+                "SELECT amount,actual,state FROM cost_reservations WHERE period=?",
+                (period,)):
+            if state == 'settled':
+                if actual is None or actual < 0:
+                    raise PaymentDenied("Corrupt settled provider charge")
+                spent += actual
+            elif state == 'reserved':
+                if amount is None or amount < 0:
+                    raise PaymentDenied("Corrupt pending provider reservation")
+                pending += amount
+        return spent + pending, spent, pending
+
+    def reserve(self, provider, operation, estimate_usd, *, token=None, unique_operation=False):
+        estimate = units(estimate_usd)
+        if estimate <= 0:
+            raise PaymentDenied("A paid operation needs a positive verified maximum quote")
+        period = self.period()
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                grant = db.execute(
+                    "SELECT maximum FROM cost_grants WHERE token=? AND provider=? AND operation=? AND period=? AND used=0 AND expires_at>?",
+                    (token, provider, operation, period, int(time()))).fetchone()
+                if grant is None or estimate > grant[0]:
+                    raise PaymentDenied("Explicit matching approval required")
+                if unique_operation and db.execute("""SELECT 1 FROM cost_reservations r
+                        JOIN cost_grants g ON r.grant_token=g.token
+                        WHERE g.provider=? AND g.operation=? AND r.state!='released' LIMIT 1""",
+                        (provider,operation)).fetchone():
+                    raise PaymentDenied("This exact operation already has a durable reservation")
+                spent, _, _ = self._totals(db, period)
+                cap, hold = db.execute("SELECT cap,hold FROM cost_settings WHERE id=1").fetchone()
+                if hold:
+                    raise PaymentDenied("Paid calls frozen: reconcile unexpected provider charge")
+                if spent + estimate > cap:
+                    raise PaymentDenied("Monthly limit exceeded")
+                reservation = uuid4().hex
+                db.execute("INSERT INTO cost_reservations(id,period,amount,state,grant_token) VALUES(?,?,?,'reserved',?)",
+                           (reservation, period, estimate, token))
+                db.execute("UPDATE cost_grants SET used=1 WHERE token=?", (token,))
+                db.commit()
+                return reservation
+            except BaseException:
+                db.rollback()
+                raise
+
+    def _require_active(self, db, reservation, provider, operation):
+        """Validate the paid grant against one consistent SQLite snapshot."""
+        if not isinstance(reservation, str) or not reservation:
+            raise PaymentDenied("Durable paid reservation required")
+        period = self.period()
+        row = db.execute("""
+            SELECT r.amount,r.state,r.period,g.provider,g.operation,g.used,
+                   g.maximum,g.period,s.hold,s.cap,r.dispatch_claimed
+            FROM cost_reservations AS r
+            LEFT JOIN cost_grants AS g ON g.token=r.grant_token
+            CROSS JOIN cost_settings AS s
+            WHERE r.id=? AND s.id=1
+        """, (reservation,)).fetchone()
+        committed, _, _ = self._totals(db, period)
+        if (row is None or row[0] is None or row[0] <= 0
+                or row[1] != "reserved" or row[2] != period
+                or row[3] != provider or row[4] != operation
+                or row[5] != 1 or row[6] is None or row[6] < row[0]
+                or row[7] != row[2] or row[8] != 0
+                or committed > row[9] or row[10] != 0):
+            raise PaymentDenied("Paid reservation not active for this exact provider task")
+
+    def assert_reservation(self, reservation, provider, operation):
+        """Preflight only; does not consume the one-use network dispatch right."""
+        with closing(self._connect()) as db:
+            db.execute("BEGIN")
+            try:
+                self._require_active(db, reservation, provider, operation)
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+        return True
+
+    def claim_dispatch(self, reservation, provider, operation):
+        """Atomically consume the right to make exactly one paid network call.
+
+        The claim survives crashes and ambiguous timeouts. Neither a second
+        process nor a direct client call can replay a paid reservation.
+        """
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                self._require_active(db, reservation, provider, operation)
+                updated = db.execute("""
+                    UPDATE cost_reservations SET dispatch_claimed=1
+                    WHERE id=? AND state='reserved' AND dispatch_claimed=0
+                """, (reservation,)).rowcount
+                if updated != 1:
+                    raise PaymentDenied("Paid dispatch already claimed")
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+        return True
+
+    def settle(self, reservation, actual_usd):
+        actual = units(actual_usd)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute("SELECT amount,state FROM cost_reservations WHERE id=?", (reservation,)).fetchone()
+                if row is None or row[1] != "reserved":
+                    raise PaymentDenied("Invalid settlement; reconcile provider charge")
+                overage = actual > row[0]
+                # Persist the real charge even if it violates the upper bound.
+                db.execute("UPDATE cost_reservations SET state='settled',actual=? WHERE id=?",
+                           (actual, reservation))
+                if overage:
+                    db.execute("UPDATE cost_settings SET hold=1 WHERE id=1")
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+        if overage:
+            raise PaymentDenied("Provider charged above verified quote; actual charge recorded and paid calls frozen")
+
+    @staticmethod
+    def _proof(evidence, confirmed_by_user):
+        if confirmed_by_user is not True:
+            raise PaymentDenied("Explicit user confirmation required for reconciliation")
+        reference = str(evidence or "").strip()
+        if not reference or len(reference) > 256:
+            raise PaymentDenied("Provider invoice or reconciliation reference required")
+        return reference
+
+    def reconcile(self, reservation, actual_usd, *, evidence, confirmed_by_user=False):
+        """Manually settle an uncertain call using verified provider evidence.
+
+        Zero means a confirmed non-charge, not an automatic timeout release.
+        Reconciliation is durable and cannot be repeated for the same call.
+        """
+        reference = self._proof(evidence, confirmed_by_user)
+        actual = units(actual_usd)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute("SELECT amount,state FROM cost_reservations WHERE id=?",
+                                 (reservation,)).fetchone()
+                if row is None or row[1] != "reserved":
+                    raise PaymentDenied("Reservation not awaiting reconciliation")
+                state = "settled" if actual else "released"
+                db.execute("UPDATE cost_reservations SET state=?,actual=? WHERE id=?",
+                           (state, actual, reservation))
+                if actual > row[0]:
+                    db.execute("UPDATE cost_settings SET hold=1 WHERE id=1")
+                db.execute(
+                    "INSERT INTO cost_audit(id,event,reservation_id,evidence,created_utc) VALUES(?,?,?,?,?)",
+                    (uuid4().hex, "reconcile", reservation, reference,
+                     datetime.now(timezone.utc).isoformat()))
+                db.commit()
+                return state
+            except BaseException:
+                db.rollback()
+                raise
+
+    def clear_paid_hold(self, *, evidence, confirmed_by_user=False):
+        """Explicitly clear an overcharge hold only after all uncertain calls are resolved."""
+        reference = self._proof(evidence, confirmed_by_user)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                outstanding = db.execute(
+                    "SELECT COUNT(*) FROM cost_reservations WHERE state='reserved'").fetchone()[0]
+                if outstanding:
+                    raise PaymentDenied("Resolve all uncertain paid calls before unfreezing")
+                db.execute("UPDATE cost_settings SET hold=0 WHERE id=1")
+                db.execute(
+                    "INSERT INTO cost_audit(id,event,reservation_id,evidence,created_utc) VALUES(?,?,?,?,?)",
+                    (uuid4().hex, "clear_hold", None, reference,
+                     datetime.now(timezone.utc).isoformat()))
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+
+    def usage(self, period=None):
+        period = period or self.period()
+        with closing(self._connect()) as db:
+            db.execute("BEGIN")
+            try:
+                cap, hold = db.execute("SELECT cap,hold FROM cost_settings WHERE id=1").fetchone()
+                used, spent, pending = self._totals(db, period)
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
+        return {"cap_usd": Decimal(cap)/SCALE, "committed_usd": Decimal(used)/SCALE,
+                "available_usd": max(Decimal(0), Decimal(cap-used)/SCALE),
+                "paid_calls_frozen": bool(hold),
+                "spent_usd": Decimal(spent)/SCALE,
+                "pending_usd": Decimal(pending)/SCALE}
+
+    def record_authorization_evidence(self,reservation,*,evidence,confirmed_by_user=False):
+        reference=self._proof(evidence,confirmed_by_user)
+        with closing(self._connect()) as db:
+            if not db.execute("SELECT 1 FROM cost_reservations WHERE id=? AND state='reserved'",(reservation,)).fetchone():
+                raise PaymentDenied('Active reservation required for authorization evidence')
+            db.execute('INSERT INTO cost_audit(id,event,reservation_id,evidence,created_utc) VALUES(?,?,?,?,?)',
+                (uuid4().hex,'authorize',reservation,reference,datetime.now(timezone.utc).isoformat()))

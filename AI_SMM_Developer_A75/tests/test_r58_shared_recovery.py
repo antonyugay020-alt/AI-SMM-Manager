@@ -115,7 +115,7 @@ class SharedRecoveryTests(unittest.TestCase):
                 result=ct.execute_compound(req,{'plan_reviewer_model':'independent-reviewer', **(state)},model=model,progress=progress)
                 checkpoints=list((Path(home)/'drafts').glob('publication_progress_*.json'))
                 if checkpoints:
-                    posts=json.loads(checkpoints[0].read_text())['posts']
+                    posts=json.loads(checkpoints[0].read_text(encoding='utf-8'))['posts']
                     if '1/Пт' in posts:accepted_snapshot.append(copy.deepcopy(posts['1/Пт']))
                 return result
             with patch.object(ct,'analyze',return_value={'channels':'Instagram','channels_basis':'explicit'}) as analysis, \

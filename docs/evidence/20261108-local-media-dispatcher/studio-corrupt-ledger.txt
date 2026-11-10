@@ -1,0 +1,2 @@
+Fontconfig error: No writable cache directories
+{"status": "PASS", "scope": "actual Linux offscreen Studio, core source import, native FFmpeg local dispatcher, original-dialogue completion, duplicate-safe UI admission and clean shutdown; semantic decision supplied by fixture", "paid_ledger_corrupt": true, "paid_api_calls": 0, "windows_e2e": false}

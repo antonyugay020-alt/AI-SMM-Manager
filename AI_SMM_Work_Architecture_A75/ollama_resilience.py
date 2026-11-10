@@ -1,17 +1,30 @@
 """Bounded Ollama retries and per-call diagnostic events (no prompt logging)."""
 import json
+import hashlib
 import os
 import re
 import socket
 import time
+from http_response_budget import read_bounded_body
 import urllib.error
 import urllib.request
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from provider_errors import OllamaStageError, ProviderHTTPError, AuthorExecutionAborted
+from model_completion_contract import require_completed
 
 _CASE_DEADLINE = ContextVar('a75_ollama_case_deadline', default=None)
+_UTF8_TRANSPORT = ContextVar('a75_utf8_transport',default=None)
+
+@contextmanager
+def capture_utf8_transport():
+    """Opt-in exact wire evidence for synthetic qualification; never alter verdicts."""
+    evidence={}
+    token=_UTF8_TRANSPORT.set(evidence)
+    try:yield evidence
+    finally:_UTF8_TRANSPORT.reset(token)
+
 _MODEL_CALL_ROLE = ContextVar('a75_ollama_model_call_role', default='author')
 
 @contextmanager
@@ -257,12 +270,25 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
     model = str(payload.get('model') or '').strip()
     from text_providers import parse_cloud_model
     cloud_model = parse_cloud_model(model)
+    if __import__('os').environ.get('AI_SMM_QA_LOCAL_ONLY')=='1':
+        allowed=json.loads(__import__('os').environ.get('AI_SMM_QA_ALLOWED_MODELS','[]'))
+        from text_providers import is_ollama_cloud_tag
+        if cloud_model is not None or is_ollama_cloud_tag(model) or model not in allowed:raise RuntimeError('QA forbids unapproved/cloud model transport')
+    from text_providers import is_ollama_cloud_tag
+    local_compute=cloud_model is None and not is_ollama_cloud_tag(model)
+    if local_compute:payload={**payload,'keep_alive':0}
     req = None
     if cloud_model is None:
         req = urllib.request.Request(endpoint,
             data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-            headers={'Content-Type': 'application/json'})
+            headers={'Content-Type': 'application/json; charset=utf-8'})
+        evidence=_UTF8_TRANSPORT.get()
+        if evidence is not None:
+            evidence.update(request_sha256=hashlib.sha256(req.data).hexdigest(),
+                request_bytes=len(req.data),request_utf8=req.data.decode('utf-8',errors='strict'))
     for attempt in range(1, attempts + 1):
+        from cooperative_cancellation import check_cancelled
+        check_cancelled()
         scope=_CASE_DEADLINE.get()
         role=_MODEL_CALL_ROLE.get()
         if scope is not None and role=='author' and scope.get('aborted_on_model_timeout'):
@@ -307,11 +333,30 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
         record_model_event('model_transport_request',stage=stage,attempt=attempt,role=role,payload=payload)
         try:
             if cloud_model is None:
-                with urllib.request.urlopen(req, timeout=call_timeout) as response:
-                    raw_response=response.read()
-                    record_model_event('model_transport_body',stage=stage,attempt=attempt,
-                        body=raw_response.decode('utf-8','replace'))
-                    result=json.loads(raw_response)
+                from local_compute_lease import device_lease
+                lease=(device_lease(max_wait_seconds=call_timeout,check=check_cancelled)
+                       if local_compute else nullcontext(0.0))
+                with lease as waited:
+                    local_timeout=call_timeout-waited
+                    if local_timeout<=0:raise TimeoutError('Local compute lease exhausted call deadline')
+                    from local_text_runtime import configured_for,request_local
+                    if configured_for(model):
+                        result=request_local(payload,timeout=local_timeout)
+                        record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
+                    else:
+                        http_started=time.monotonic()
+                        with urllib.request.urlopen(req, timeout=local_timeout) as response:
+                            raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
+                                deadline=http_started+local_timeout,check=check_cancelled)
+                            evidence=_UTF8_TRANSPORT.get()
+                            if evidence is not None:
+                                evidence.update(response_sha256=hashlib.sha256(raw_response).hexdigest(),
+                                    response_bytes=len(raw_response),response_utf8_valid=False)
+                            decoded=raw_response.decode('utf-8',errors='strict')
+                            if evidence is not None:evidence['response_utf8_valid']=True
+                            record_model_event('model_transport_body',stage=stage,attempt=attempt,
+                                body=decoded)
+                            result=json.loads(decoded)
             else:
                 from text_providers import call_text
                 options = payload.get('options') if isinstance(payload.get('options'), dict) else {}
@@ -319,10 +364,13 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                 response_format = 'json_object' if payload.get('format') == 'json' else None
                 result = call_text(model, payload.get('messages') or [], timeout=call_timeout,
                                    temperature=temperature, response_format=response_format)
+            check_cancelled()
             if scope is not None and time.monotonic()>=scope['deadline']:
                 scope['expired']=True
             if not isinstance(result, dict):
                 raise ValueError('Ollama returned a non-object response')
+            if cloud_model is None:
+                require_completed('ollama',result)
             try:
                 result, used_tool = _decode_response_contract(result, payload, stage,
                     wrapped_result=wrapped_result, require_json=contract_mode is not None,contract=requested_contract)
@@ -355,11 +403,16 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             # caller's existing attempt/deadline budget. Never retry quota,
             # authentication, request-contract errors, or a model timeout.
             from io import BytesIO
-            try:raw_error=exc.read()
-            except Exception:raw_error=b''
+            try:
+                raw_error=read_bounded_body(exc,max_bytes=8192,
+                    deadline=time.monotonic()+5,check=check_cancelled)
+            except Exception as read_exc:
+                from cooperative_cancellation import TaskCancelled
+                if isinstance(read_exc,TaskCancelled):raise
+                raw_error=b''
             finally:exc.close()
-            record_model_event('model_provider_error',stage=stage,attempt=attempt,status=exc.code,
-                body=raw_error.decode('utf-8','replace'))
+            record_model_event('model_provider_error',stage=stage,attempt=attempt,
+                status=exc.code,body_bytes=len(raw_error))
             body = _provider_response_body(BytesIO(raw_error))
             error = ProviderHTTPError(stage, exc.code, body)
             retry = exc.code in (500, 502, 503, 504) and attempt < attempts
@@ -378,6 +431,7 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             record_model_event('model_transport_error',stage=stage,attempt=attempt,
                 error_type=type(exc).__name__,error=str(exc),traceback=traceback.format_exc())
             is_timeout = isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(getattr(exc, 'reason', None), (TimeoutError, socket.timeout))
+            check_cancelled()
             if scope is not None and time.monotonic()>=scope['deadline']:
                 scope['expired']=True
             if report:

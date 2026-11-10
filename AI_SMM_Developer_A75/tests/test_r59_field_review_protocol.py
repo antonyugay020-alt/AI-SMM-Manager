@@ -231,8 +231,8 @@ class ModelProtocolTests(unittest.TestCase):
         opts={'AI_SMM_ENABLE_OPENAI_API':'1','AI_SMM_CLOUD_MODELS':'gemini/model, openai/gpt-6-luna'}
         self.assertEqual(default_central_model(opts),'openai/gpt-6-luna')
         self.assertEqual(default_central_model({**opts,'AI_SMM_CENTRAL_MODEL':'openai/custom'}),'openai/custom')
-        self.assertEqual(default_central_model({'AI_SMM_CLOUD_MODELS':'openai/gpt-6-luna'}),'openai/gpt-5')
-        self.assertEqual(default_central_model({**opts,'AI_SMM_ENABLE_OPENAI_API':'0'}),'openai/gpt-5')
+        self.assertEqual(default_central_model({'AI_SMM_CLOUD_MODELS':'openai/gpt-6-luna'}),'qwen3:8b')
+        self.assertEqual(default_central_model({**opts,'AI_SMM_ENABLE_OPENAI_API':'0'}),'qwen3:8b')
 
 
 class RejectedPublicationDataflowTests(unittest.TestCase):

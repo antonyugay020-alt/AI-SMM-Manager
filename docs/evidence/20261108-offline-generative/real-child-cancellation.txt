@@ -1,0 +1,2 @@
+Fontconfig error: No writable cache directories
+{"status": "PASS", "scope": "actual Qt GUI, separate offline Diffusers process, SQLite, original integrity and shutdown", "real_neural_inference": false, "video": false, "cancelled": true, "paid_ledger_corrupt": false, "elapsed_seconds": 0.15, "execution": null, "test_only_model": true, "semantic_quality_accepted": false, "windows_e2e": false, "paid_api_calls": 0}

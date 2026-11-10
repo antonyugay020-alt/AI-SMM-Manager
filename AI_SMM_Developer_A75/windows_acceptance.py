@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from candidate_identity import CANDIDATE_ID, EXPECTED_FOLDER, SOURCE_STAGE
 from acceptance_policy import REVIEW_PROBE_OUTPUT_TOKENS
 BASE=pathlib.Path(__file__).resolve().parent
-OUT=BASE/'VALIDATION_RESULTS'
+SOURCE_QA='--source-qa' in sys.argv
+OUT=pathlib.Path(os.environ['AI_SMM_QA_RUN_OUTPUT']).resolve() if SOURCE_QA else BASE/'VALIDATION_RESULTS'
 if '--reviewers-only' in sys.argv:OUT=OUT/'REVIEWER_CHECK'
 if __name__=='__main__':OUT.mkdir(parents=True,exist_ok=True)
 
@@ -242,7 +243,7 @@ def run_isolated_python_regression(test_dir, environment, profile, shard_count=4
     import concurrent.futures
     import re
     modules=sorted(pathlib.Path(test_dir).glob('test_*.py'))
-    if len(modules) < (100 if profile == 'full' else 1):
+    if len(modules) < (263 if profile == 'full' else 1):
         return {'status':'FAIL','reason':'Incomplete Python test module inventory',
                 'module_count':len(modules),'shards':[]}
     count=min(shard_count,len(modules))
@@ -323,6 +324,9 @@ def child_run(name, args, timeout, root):
     except Exception as e:
         (OUT/(name+'.log')).write_text(str(e),encoding='utf-8')
         record(name,False,error=str(e),log=f'{name}.log')
+    finally:
+        if SOURCE_QA and name in ('live_qt_gui','live_backend_content_pipeline','live_gui_full_workflow'):
+            shutil.copytree(root,OUT/'retained_artifacts'/name,dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.pytest_cache'))
 
 def ollama_probe():
     """Two real model calls, no user data. Record safe metadata, never prompts."""
@@ -578,13 +582,19 @@ if __name__=='__main__':
         RESULT['test_profile']=profile
         # Run package integrity before importing the application or invoking Ollama.
         # This check is tied to the exact files extracted from the shipped ZIP.
-        from release_guard import verify_tree, PackagingBlocked
-        try:
-            manifest_result=verify_tree(BASE)
-            record('package_integrity',True,source_fingerprint=manifest_result['source_fingerprint'],candidate_id=CANDIDATE_ID,actual_root=str(BASE),verified_files=manifest_result['verified_files'])
-        except PackagingBlocked as e:
-            record('package_integrity',False,reason=str(e))
-            raise  # Block all further work; still serialize a diagnostic report.
+        if SOURCE_QA:
+            from windows_qa_contract import verify_snapshot
+            snapshot=json.loads(pathlib.Path(os.environ['AI_SMM_QA_SNAPSHOT']).read_text(encoding='utf-8'))
+            fingerprint=verify_snapshot(BASE.parent,snapshot)
+            record('source_snapshot_integrity',True,source_fingerprint=fingerprint)
+            RESULT.update(source_qa=True,release_eligible=False,windows_executed=os.name=='nt',qa_role=os.environ['AI_SMM_QA_ROLE'],qa_hardware=json.loads(os.environ['AI_SMM_QA_HARDWARE']))
+        else:
+            from release_guard import verify_tree, PackagingBlocked
+            try:
+                manifest_result=verify_tree(BASE)
+                record('package_integrity',True,source_fingerprint=manifest_result['source_fingerprint'],candidate_id=CANDIDATE_ID,actual_root=str(BASE),verified_files=manifest_result['verified_files'])
+            except PackagingBlocked as e:
+                record('package_integrity',False,reason=str(e));raise
         if os.name!='nt':
             record('windows_platform',False,reason='Нужен запуск на Windows')
         else:
@@ -613,6 +623,10 @@ if __name__=='__main__':
                 shutil.copytree(BASE,isolated_app,ignore=shutil.ignore_patterns(
                     '__pycache__','.pytest_cache','VALIDATION_RESULTS','VALIDATION_RESULTS.zip',
                     '*.pyc'))
+                # Tests import the real checkout CI protocol by repository-relative
+                # path. Copy its complete module tree, not selected entry points.
+                from windows_qa_contract import copy_contract_ci
+                copy_contract_ci(BASE.parent,root,required=SOURCE_QA)
                 isolated_dev_application=root/'AI_SMM_Developer_A75'/'application'
                 shutil.copytree(isolated_app,isolated_dev_application)
                 # Legacy AST contracts address AI_SMM_Developer_A75/app.py, while
@@ -722,15 +736,58 @@ if __name__=='__main__':
             record('live_gui_full_workflow',None,reason='Only checked on Windows host')
     except BaseException as e:
         record('verifier_exception',False,error=repr(e))
+    if SOURCE_QA:
+        from execution_environment import isolated_contract_test_environment
+        ci_env=isolated_contract_test_environment(os.environ)
+        ci_env.update(AI_SMM_TEST_ROOT=str(OUT/'ci_application'),QT_QPA_PLATFORM='offscreen',PYTHONUTF8='1')
+        try:
+            with (OUT/'source_ci.log').open('w',encoding='utf-8') as log:
+                ci_process=subprocess.run([sys.executable,'-m','pytest','-q',str(BASE.parent/'ci'),'--junitxml='+str(OUT/'source_ci.xml')],
+                    cwd=BASE.parent,env=ci_env,stdout=log,stderr=subprocess.STDOUT,timeout=2400)
+            record('source_ci_contracts',ci_process.returncode==0,log='source_ci.log',scope='Complete offline contracts; these are not real-model/visible-GUI evidence')
+        except Exception as exc:record('source_ci_contracts',False,error=str(exc),log='source_ci.log')
+    # Only actual target Windows/CUDA/Qt execution plus interactive visual
+    # review can satisfy local generative media acceptance. Never fixtures.
+    if os.environ.get('AI_SMM_TEST_PROFILE','full').strip().casefold()=='full':
+        plan=os.environ.get('AI_SMM_GENERATIVE_ACCEPTANCE_PLAN')
+        if os.name!='nt' or not plan:
+            record('local_generative_media',None,reason='Requires Windows RTX 2080 Super, installed profiles, explicit fixture plan and actual visual review')
+        else:
+            try:
+                from generative_acceptance import run_cases
+                callback=None
+                if SOURCE_QA:
+                    from local_media_quality import LocalVision
+                    from qa_quality_worker import BoundedQualityReview
+                    from durable_json import atomic_write_json
+                    vision=LocalVision(os.environ['AI_SMM_QA_VISION_MODEL'])
+                    # Text qualification already requests keep_alive=0.
+                    # Loading every 14B/8B candidate again just to unload it
+                    # consumes GPU memory and can falsely timeout the media QA.
+                    # Do not touch unrelated local Ollama workloads; the real
+                    # per-case nvidia-smi gate handles insufficient headroom.
+                    qualification=vision.qualify(OUT/'vision_qualification')
+                    atomic_write_json(OUT/'vision_qualification.json',qualification)
+                    # QA quality is never executed in an unbounded Python
+                    # thread. This owner owns only its native vision subprocess.
+                    callback=BoundedQualityReview(vision.model,vision.digest,timeout=900)
+                proof=run_cases(plan,OUT/'generative_media',review=not SOURCE_QA,
+                    qa_role=os.environ.get('AI_SMM_QA_ROLE','target_2080super'),quality_callback=callback,lifecycle=SOURCE_QA)
+                record('local_generative_media',proof.get('status')=='PASS' and proof.get('windows_executed') is True and proof.get('semantic_quality') in ('OPERATOR_VERIFIED','LOCAL_MODEL_VERIFIED'),
+                       log='generative_media/generative_results.json',scope='Actual CUDA/Qt generation, objective readback and qualified local quality review' if SOURCE_QA else 'Actual target CUDA/Qt generation plus operator visual review')
+                if SOURCE_QA:record('media_lifecycle',proof.get('lifecycle',{}).get('status')=='PASS',log='generative_media/generative_results.json')
+            except Exception as exc:
+                record('local_generative_media',False,error=type(exc).__name__+': '+str(exc))
     # A technical end-to-end PASS is not proof of actual factual correctness.
     profile=os.environ.get('AI_SMM_TEST_PROFILE','full').strip().casefold()
-    task_checks=['package_integrity','windows_platform','unit_tests','live_qt_gui','ollama_roundtrip',
+    task_checks=[('source_snapshot_integrity' if SOURCE_QA else 'package_integrity'),'windows_platform','unit_tests','live_qt_gui','ollama_roundtrip',
                  'ollama_structured_json','ollama_constrained_schema','ollama_inventory_map_schema','reviewer_models','live_backend_content_pipeline',
                  'independent_semantic_acceptance']
     if os.environ.get('AI_SMM_ENABLE_OPENAI_API','').strip()=='1' and os.environ.get('AI_SMM_ENABLE_OPENAI_ACCEPTANCE','').strip()=='1':
         task_checks.append('openai_api_preflight')
     if profile=='full':
-        task_checks.append('live_gui_full_workflow')
+        task_checks.extend(('live_gui_full_workflow','local_generative_media'))
+        if SOURCE_QA:task_checks.extend(('media_lifecycle','source_ci_contracts'))
     full_checks=tuple(task_checks)
     RESULT['checks']['full_real_task_end_to_end']={
       'status':acceptance_status(RESULT['checks'],full_checks),
@@ -767,12 +824,12 @@ if __name__=='__main__':
     record('evidence_integrity',not missing,missing=missing)
     RESULT['status']=acceptance_status(RESULT['checks'],
                                       ('full_real_task_end_to_end','evidence_integrity'))
-    RESULT['attested_source_fingerprint']=RESULT['checks'].get('package_integrity',{}).get('source_fingerprint')
+    RESULT['attested_source_fingerprint']=RESULT['checks'].get('source_snapshot_integrity' if SOURCE_QA else 'package_integrity',{}).get('source_fingerprint')
     (OUT/'acceptance.json').write_text(json.dumps(RESULT,ensure_ascii=False,indent=2),encoding='utf-8')
-    with zipfile.ZipFile(BASE/'VALIDATION_RESULTS.zip','w',zipfile.ZIP_DEFLATED) as z:
-        for f in sorted(OUT.glob('*')):
-            if f.is_file(): z.write(f,arcname='VALIDATION_RESULTS/'+f.name)
+    with zipfile.ZipFile((OUT/'DIAGNOSTICS.zip') if SOURCE_QA else BASE/'VALIDATION_RESULTS.zip','w',zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(OUT.rglob('*')):
+            if f.is_file() and f.name!='DIAGNOSTICS.zip': z.write(f,arcname='VALIDATION_RESULTS/'+f.relative_to(OUT).as_posix())
     if 'test_source_temp' in locals() and test_source_temp is not None: test_source_temp.cleanup()
-    print('Проверка завершена. Пришлите файл VALIDATION_RESULTS.zip из этой папки.',flush=True)
+    print('Проверка завершена. Диагностика: '+str(OUT/'DIAGNOSTICS.zip' if SOURCE_QA else BASE/'VALIDATION_RESULTS.zip'),flush=True)
     # A blocked acceptance is a failed process, even when diagnostics were saved.
     raise SystemExit(0 if RESULT['status']=='PASS' else 2)

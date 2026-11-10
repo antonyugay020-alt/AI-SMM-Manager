@@ -1,0 +1,2 @@
+{"status": "PASS", "scope": "real local photo/video processing", "kie_ai_tested": false, "remote_generation_tested": false, "checks": {"photo_real_bytes_local_edit": "PASS", "project_image_ownership": "PASS", "video_real_bytes_ffmpeg_trim": "PASS", "video_codec_probe": "PASS", "video_original_integrity": "PASS"}}
+Fontconfig error: No writable cache directories

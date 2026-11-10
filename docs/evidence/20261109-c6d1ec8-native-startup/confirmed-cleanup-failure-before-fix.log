@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ NativeRuntimeLifecycle.test_cleanup_escalates_after_terminate_race_and_never_leaks_pipe _
+ci/test_native_runtime_lifecycle.py:96: in terminate
+    def terminate(self):raise OSError('termination raced native exit')
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   OSError: termination raced native exit
+
+During handling of the above exception, another exception occurred:
+ci/test_native_runtime_lifecycle.py:103: in test_cleanup_escalates_after_terminate_race_and_never_leaks_pipe
+    with native.owned_native_process(['owned fixture'],env={},stdout=None,stderr=None):pass
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/contextlib.py:144: in __exit__
+    next(self.gen)
+AI_SMM_Work_Architecture_A75/native_process_runtime.py:69: in owned_native_process
+    if process.poll() is None:process.wait(timeout=5)
+                              ^^^^^^^^^^^^^^^^^^^^^^^
+ci/test_native_runtime_lifecycle.py:98: in wait
+    if not self.killed:raise subprocess.TimeoutExpired('owned fixture',timeout)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   subprocess.TimeoutExpired: Command 'owned fixture' timed out after 5 seconds
+=========================== short test summary info ============================
+FAILED ci/test_native_runtime_lifecycle.py::NativeRuntimeLifecycle::test_cleanup_escalates_after_terminate_race_and_never_leaks_pipe
+1 failed, 6 deselected in 0.05s

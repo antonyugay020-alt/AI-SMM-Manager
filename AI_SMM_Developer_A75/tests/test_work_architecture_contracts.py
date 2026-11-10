@@ -137,20 +137,20 @@ class SharedAtomicStorage(unittest.TestCase):
             def locked_once(a,b):
                 attempts.append(1)
                 if len(attempts)==1:
-                    self.assertEqual(json.loads(target.read_text()),{'old':True})
+                    self.assertEqual(json.loads(target.read_text(encoding='utf-8')),{'old':True})
                     raise PermissionError('Windows file lock')
                 real_replace(a,b)
             with patch('durable_json.os.replace',side_effect=locked_once):
                 atomic_write_json(target,{'new':True},delay=0)
             self.assertEqual(len(attempts),2)
-            self.assertEqual(json.loads(target.read_text()),{'new':True})
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8')),{'new':True})
             self.assertEqual(list(Path(td).iterdir()),[target])
     def test_permanent_lock_preserves_prior_checkpoint_and_cleans_temp(self):
         from durable_json import atomic_write_json
         with tempfile.TemporaryDirectory() as td:
-            target=Path(td)/'state.json';target.write_text('{"old":true}')
+            target=Path(td)/'state.json';target.write_text('{"old":true}', encoding='utf-8')
             with patch('durable_json.os.replace',side_effect=PermissionError('locked')) as replace:
                 with self.assertRaises(PermissionError):atomic_write_json(target,{'new':True},retries=2,delay=0)
             self.assertEqual(replace.call_count,2)
-            self.assertEqual(json.loads(target.read_text()),{'old':True})
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8')),{'old':True})
             self.assertEqual(list(Path(td).iterdir()),[target])

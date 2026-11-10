@@ -14,11 +14,13 @@ import hashlib
 import os
 import re
 import sqlite3
+from stable_file_source import source_identity,descriptor_identity,open_source,read_stable_bytes
 from project_file_boundary import require_managed_folder,require_managed_file
+from media_spool_lease import spool_lease
 
 _NAME=re.compile(r'[0-9a-f]{32}\.[a-z0-9]{1,12}\Z')
 _SHA=re.compile(r'[a-f0-9]{64}\Z')
-_KINDS={'asset':'originals','reference':'references','result':'processed'}
+_KINDS={'asset':'originals','reference':'references','result':'processed','video':'processed'}
 
 
 def _now():return datetime.now(timezone.utc).isoformat()
@@ -32,38 +34,58 @@ def _sync_folder(folder):
 
 
 def _digest(path):
-    h=hashlib.sha256();length=0
-    with path.open('rb') as stream:
-        for chunk in iter(lambda:stream.read(1024*1024),b''):
-            h.update(chunk);length+=len(chunk)
-    return h.hexdigest(),length
+    return read_stable_bytes(path)
 
 
 def install(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
-        CHECK(kind IN ('asset','reference','result')),source_sha256 TEXT NOT NULL,
-        source_size INTEGER NOT NULL,filename TEXT NOT NULL,
-        state TEXT NOT NULL CHECK(state IN ('pending','done')),
-        attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL)''')
-    # One schema migration for existing installations; rebuild preserves all receipts.
-    sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
-    if "'result'" not in sql:
-        db.execute("""CREATE TABLE media_ingest_jobs_v2 (
-            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
-            CHECK(kind IN ('asset','reference','result')), source_sha256 TEXT NOT NULL,
-            source_size INTEGER NOT NULL, filename TEXT NOT NULL,
+    """Atomically install or upgrade media receipts without committing caller SQL.
+
+    A crash during CREATE/COPY/DROP/RENAME must leave the previous schema and
+    its receipts intact. A savepoint also works inside ingest's BEGIN IMMEDIATE.
+    """
+    db.execute('SAVEPOINT media_ingest_schema')
+    try:
+        db.execute('''CREATE TABLE IF NOT EXISTS media_ingest_jobs (
+            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,kind TEXT NOT NULL
+            CHECK(kind IN ('asset','reference','result','video')),source_sha256 TEXT NOT NULL,
+            source_size INTEGER NOT NULL,filename TEXT NOT NULL,
             state TEXT NOT NULL CHECK(state IN ('pending','done')),
-            attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL)""")
-        db.execute("""INSERT INTO media_ingest_jobs_v2
-            SELECT id,project_id,kind,source_sha256,source_size,filename,
-                   state,attempts,last_error,created_at FROM media_ingest_jobs""")
-        db.execute('DROP TABLE media_ingest_jobs')
-        db.execute('ALTER TABLE media_ingest_jobs_v2 RENAME TO media_ingest_jobs')
-    db.execute('''CREATE INDEX IF NOT EXISTS media_ingest_jobs_pending
-        ON media_ingest_jobs(state,project_id,created_at)''')
+            attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL)''')
+        # One schema migration for existing installations; rebuild preserves all receipts.
+        sql=db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='media_ingest_jobs'").fetchone()[0]
+        if "'result'" not in sql or "'video'" not in sql:
+            db.execute("""CREATE TABLE media_ingest_jobs_v2 (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL
+                CHECK(kind IN ('asset','reference','result','video')), source_sha256 TEXT NOT NULL,
+                source_size INTEGER NOT NULL, filename TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('pending','done')),
+                attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL)""")
+            db.execute("""INSERT INTO media_ingest_jobs_v2
+                SELECT id,project_id,kind,source_sha256,source_size,filename,
+                       state,attempts,last_error,created_at FROM media_ingest_jobs""")
+            db.execute('DROP TABLE media_ingest_jobs')
+            db.execute('ALTER TABLE media_ingest_jobs_v2 RENAME TO media_ingest_jobs')
+        db.execute('''CREATE INDEX IF NOT EXISTS media_ingest_jobs_pending
+            ON media_ingest_jobs(state,project_id,created_at)''')
+
+        db.execute('RELEASE SAVEPOINT media_ingest_schema')
+    except BaseException:
+        db.execute('ROLLBACK TO SAVEPOINT media_ingest_schema')
+        db.execute('RELEASE SAVEPOINT media_ingest_schema')
+        raise
+
+def _require_owner(db, project_id):
+    """Fail closed on deleted or foreign projects before media I/O.
+
+    Recovery may process an entire queue or one selected project. Neither
+    mode may publish an orphan receipt after its owning project was removed.
+    """
+    if not isinstance(project_id, str) or not re.fullmatch(r'[0-9a-f]{32}', project_id):
+        raise ValueError('Invalid project identity')
+    if db.execute('SELECT 1 FROM projects WHERE id=?', (project_id,)).fetchone() is None:
+        raise ValueError('Project does not exist in SQLite')
 
 
 def _root(workspace,project_id):
@@ -81,20 +103,87 @@ def _spool(root,sha):
     return folder,require_managed_file(root,folder/sha,('.ingest_spool',))
 
 
-def stage_source(root,source):
-    """Fsync immutable source bytes before accepting any project reference."""
+def _publish_independent_copy(root, source, target, sha, size, kind):
+    """Publish fsynced, verified bytes without linking the immutable spool.
+
+    A temporary file in the destination directory is an independent copy.
+    Linking that temporary inode into the final name is atomic and refuses
+    to overwrite a concurrent publication. The temporary name is removed
+    even if verification or publication fails.
+    """
+    folder=require_managed_folder(root,_KINDS[kind])
+    temporary=require_managed_file(
+        root,folder/('.publish-'+uuid4().hex+'.tmp'),(_KINDS[kind],))
+    try:
+        with temporary.open('xb') as writer:
+            read_stable_bytes(source,write=writer.write,expected=(sha,size))
+            writer.flush()
+            os.fsync(writer.fileno())
+        if _digest(temporary)!=(sha,size):
+            raise ValueError('Independent media publication copy failed verification')
+        try:
+            os.link(temporary,target)
+        except FileExistsError:
+            # Another worker may have published the same receipt. Do not
+            # replace it, and never follow a link planted during the race.
+            require_managed_file(root,target,(_KINDS[kind],))
+            if not target.is_file() or _digest(target)!=(sha,size):
+                raise ValueError('Existing destination content conflicts with registered media')
+        _sync_folder(folder)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _source_identity(path):
+    """Comparable pathname identity without mixing path-stat and descriptor-stat semantics."""
+    return source_identity(path)
+
+
+def stage_source(root,source,*,check=None):
+    """Stage stable bytes with cooperative stop before durable SQL publication."""
+    if check is not None and not callable(check):
+        raise TypeError('Media staging cancellation check must be callable')
+    def checkpoint():
+        if check is not None:check()
+    checkpoint()
     src=Path(source)
-    if not src.is_file() or src.is_symlink():raise ValueError('Source is not a regular file')
+    before=_source_identity(src)
     folder=require_managed_folder(root,'.ingest_spool')
     folder.mkdir(parents=True,exist_ok=True)
     tmp=require_managed_file(root,folder/('.import-'+uuid4().hex+'.tmp'),('.ingest_spool',))
     sha=hashlib.sha256();length=0
     try:
-        with src.open('rb') as reader,tmp.open('xb') as writer:
-            for block in iter(lambda:reader.read(1024*1024),b''):
+        fd=open_source(src)
+        with os.fdopen(fd,'rb') as reader,tmp.open('xb') as writer:
+            opened=descriptor_identity(reader.fileno(),src)
+            if opened!=before:
+                raise ValueError('Source changed before media staging')
+            while True:
+                checkpoint()
+                block=reader.read(1024*1024)
+                checkpoint()
+                if not block:break
                 sha.update(block);length+=len(block);writer.write(block)
+            # Metadata alone misses writes through pre-existing memory mappings
+            # on Windows. Verify copied bytes against the still-owned handle.
+            reader.seek(0);verified=hashlib.sha256()
+            while True:
+                checkpoint()
+                block=reader.read(1024*1024)
+                checkpoint()
+                if not block:break
+                verified.update(block)
+            if verified.digest()!=sha.digest():
+                raise ValueError('Source changed during media staging (content verification)')
+            closed=descriptor_identity(reader.fileno(),src)
+            if (closed!=before
+                    or _source_identity(src)!=before or length!=before[2]):
+                raise ValueError('Source changed during media staging')
+            checkpoint()
             writer.flush();os.fsync(writer.fileno())
+        checkpoint()
         _,target=_spool(root,sha.hexdigest())
+        checkpoint()
         try:os.link(tmp,target)
         except FileExistsError:
             observed,size=_digest(target)
@@ -115,28 +204,29 @@ class IngestReceipt:
     duplicate:bool=False
 
 
-def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None):
+def _ingest_under_lease(db,workspace,source,*,project_id,kind,original_name=None,item_id=None,authorize=None):
     if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
     if kind not in _KINDS:raise ValueError('Invalid ingest kind')
-    if not db.execute('SELECT 1 FROM projects WHERE id=?',(project_id,)).fetchone():
-        raise ValueError('Project does not exist in SQLite')
+    _require_owner(db,project_id)
     base=_root(workspace,project_id)
     managed_folder=require_managed_folder(base,_KINDS[kind])
-    if kind=='result':managed_folder.mkdir(parents=True,exist_ok=True)
+    if kind in ('result','video'):managed_folder.mkdir(parents=True,exist_ok=True)
     src=Path(source)
     ext=src.suffix.lower()
     if not re.fullmatch(r'\.[a-z0-9]{1,12}',ext):raise ValueError('Unsupported filename extension')
-    sha,length=stage_source(base,src)
+    sha,length=stage_source(base,src,check=authorize)
     item_id=item_id or uuid4().hex
     if not re.fullmatch(r'[a-f0-9]{32}',item_id):raise ValueError('Invalid imported item identity')
     folder=require_managed_folder(base,_KINDS[kind])
     dest=require_managed_file(base,folder/(item_id+ext),(_KINDS[kind],))
-    if kind=='result' and (dest.exists() or dest.is_symlink()):
+    if kind in ('result','video') and (dest.exists() or dest.is_symlink()):
         raise FileExistsError('An imported result cannot overwrite an existing file')
     label=original_name if original_name is not None else src.name
     if not isinstance(label,str) or not label or '\x00' in label:raise ValueError('Invalid source display name')
     try:
         db.execute('BEGIN IMMEDIATE')
+        if authorize is not None:
+            authorize()
         install(db)
         if kind=='asset':
             found=db.execute('SELECT id,stored_path FROM assets WHERE project_id=? AND sha256=?',
@@ -184,9 +274,29 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     return IngestReceipt(project_id,item_id,dest,True,bool(state and state[0]=='done'))
 
 
+def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None,authorize=None):
+    """Fence staging, immutable spool identity and SQL intent against GC.
+
+    The same permanent OS lock is held by spool GC. Never release it between
+    staging a previously unreferenced blob and committing its first receipt.
+    """
+    if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
+    if kind not in _KINDS:raise ValueError('Invalid ingest kind')
+    _require_owner(db,project_id)
+    root=_root(workspace,project_id)
+    # Preserve fail-fast validation before creating the permanent lock inode.
+    if not re.fullmatch(r'\.[a-z0-9]{1,12}',Path(source).suffix.lower()):
+        raise ValueError('Unsupported filename extension')
+    with spool_lease(root,check=authorize):
+        return _ingest_under_lease(db,workspace,source,project_id=project_id,
+            kind=kind,original_name=original_name,item_id=item_id,authorize=authorize)
+
+
 def replay(db,workspace,*,project_id=None,limit=100):
     if db.in_transaction:raise RuntimeError('Cannot replay import inside a foreign transaction')
     if type(limit) is not int or not 1<=limit<=1000:raise ValueError('Invalid replay limit')
+    if project_id is not None:
+        _require_owner(db,project_id)
     install(db);db.commit()
     query='''SELECT id,project_id,kind,source_sha256,source_size,filename
         FROM media_ingest_jobs WHERE state='pending' '''
@@ -198,6 +308,7 @@ def replay(db,workspace,*,project_id=None,limit=100):
         try:
             if kind not in _KINDS or not _NAME.fullmatch(name):
                 raise ValueError('Corrupt import identity')
+            _require_owner(db,pid)
             root=_root(workspace,pid)
             _,source=_spool(root,sha)
             if _digest(source)!=(sha,size):raise ValueError('Spool bytes are missing or corrupted')
@@ -215,8 +326,7 @@ def replay(db,workspace,*,project_id=None,limit=100):
                 if not target.is_file() or _digest(target)!=(sha,size):
                     raise ValueError('Existing destination content conflicts with registered media')
             else:
-                os.link(source,target)
-                _sync_folder(folder)
+                _publish_independent_copy(root,source,target,sha,size,kind)
             if _digest(target)!=(sha,size):raise ValueError('Media readback failed')
             db.execute("UPDATE media_ingest_jobs SET state='done',last_error='' WHERE id=? AND project_id=? AND state='pending'",
                        (ident,pid));db.commit();completed+=1
@@ -224,11 +334,16 @@ def replay(db,workspace,*,project_id=None,limit=100):
             if db.in_transaction:db.rollback()
             db.execute("UPDATE media_ingest_jobs SET attempts=attempts+1,last_error=? WHERE id=? AND project_id=? AND state='pending'",
                        (str(exc)[:500],ident,pid));db.commit();failed+=1
-    pending=db.execute("SELECT COUNT(*) FROM media_ingest_jobs WHERE state='pending'").fetchone()[0]
+    pending_sql="SELECT COUNT(*) FROM media_ingest_jobs WHERE state='pending'"
+    pending_args=()
+    if project_id is not None:
+        pending_sql+=" AND project_id=?"
+        pending_args=(project_id,)
+    pending=db.execute(pending_sql,pending_args).fetchone()[0]
     return dict(completed=completed,failed=failed,pending=pending)
 
 
-def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
+def _prune_unreferenced_spool_under_lease(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
     """Bounded GC of crash-before-commit leftovers; never remove referenced blobs.
 
     A staged blob may precede its still-uncommitted SQLite intent. Age-based
@@ -241,6 +356,7 @@ def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_se
         raise ValueError('Invalid GC limit')
     if type(min_age_seconds) not in (int,float) or min_age_seconds<86400:
         raise ValueError('GC retention must be at least 24 hours')
+    _require_owner(db,project_id)
     root=_root(workspace,project_id)
     folder=require_managed_folder(root,'.ingest_spool')
     if not folder.exists():return {'deleted':0,'retained':0}
@@ -254,6 +370,7 @@ def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_se
         if not candidate.is_file():raise ValueError('Spool contains an unexpected directory')
         require_managed_file(root,candidate,('.ingest_spool',))
         name=candidate.name
+        if name=='.lease':continue  # permanent cross-process lifetime lock
         if not _SHA.fullmatch(name):
             kept+=1;continue  # temporary import may still be in progress
         if now-candidate.stat().st_mtime<min_age_seconds:
@@ -267,3 +384,19 @@ def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_se
         candidate.unlink();removed+=1
     if removed:_sync_folder(folder)
     return {'deleted':removed,'retained':kept}
+
+
+def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
+    """Serialize reference checks and deletion with every durable import intent."""
+    if db.in_transaction:raise RuntimeError('Spool GC requires an unowned connection')
+    if type(max_delete) is not int or not 1<=max_delete<=1000:
+        raise ValueError('Invalid GC limit')
+    if type(min_age_seconds) not in (int,float) or min_age_seconds<86400:
+        raise ValueError('GC retention must be at least 24 hours')
+    _require_owner(db,project_id)
+    root=_root(workspace,project_id)
+    folder=require_managed_folder(root,'.ingest_spool')
+    if not folder.exists():return {'deleted':0,'retained':0}
+    with spool_lease(root):
+        return _prune_unreferenced_spool_under_lease(db,workspace,
+            project_id=project_id,max_delete=max_delete,min_age_seconds=min_age_seconds)

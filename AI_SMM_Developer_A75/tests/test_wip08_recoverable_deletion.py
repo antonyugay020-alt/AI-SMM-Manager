@@ -158,7 +158,7 @@ delete_project_data(con,sys.argv[2],'project',Path(sys.argv[3]))
         os.replace(self.folders[a] / 'originals' / 'source.txt',
                    stage / 'content' / 'originals' / 'source.txt')
         recover_deletions(self.db, [str(f) for f in self.folders.values()])
-        self.assertEqual((self.folders[a] / 'originals' / 'source.txt').read_text(), a)
+        self.assertEqual((self.folders[a] / 'originals' / 'source.txt').read_text(encoding='utf-8'), a)
         self.assertFalse(stage.exists())
 
     def test_malicious_manifest_traversal_is_rejected(self):

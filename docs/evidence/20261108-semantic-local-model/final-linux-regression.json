@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "platform": "linux",
+  "shard": 0,
+  "shards": 1,
+  "module_count": 263,
+  "total_module_inventory": 263,
+  "source_fingerprint": "c95931f3345bd4eb70595936304a22f17766a72be959d631fdee7eed0732845c",
+  "command": "python -m pytest --import-mode=importlib -q <explicit module list>",
+  "counts": {
+    "tests": 3146,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "reason": null,
+  "exit_code": 0
+}

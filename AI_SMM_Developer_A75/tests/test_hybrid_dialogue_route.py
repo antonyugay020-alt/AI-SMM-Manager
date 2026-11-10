@@ -17,17 +17,19 @@ class HybridRoutingTests(unittest.TestCase):
         local.assert_called_once()
         cloud.assert_not_called()
 
-    def test_project_command_routes_gpt(self):
+    def test_project_command_routes_local_first(self):
         with patch.dict('os.environ', {'AI_SMM_DIALOGUE_MODE': 'hybrid'}):
-            with patch('text_providers.call_text', return_value={'message': {'content': '{}'}}) as cloud:
+            with patch('text_providers.call_text', return_value={'message': {'content': '{}'}}) as cloud, patch('ollama_resilience.request_chat',return_value={'message':{'content':'{}'}}) as local:
                 c.request_central_dialogue(payload('Создай стратегию для проекта'), stage='dialogue')
-        cloud.assert_called_once()
+        cloud.assert_not_called()
+        local.assert_called_once()
 
-    def test_ambiguous_turn_routes_gpt(self):
+    def test_ambiguous_turn_routes_local_first(self):
         with patch.dict('os.environ', {'AI_SMM_DIALOGUE_MODE': 'hybrid'}):
-            with patch('text_providers.call_text', return_value={'message': {'content': '{}'}}) as cloud:
+            with patch('text_providers.call_text', return_value={'message': {'content': '{}'}}) as cloud, patch('ollama_resilience.request_chat',return_value={'message':{'content':'{}'}}) as local:
                 c.request_central_dialogue(payload('продолжай'), stage='dialogue')
-        cloud.assert_called_once()
+        cloud.assert_not_called()
+        local.assert_called_once()
 
     def test_local_only_never_uses_cloud(self):
         with patch.dict('os.environ', {'AI_SMM_DIALOGUE_MODE': 'local'}):

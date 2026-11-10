@@ -14,7 +14,10 @@ def model_family(name):
     value=value.split(':',1)[0]
     # A provider's size suffix is the same technical model family as an
     # Ollama size tag. Changing transport or size must not create a reader.
-    return re.sub(r'-\d+(?:\.\d+)?[bm](?:-(?:instruct|it|thinking|base))?$', '', value)
+    value=re.sub(r'-\d+(?:\.\d+)?[bm](?:-(?:instruct|it|thinking|base))?$', '', value)
+    # Qwen 2.5 Coder is a derivative of the same foundation, not an
+    # independent family when the installed 14B base model writes/reviews.
+    return 'qwen2.5' if value=='qwen2.5-coder' else value
 
 
 MIN_REVIEWER_FAMILIES = 2

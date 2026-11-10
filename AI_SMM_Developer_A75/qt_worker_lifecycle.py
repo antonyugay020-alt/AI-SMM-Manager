@@ -6,7 +6,7 @@ referenced during that interval, including on window-close and test failures.
 import time
 
 WORKER_ATTRIBUTES = (
-    'task_worker', 'dialogue_worker', 'report_worker', 'video_worker',
+    'task_worker', 'dialogue_worker', 'report_worker', 'video_worker', 'media_worker',
     'cloud_worker', 'modern_worker', 'edit_worker', 'smart_mask_worker',
     'neural_worker', 'generator', 'worker', 'cuda_install_worker',
     'download_worker', 'smart_worker', 'vision_worker', 'neural_install', 'opencv_install',

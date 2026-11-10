@@ -80,13 +80,20 @@ def load_facts(db, project_id):
 
 
 def update_facts(db, project_id, message, project_description='', *, reset=False):
-    current = {} if reset else load_facts(db, project_id)
-    if project_description:
-        current = extract_facts(project_description, current)
-    new = extract_facts(message, current)
-    db.execute('INSERT OR REPLACE INTO ai_task_facts(project_id,facts_json) VALUES(?,?)',
-               (project_id, json.dumps(new, ensure_ascii=False)))
-    db.commit()
+    """Write task facts in a complete SQLite unit of work.
+
+    Standalone callers own one durable commit; callers with an active result
+    transaction keep ownership of that transaction. A failure never commits
+    unrelated work or leaves a partial task-facts replacement behind.
+    """
+    from sqlite_transaction_core import compose, own
+    with (compose(db, 'task_facts') if db.in_transaction else own(db)):
+        current = {} if reset else load_facts(db, project_id)
+        if project_description:
+            current = extract_facts(project_description, current)
+        new = extract_facts(message, current)
+        db.execute('INSERT OR REPLACE INTO ai_task_facts(project_id,facts_json) VALUES(?,?)',
+                   (project_id, json.dumps(new, ensure_ascii=False)))
     return new
 
 

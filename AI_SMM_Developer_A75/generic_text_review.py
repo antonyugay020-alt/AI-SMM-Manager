@@ -102,13 +102,14 @@ def _calibrate_random_pool(models, required, randomizer):
     candidates=list(models)
     randomizer.shuffle(candidates)
     eligible=[]
-    seen=set()
+    seen=set();attempted=set()
     for name in candidates:
-        family=_model_family(name)
-        if family in seen:
+        family=_model_family(name);tag=name.casefold()
+        if family in seen or tag in attempted:
             continue
-        seen.add(family)
+        attempted.add(tag)
         if _has_structured_json_contract(name):
+            seen.add(family)
             eligible.append(name)
             if len(eligible)>=required:
                 break
@@ -148,6 +149,9 @@ def list_installed_ollama_models(endpoint='http://127.0.0.1:11434/api/tags'):
         lowered = name.casefold()
         if name and not any(token in lowered for token in ('embed', 'embedding', 'rerank', 'whisper', 'clip', 'tts')):
             names.append(name)
+    if os.environ.get('AI_SMM_QA_LOCAL_ONLY')=='1':
+        allowed=json.loads(os.environ.get('AI_SMM_QA_ALLOWED_MODELS','[]'))
+        names=[name for name in names if name in allowed]
     return list(dict.fromkeys(names))
 
 
@@ -214,7 +218,7 @@ def select_reviewer_models(author_model, *, candidates=None, previous_reviewers=
     blocked = {x.casefold() for x in config['exclude']}
     author = str(author_model).strip().casefold()
     author_family = _model_family(author_model)
-    unique = {}
+    unique = {};variants={}
     for name in available:
         lowered = name.casefold()
         if not name or lowered == author or _model_family(name) == author_family or lowered in blocked:
@@ -223,11 +227,12 @@ def select_reviewer_models(author_model, *, candidates=None, previous_reviewers=
             continue
         # Model-size tags from one family are not independent reviewer voices.
         unique.setdefault(_model_family(name), name)
+        variants.setdefault(lowered,name)
     pool = list(unique.values())
-    requested_pool=list(pool)
+    requested_pool=list(variants.values())
     randomizer = chooser or secrets.SystemRandom()
     if candidates is None and not _reviewer_pool_is_prevalidated():
-        pool = _calibrate_random_pool(pool, len(CHECKS)+(1 if reserve_reviser else 0), randomizer)
+        pool = _calibrate_random_pool(requested_pool, len(CHECKS)+(1 if reserve_reviser else 0), randomizer)
     if len(pool) < MIN_REVIEWER_FAMILIES:
         from review_qualification import ReviewerQualificationUnavailable
         raise ReviewerQualificationUnavailable(f'Нужно минимум {MIN_REVIEWER_FAMILIES} независимых моделей-рецензентов, прошедших проверку компетенции; доступно {len(pool)}.',
@@ -919,10 +924,12 @@ def run_quality_cycle(request, result, context, *, reviewer=review_text,
                 **verdict, 'attempts': 1, 'repair_applied': False}}
         if verdict.get('review_errors'):
             # An unavailable criterion does not certify a content defect.
+            # An explicitly assigned panel is authoritative: do not discard it
+            # and trigger unbounded roster discovery/qualification on failure.
             # Production may try one different independent panel on IDENTICAL
             # bytes. Never repair from incomplete observations, and never
             # promote the original partial verdict to PASS.
-            if (reviewer is review_text and not verdict.get('issues')
+            if (reviewer is review_text and reviewer_models is None and not verdict.get('issues')
                     and not is_first_pass_acceptance(context)):
                 try:
                     if report:

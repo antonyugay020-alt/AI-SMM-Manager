@@ -1,0 +1,16 @@
+{
+  "scope": "Offline malformed source-review fixture, no live model calls",
+  "calls": 5,
+  "limit": 12,
+  "action": "write_blocked",
+  "review_errors": [
+    "factual_grounding"
+  ],
+  "stages": [
+    "редакторская проверка: requirements (r1)",
+    "редакторская проверка: completeness (r2)",
+    "редакторская проверка источников (r3)",
+    "редакторская проверка источников (r3)",
+    "редакторская проверка: format_and_tone (r4)"
+  ]
+}

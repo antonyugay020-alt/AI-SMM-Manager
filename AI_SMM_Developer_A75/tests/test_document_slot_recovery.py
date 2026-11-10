@@ -61,9 +61,9 @@ class DocumentSlotRecovery(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             slot=DocumentDraft(home,'task','calendar')
             slot.save('v1', True, 'verified', review={'document_sha256':digest('v1'),'verdict':True,'review_id':'r1'})
-            obj=json.loads(slot.path.read_text())
+            obj=json.loads(slot.path.read_text(encoding='utf-8'))
             obj['review']['document_sha256']=digest('another document')
-            slot.path.write_text(json.dumps(obj))
+            slot.path.write_text(json.dumps(obj), encoding='utf-8')
             with self.assertRaises(ValueError):
                 slot.load()
 
@@ -76,7 +76,7 @@ class DocumentSlotRecovery(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             a=DocumentDraft(home,'task','calendar')
             a.save('original',False,'pending')
-            a.path.write_text(a.path.read_text().replace('original','tampered'))
+            a.path.write_text(a.path.read_text(encoding='utf-8').replace('original','tampered'), encoding='utf-8')
             with self.assertRaises(ValueError):
                 a.load()
     def test_invalid_signature(self):
@@ -126,4 +126,4 @@ class CheckpointAddressing(unittest.TestCase):
             self.assertEqual(a.load()['content'], 'original')
             a.save('updated',False,'still pending')
             self.assertEqual(a.load()['content'],'updated')
-            self.assertEqual(json.loads(a.legacy_path.read_text())['content'],'original')
+            self.assertEqual(json.loads(a.legacy_path.read_text(encoding='utf-8'))['content'],'original')

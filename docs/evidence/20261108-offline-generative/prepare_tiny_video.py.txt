@@ -1,0 +1,13 @@
+import json,hashlib
+from pathlib import Path
+from diffusers import StableDiffusionPipeline,MotionAdapter
+root=Path('/workspace/work/generative');base=StableDiffusionPipeline.from_pretrained(root/'tiny-converted',local_files_only=True,use_safetensors=True)
+bundle=root/'tiny-video-bundle';base.save_pretrained(bundle/'model',safe_serialization=True)
+motion=MotionAdapter(block_out_channels=(32,64),motion_layers_per_block=2,motion_norm_num_groups=8,motion_num_attention_heads=4,motion_max_seq_length=32)
+motion.save_pretrained(bundle/'motion',safe_serialization=True)
+files={p.relative_to(bundle).as_posix():{'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'bytes':p.stat().st_size} for p in bundle.rglob('*') if p.is_file()}
+manifest={'version':1,'provenance':{'test_only':True,'quality_accepted':False,'source':'hf-internal-testing/tiny-stable-diffusion-torch','revision':'a88cdfbd91f96ec7f61eb7484b652ff0f4ee701d','transformation':'Tiny pretrained image topology with random untrained MotionAdapter; temporal quality NOT accepted'},'files':files}
+blob=(json.dumps(manifest,indent=2)+'\n').encode();(bundle/'manifest.json').write_bytes(blob)
+profile={'engine':'animatediff_v2v','bundle':str(bundle),'manifest_sha256':hashlib.sha256(blob).hexdigest(),'device':'cpu','python':'/workspace/work/generative/venv/bin/python'}
+(root/'tiny-video-profiles.json').write_text(json.dumps({'version':1,'profiles':{'tiny-video-topology-only':profile}},indent=2))
+print(json.dumps({'status':'PASS','scope':'tiny untrained motion topology preparation only','bytes':sum(f['bytes'] for f in files.values()),'profile':profile}))

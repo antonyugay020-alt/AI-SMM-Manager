@@ -243,7 +243,7 @@ class PublicationReviewChainTests(unittest.TestCase):
                     'plan_reviewer_models':['primary','secondary']},model='writer')
             self.assertEqual(out['content_delivery']['checked_posts'],2,out)
             self.assertTrue(out['documents'][-1]['valid'])
-            saved=json.loads(next((Path(home)/'drafts').glob('publication_progress_*.json')).read_text())
+            saved=json.loads(next((Path(home)/'drafts').glob('publication_progress_*.json')).read_text(encoding='utf-8'))
             self.assertEqual(saved['completed'],2)
             self.assertTrue(all(p['_review_adjudication']['full_independent_recheck'] for p in saved['posts'].values()))
 
@@ -282,14 +282,14 @@ class PublicationOutageRecoveryTests(unittest.TestCase):
                 failed=first['recovery_context']['rejected_posts']['1/Пт']
                 self.assertEqual(failed['review_state'],'unavailable')
                 saved_file=next((Path(home)/'drafts').glob('publication_progress_*.json'))
-                accepted=copy.deepcopy(json.loads(saved_file.read_text())['posts']['1/Вт'])
+                accepted=copy.deepcopy(json.loads(saved_file.read_text(encoding='utf-8'))['posts']['1/Вт'])
                 exact_failed=copy.deepcopy(failed['post'])
                 offline[0]=False
                 result=ct.execute_compound(request,context,model='writer')
                 self.assertTrue(result['documents'][-1]['valid'],result)
                 self.assertEqual(writes,['Вт','Пт'],'Resume must review saved bytes before author calls')
                 self.assertEqual(reviewed[-1],exact_failed)
-                saved=json.loads(saved_file.read_text())
+                saved=json.loads(saved_file.read_text(encoding='utf-8'))
                 self.assertEqual(saved['posts']['1/Вт'],accepted)
                 self.assertEqual(saved['completed'],2)
                 self.assertEqual(single.call_count+repair.call_count+field_repair.call_count,0)

@@ -1,0 +1,22 @@
+[
+  {
+    "repository": "timbrooks/instruct-pix2pix",
+    "revision": "31519b5cb02a7fd89b906d88731cd4d6a7bbf88d",
+    "declared_license": "mit"
+  },
+  {
+    "repository": "guoyww/animatediff-motion-adapter-v1-5-2",
+    "revision": "6167b88ffe39b4441fdf2113e77b99a6f56b7906",
+    "declared_license": null
+  },
+  {
+    "repository": "h94/IP-Adapter",
+    "revision": "018e402774aeeddd60609b4ecdb7e298259dc729",
+    "declared_license": "apache-2.0"
+  },
+  {
+    "repository": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    "revision": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14",
+    "declared_license": "creativeml-openrail-m"
+  }
+]

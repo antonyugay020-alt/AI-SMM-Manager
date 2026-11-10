@@ -27,7 +27,7 @@ class ProjectControlIntegrationTests(unittest.TestCase):
         self.control=ProjectControlRuntime(self.db,lambda pid:self.root/pid,self.root/'backups')
 
     def test_chat_deletion_backup_and_scoped_verification(self):
-        (self.project/'note.txt').write_text('never delete this')
+        (self.project/'note.txt').write_text('never delete this', encoding='utf-8')
         receipt=self.control.backup_and_delete(self.pid,'chat')
         self.assertTrue(receipt.backup.is_file())
         with zipfile.ZipFile(receipt.backup) as z:
@@ -35,7 +35,7 @@ class ProjectControlIntegrationTests(unittest.TestCase):
             self.assertEqual(rows['tables']['messages']['rows'][0][-1],'history')
             self.assertEqual(z.read('project_files/note.txt'),b'never delete this')
         self.assertEqual(self.db.execute('SELECT count(*) FROM messages').fetchone(),(0,))
-        self.assertEqual((self.project/'note.txt').read_text(),'never delete this')
+        self.assertEqual((self.project/'note.txt').read_text(encoding='utf-8'),'never delete this')
 
     def test_foreign_document_identity_fails_without_backup(self):
         self.db.execute('INSERT INTO manager_documents VALUES(?,?,?,?)',('b'*32,'foreign','strategy','private'))
@@ -51,12 +51,12 @@ class ProjectControlIntegrationTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM messages').fetchone(),(2,))
 
     def test_symlink_inside_workspace_aborts_before_mutation(self):
-        outside=self.root/'private.txt'; outside.write_text('untouchable')
+        outside=self.root/'private.txt'; outside.write_text('untouchable', encoding='utf-8')
         try:(self.project/'linked.txt').symlink_to(outside)
         except (OSError,NotImplementedError):self.skipTest('symlink unsupported')
         with self.assertRaises(ValueError):self.control.backup_and_delete(self.pid,'chat')
         self.assertEqual(self.db.execute('SELECT count(*) FROM messages').fetchone(),(1,))
-        self.assertEqual(outside.read_text(),'untouchable')
+        self.assertEqual(outside.read_text(encoding='utf-8'),'untouchable')
         self.assertEqual(list((self.root/'backups').glob('*.zip')),[])
 
     def test_project_deletion_removes_owned_state_but_preserves_other_project(self):
@@ -66,7 +66,7 @@ class ProjectControlIntegrationTests(unittest.TestCase):
         self.db.execute('INSERT INTO project_locations VALUES(?,?)',(foreign,str(self.root/foreign)))
         self.db.execute('INSERT INTO messages VALUES(?,?,?,?)',(3,foreign,'user','retain'))
         self.db.commit()
-        (self.project/'personal.txt').write_text('delete only owned data')
+        (self.project/'personal.txt').write_text('delete only owned data', encoding='utf-8')
         receipt=self.control.backup_and_delete(self.pid,'project')
         self.assertTrue(receipt.backup.is_file())
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM messages WHERE project_id=?',(self.pid,)).fetchone(),(0,))
@@ -79,11 +79,11 @@ class ProjectControlIntegrationTests(unittest.TestCase):
         self.db.executemany('INSERT INTO manager_documents VALUES(?,?,?,?)',[(selected,self.pid,'strategy','A'),(another,self.pid,'strategy','B')])
         self.db.commit()
         (self.project/'strategies').mkdir()
-        (self.project/'strategies'/('A_'+selected[:8]+'.txt')).write_text('chosen')
-        (self.project/'strategies'/('B_'+another[:8]+'.txt')).write_text('unchosen')
+        (self.project/'strategies'/('A_'+selected[:8]+'.txt')).write_text('chosen', encoding='utf-8')
+        (self.project/'strategies'/('B_'+another[:8]+'.txt')).write_text('unchosen', encoding='utf-8')
         self.control.backup_and_delete(self.pid,'documents',selected_ids=(selected,))
         self.assertFalse((self.project/'strategies'/('A_'+selected[:8]+'.txt')).exists())
-        self.assertEqual((self.project/'strategies'/('B_'+another[:8]+'.txt')).read_text(),'unchosen')
+        self.assertEqual((self.project/'strategies'/('B_'+another[:8]+'.txt')).read_text(encoding='utf-8'),'unchosen')
         self.assertEqual(self.db.execute('SELECT id FROM manager_documents').fetchone(),(another,))
 
     def test_asset_deletion_preserves_texts_and_documents(self):
@@ -92,10 +92,10 @@ class ProjectControlIntegrationTests(unittest.TestCase):
         (self.project/'originals').mkdir()
         (self.project/'originals'/'source.png').write_bytes(b'img')
         (self.project/'texts').mkdir()
-        (self.project/'texts'/'draft.txt').write_text('keep')
+        (self.project/'texts'/'draft.txt').write_text('keep', encoding='utf-8')
         self.control.backup_and_delete(self.pid,'assets')
         self.assertFalse((self.project/'originals'/'source.png').exists())
-        self.assertEqual((self.project/'texts'/'draft.txt').read_text(),'keep')
+        self.assertEqual((self.project/'texts'/'draft.txt').read_text(encoding='utf-8'),'keep')
         self.assertEqual(self.db.execute('SELECT count(*) FROM assets').fetchone(),(0,))
 
     def test_failed_database_delete_restores_staged_files_and_keeps_backup(self):

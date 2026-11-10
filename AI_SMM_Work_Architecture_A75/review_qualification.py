@@ -5,13 +5,17 @@ not arbitrary-text quality. No user text, credentials or paid-provider discovery
 """
 from __future__ import annotations
 import copy
+import hashlib
 import json
 import random
 import secrets
 import time
 from threading import RLock
 from review_arbitration import adjudicate_findings, FindingReviewUnavailable
-from ollama_resilience import model_call_role, request_chat
+from ollama_resilience import model_call_role, request_chat, capture_utf8_transport
+
+# One request may include a local 14B cold start; quality oracle is unchanged.
+LOCAL_REVIEW_TIMEOUT_SECONDS = 180
 
 PROTOCOL = 'review_qualification_host_scope_r77_v2'
 CERT_ENV = 'AI_SMM_REVIEW_QUALIFICATIONS'
@@ -162,6 +166,7 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
     send=transport or request_chat
     calls=0;contract=False;resolved=[];error='';response_diagnostics={}
     contract_errors=[];raw_reply='';raw_reply_truncated=False;author_response_compatible=False
+    utf8_evidence={}
     started=time.monotonic()
     def ask(reviewer,system,user,*,json_schema):
         nonlocal calls,response_diagnostics,raw_reply,raw_reply_truncated,author_response_compatible
@@ -170,12 +175,24 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
         body={'model':reviewer,'stream':False,'think':False,'format':json_schema,'keep_alive':0,
             'messages':[{'role':'system','content':system},{'role':'user','content':user}],
             'options':{'temperature':0,'num_ctx':8192,'num_predict':1800}}
-        response=send(body,stage='проверка компетенции модели-рецензента',timeout=45,attempts=1,report=report)
+        encoded=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode('utf-8',errors='strict')
+        utf8_evidence.update(input_sha256=hashlib.sha256(encoded).hexdigest(),
+            input_bytes=len(encoded),input_payload=body,encoding='utf-8',strict_roundtrip=json.loads(encoded.decode('utf-8'))==body)
+        with capture_utf8_transport() as wire_evidence:
+            try:
+                # Allow local 14B cold-start and 8K-context generation; admission oracle remains unchanged.
+                response=send(body,stage='проверка компетенции модели-рецензента',timeout=LOCAL_REVIEW_TIMEOUT_SECONDS,attempts=1,report=report)
+            finally:
+                utf8_evidence['wire']=wire_evidence
         from ollama_resilience import response_diagnostics as diagnostics
         response_diagnostics=diagnostics(response)
         content=response.get('message',{}).get('content','') if isinstance(response,dict) else ''
         raw_reply=content[:18000] if isinstance(content,str) else ''
         raw_reply_truncated=isinstance(content,str) and len(content)>18000
+        if isinstance(content,str):
+            encoded_reply=content.encode('utf-8',errors='strict')
+            utf8_evidence.update(reply_sha256=hashlib.sha256(encoded_reply).hexdigest(),
+                reply_bytes=len(encoded_reply),replacement_character_present='\ufffd' in content)
         try:
             author_response_compatible=(isinstance(content,str) and isinstance(json.loads(content),dict)
                 and response.get('done_reason')!='length')
@@ -209,7 +226,7 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
         'pass':contract and all(row['pass'] for row in outcomes),
         'controls':outcomes,'model_calls':calls,'duration_s':round(time.monotonic()-started,2),
         'error':error or None,'response_diagnostics':response_diagnostics,
-        'contract_errors':contract_errors,'raw_reply':raw_reply,'raw_reply_truncated':raw_reply_truncated,
+        'utf8_evidence':utf8_evidence,'contract_errors':contract_errors,'raw_reply':raw_reply,'raw_reply_truncated':raw_reply_truncated,
         'semantic_controls_evaluated':len(outcomes) if contract else 0,
         'semantic_controls_correct':sum(row['pass'] for row in outcomes) if contract else None,
         'scope':'Elementary known-answer controls only; not certification of arbitrary-text quality'}
