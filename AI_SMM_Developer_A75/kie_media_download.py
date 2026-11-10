@@ -6,6 +6,7 @@ into an exclusive temporary file, fsync and publish atomically. Full image
 and video media validity is checked separately by kie_media_jobs.
 """
 from __future__ import annotations
+import io
 import math
 import os
 import time
@@ -77,7 +78,12 @@ def download_result(url, target, *, opener=None, check=None, total_timeout=900):
                 # trickles indefinitely. read1 returns after one socket read,
                 # so cancellation and the total deadline are checked between
                 # bounded reads rather than after an arbitrarily long fill.
-                read_once=getattr(response,"read1",response.read)
+                read_once=getattr(response,"read1",None)
+                # In-memory adapters may override read() to simulate failures
+                # while inheriting BytesIO.read1(). Preserve that contract.
+                if (not callable(read_once) or (isinstance(response,io.BytesIO)
+                        and type(response).read1 is io.BytesIO.read1)):
+                    read_once=response.read
                 while True:
                     checkpoint()
                     chunk=read_once(min(1024*1024,max_bytes+1-total))
