@@ -9,7 +9,7 @@ Adapter endpoints are intentionally NOT guessed from the createTask documentatio
 from __future__ import annotations
 
 import json
- from pathlib import Path
+from pathlib import Path
 from PIL import Image
 from kie_media_contracts import (
     _url, VideoMetadata, nano_banana_pro, nano_banana_edit,
