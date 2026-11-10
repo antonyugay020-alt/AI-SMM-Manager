@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import math
 import os
-import signal
 import subprocess
 import tempfile
 import time
+from owned_process_cleanup import close_owned_process
 
 
 MAX_PROBE_STDOUT = 1_048_576
@@ -20,45 +20,8 @@ MAX_ERROR_BYTES = 16 * 1024 * 1024
 
 
 def _stop(process, job):
-    """Reap the child and its descendants, even if the leader already exited."""
-    if job is not None:
-        job.close()
-    if process is None:
-        return
-    if os.name != 'nt':
-        # The group can outlive its leader. A finished ffprobe/ffmpeg process
-        # must not leave a helper running beyond the user's cancellation.
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        try:
-            process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            pass
-        finally:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
-        return
-    if process.poll() is None:
-        try:
-            process.terminate()
-        except OSError:
-            pass
-    try:
-        process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        try:
-            process.kill()
-        except OSError:
-            pass
-        process.wait(timeout=5)
+    """One shared tree owner for FFmpeg, ffprobe, native QA and CUDA."""
+    close_owned_process(process,job,grace=3)
 
 
 def run_owned_media_process(command, check=None, *, timeout=1200, capture_stdout=False):

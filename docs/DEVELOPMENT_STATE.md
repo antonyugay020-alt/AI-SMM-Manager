@@ -1,3 +1,13 @@
+# Unified native/FFmpeg owned-process cleanup — 2026-11-10 (unreleased)
+
+Baseline `116672898eed29c746a2c9da398e839b04c5def8`, existing draft PR #4. Cross-layer inspection of native CUDA preflight, independent semantic QA, FFmpeg/ffprobe and Qt cancellation found an inconsistent ownership contract: FFmpeg/ffprobe already created a POSIX session and killed the entire group on completion, while native preflight/QA launched in the caller's POSIX session and terminated only the direct child. A native child that spawned a helper and exited could leave that helper running after successful completion, cancellation or timeout. Windows Job Object ownership was already present and is preserved.
+
+New stdlib-only `owned_process_cleanup.close_owned_process` is the shared process-tree owner for both runtimes. Native POSIX children now start in their own session; both native and media paths terminate their owned process group even when the leader has already exited. On Windows the existing kill-on-close Job Object is retained; the leader fallback still handles terminate/kill races. No process-name/global kills, network calls, GPU models or paid operations. The source mirrors Work/Developer/Developer/tests are identical.
+
+**Actually executed before commit** in an isolated Python 3.13.5/Linux harness: 6/6 owned-process tests (including finished leader with live grandchild, cancellation, terminate race, invalid grace and real context integration) and 4/4 synthetic cross-boundary CI cases using a fixture owner matching the proposed integration. The original-repository CI module is added, but **not yet executed against the full checkout**. This does not certify Windows Job Objects, Qt, CUDA or semantic visual quality. Full 263 developer modules and all CI remain unexecuted on this HEAD; RTX 2080 Super **0/10**. No GitHub Actions, main merge, model downloads, paid APIs, bot/monitor changes or Windows reboot.
+
+---
+
 # Media spool GC / durable import cross-process lifetime — 2026-11-10 (unreleased)
 
 Baseline `ba571a47aab0495512cd396707e16916a40733c3`, existing draft PR #4. Cross-boundary inspection of `media_ingest_core.stage_source`, `ingest`, `replay`, `prune_unreferenced_spool`, SQLite receipt creation, and local Qt/media job publication found a race: an old unreferenced SHA spool blob could be reused by an import and then removed by concurrent GC **after staging but before the first SQLite intent commit**. The durable `pending` receipt would then point to missing bytes, so crash recovery could not publish even though the importer had successfully verified its source.

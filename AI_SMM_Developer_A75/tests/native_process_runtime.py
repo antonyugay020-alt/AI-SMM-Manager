@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from owned_process_cleanup import close_owned_process
 
 _spawn_native=subprocess.Popen
 PROTOCOL='native_runtime_v1'
@@ -63,23 +64,14 @@ def owned_native_process(command,*,env,stdout,stderr):
         job=_create_job()
         if job is not None:flags=0x00000200|0x00000004|0x08000000
         process=_spawn_native(command,stdin=subprocess.PIPE,stdout=stdout,
-            stderr=stderr,env=native_environment(env),creationflags=flags)
+            stderr=stderr,env=native_environment(env),creationflags=flags,
+            start_new_session=os.name!='nt')
         if job is not None:job.assign_resume(process)
         yield process
     finally:
-        if job is not None:job.close()
-        if process is not None:
-            try:
-                if process.poll() is None:
-                    try:process.terminate()
-                    except OSError:
-                        # A job-close/exit race must still enter bounded wait
-                        # and kill escalation, never abandon a live process.
-                        pass
-                    try:process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
-            finally:
-                if process.stdin is not None:process.stdin.close()
+        # The same owned-tree cleanup is used by FFmpeg/ffprobe and native
+        # inference. A reaped POSIX leader must not orphan its descendants.
+        close_owned_process(process,job,grace=5)
 
 
 def wait_owned_native(process, log, *, timeout, pump=None, max_log_bytes=None):
