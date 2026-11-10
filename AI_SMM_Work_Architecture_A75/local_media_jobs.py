@@ -109,10 +109,14 @@ def _row(db,owner,job):
     return row
 
 
-def _probe(path,*,full=False):
-    result=subprocess.run(['ffprobe','-v','error','-show_entries',
-        'stream=codec_type,width,height:format=duration','-of','json',str(path)],capture_output=True,check=True,timeout=20,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-    data=json.loads(result.stdout)
+def _probe(path,*,full=False,check=None):
+    from media_subprocess_runtime import run_owned_media_process
+    command=['ffprobe','-v','error','-show_entries',
+        'stream=codec_type,width,height:format=duration','-of','json',str(path)]
+    code,output,error=run_owned_media_process(command,check,timeout=20,capture_stdout=True)
+    if code:
+        raise subprocess.CalledProcessError(code,command,output=output,stderr=error)
+    data=json.loads(output)
     duration=float(data.get('format',{}).get('duration',0))
     video=next((row for row in data.get('streams',[]) if row.get('codec_type')=='video'),None)
     if not video or not math.isfinite(duration) or not 0<duration<=3600:
@@ -124,23 +128,9 @@ def _probe(path,*,full=False):
 
 
 def _tool(command,check,*,timeout=1200):
-    process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-    deadline=time.monotonic()+timeout
-    try:
-        while True:
-            check()
-            if time.monotonic()>deadline:raise TimeoutError('Local media tool deadline exceeded')
-            try:
-                _,error=process.communicate(timeout=.1)
-                if process.returncode:raise LocalToolError(command,process.returncode,error)
-                return
-            except subprocess.TimeoutExpired:continue
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:process.wait(timeout=2)
-            except subprocess.TimeoutExpired:process.kill();process.wait(timeout=2)
-        if process.stderr is not None:process.stderr.close()
+    from media_subprocess_runtime import run_owned_media_process
+    code,_,error=run_owned_media_process(command,check,timeout=timeout)
+    if code:raise LocalToolError(command,code,error)
 
 
 def _retain_generation_failure(folder,exc):

@@ -67,7 +67,7 @@ def render_generation(request,sources,target,check,*,tool,probe):
     duration=request.get('frames',16)/request.get('fps',8)
     base=['ffmpeg','-nostdin','-v','error','-y']
     if video:
-        original,audio=probe(sources[0]);start=request.get('start',0)
+        original,audio=probe(sources[0],check=check);start=request.get('start',0)
         if start+duration>original+.02:raise ValueError('Requested generation interval exceeds input video')
         folder=target.parent/'input_frames';folder.mkdir()
         tool(base+['-ss',str(start),'-i',str(sources[0]),'-vf',f'fps={request.get("fps",8)},scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1',
