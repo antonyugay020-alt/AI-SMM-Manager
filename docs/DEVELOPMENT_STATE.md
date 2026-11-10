@@ -1,3 +1,11 @@
+# Bounded model/provider HTTP response bodies — 2026-11-10 (unreleased)
+
+Baseline `ef30df2caa7e1a41df30a66d5837e267cbbde51a` on existing draft PR #4. Cross-service review found unbounded `response.read()` on Ollama and three cloud model paths, unbounded provider HTTPError bodies, and no cooperative streaming cancellation for llama.cpp and Kie JSON responses. New stdlib-only `http_response_budget.read_bounded_body` limits total body bytes, checks absolute monotonic deadline and cooperative stop between 64 KiB reads. Model responses are capped at 16 MiB, Kie JSON at 120 KiB, provider error bodies at 8192 bytes; Ollama event metadata no longer stores raw error bodies. Runtime mirrors Work/Developer/Developer/tests are updated together, with new offline integration CI. Socket-level reads still obey the existing socket timeout and are not forcibly interruptible mid-operation. No paid dispatch, consent or retry semantics change.
+
+**Executed before commit:** exact helper 6/6 isolated CPU pytest PASS, including boundary, overflow, trickle, cancellation, overridden BytesIO read and invalid inputs. Integrated CI and complete 263 developer test modules have not run on final HEAD; no Windows Qt/CUDA or local visual QA; RTX 2080 Super 0/10. No Actions, paid APIs, model downloads, main merge, live bots or reboot.
+
+---
+
 # Bounded native QA/preflight log ownership — 2026-11-10 (unreleased)
 
 Baseline `cac055cc91de8d6e3db3c72b4387a057a5860dbf` on existing draft PR #4. Cross-layer resource audit of native Torch/CUDA preflight and independent local vision QA found that both redirected **stdout and stderr to unbounded disk files**: preflight blocked in `process.wait(timeout=...)`, and the QA worker only polled process completion, without a log budget. A faulty native child could write gigabytes before the timeout even though media FFmpeg diagnostics were already bounded.

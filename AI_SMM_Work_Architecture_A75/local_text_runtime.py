@@ -8,6 +8,8 @@ import ipaddress
 import json
 import math
 import os
+import time
+from http_response_budget import read_bounded_body
 from urllib import request,error,parse
 from cooperative_cancellation import check_cancelled
 from provider_errors import ProviderHTTPError
@@ -73,7 +75,8 @@ def request_local(payload,*,timeout=180,environ=None,opener=None):
     try:
         with http(req,timeout=timeout) as response:
             if getattr(response,'status',200)!=200:raise RuntimeError('Local model HTTP status unavailable')
-            raw=response.read(MAX_RESPONSE+1)
+            raw=read_bounded_body(response,max_bytes=MAX_RESPONSE,
+                deadline=time.monotonic()+timeout,check=check_cancelled)
         if len(raw)>MAX_RESPONSE:raise ValueError('Local model response exceeds byte budget')
         data=json.loads(raw)
     except error.HTTPError as exc:

@@ -5,6 +5,7 @@ import os
 import re
 import socket
 import time
+from http_response_budget import read_bounded_body
 import urllib.error
 import urllib.request
 from contextlib import contextmanager, nullcontext
@@ -344,7 +345,8 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                         record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
                     else:
                         with urllib.request.urlopen(req, timeout=local_timeout) as response:
-                            raw_response=response.read()
+                            raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
+                                deadline=time.monotonic()+local_timeout,check=check_cancelled)
                             evidence=_UTF8_TRANSPORT.get()
                             if evidence is not None:
                                 evidence.update(response_sha256=hashlib.sha256(raw_response).hexdigest(),
@@ -400,11 +402,13 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             # caller's existing attempt/deadline budget. Never retry quota,
             # authentication, request-contract errors, or a model timeout.
             from io import BytesIO
-            try:raw_error=exc.read()
+            try:
+                raw_error=read_bounded_body(exc,max_bytes=8192,
+                    deadline=time.monotonic()+5,check=check_cancelled)
             except Exception:raw_error=b''
             finally:exc.close()
-            record_model_event('model_provider_error',stage=stage,attempt=attempt,status=exc.code,
-                body=raw_error.decode('utf-8','replace'))
+            record_model_event('model_provider_error',stage=stage,attempt=attempt,
+                status=exc.code,body_bytes=len(raw_error))
             body = _provider_response_body(BytesIO(raw_error))
             error = ProviderHTTPError(stage, exc.code, body)
             retry = exc.code in (500, 502, 503, 504) and attempt < attempts

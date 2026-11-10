@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from http_response_budget import read_bounded_body
+from cooperative_cancellation import check_cancelled
 import urllib.error
 import urllib.request
 from provider_errors import ProviderHTTPError
@@ -125,8 +128,10 @@ def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_
         data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
         headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01',
                  'Content-Type': 'application/json'}, method='POST')
+    started=time.monotonic()
     with urllib.request.urlopen(req, timeout=timeout) as response:
-        raw_response = response.read()
+        raw_response = read_bounded_body(response,max_bytes=16*1024*1024,
+            deadline=started+timeout,check=check_cancelled)
         from diagnostic_report import record_model_event
         record_model_event('cloud_transport_metadata',
                            provider='anthropic', bytes_received=len(raw_response))
@@ -171,8 +176,10 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
             data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
             headers={'x-goog-api-key': api_key, 'Content-Type': 'application/json'},
             method='POST')
+        started=time.monotonic()
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            raw_response=response.read()
+            raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
+                deadline=started+timeout,check=check_cancelled)
             from diagnostic_report import record_model_event
             record_model_event('cloud_transport_metadata',provider=provider,bytes_received=len(raw_response))
             result=json.loads(raw_response)
@@ -213,8 +220,10 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
         headers['X-Title'] = 'AI SMM Manager acceptance test'
     req = urllib.request.Request(url, data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
                                  headers=headers, method='POST')
+    started=time.monotonic()
     with urllib.request.urlopen(req, timeout=timeout) as response:
-        raw_response=response.read()
+        raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
+            deadline=started+timeout,check=check_cancelled)
         from diagnostic_report import record_model_event
         record_model_event('cloud_transport_metadata',provider=provider,bytes_received=len(raw_response))
         result=json.loads(raw_response)
@@ -267,7 +276,8 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         # messages, response bodies, prompts, or authorization material.
         safe_code=''
         try:
-            response_body=exc.read().decode('utf-8','replace')
+            response_body=read_bounded_body(exc,max_bytes=8192,
+                deadline=time.monotonic()+5,check=check_cancelled).decode('utf-8','replace')
             from diagnostic_report import record_model_event
             record_model_event('cloud_provider_error',provider=provider,status=exc.code)
             payload=json.loads(response_body)

@@ -7,6 +7,8 @@ No automatic paid retries, redirects or provider response-body logging.
 from __future__ import annotations
 import json
 import os
+import time
+from http_response_budget import read_bounded_body
 import mimetypes
 from pathlib import Path
 from uuid import uuid4
@@ -40,12 +42,15 @@ class KieMediaClient:
             raise RuntimeError("Kie API credential unavailable")
         return "Bearer "+self._key
 
-    def _read_json(self, request, *, timeout=50):
+    def _read_json(self, request, *, timeout=50, check=None):
         try:
+            checkpoint(check)
+            started=time.monotonic()
             with self._opener(request, timeout=timeout) as response:
                 if getattr(response,"status",200)!=200:
                     raise RuntimeError("Kie media non-success HTTP status")
-                body=response.read(120_001)
+                body=read_bounded_body(response,max_bytes=120_000,
+                    deadline=started+timeout,check=check)
             if len(body)>120_000:
                 raise RuntimeError("Kie media response exceeds limit")
             result=json.loads(body)
@@ -122,7 +127,7 @@ class KieMediaClient:
                 headers={"Authorization":authorization,
                     "Content-Type":"multipart/form-data; boundary="+boundary,
                     "Content-Length":str(len(prefix)+size+len(suffix))},method="POST")
-            result=self._read_json(req,timeout=90)
+            result=self._read_json(req,timeout=90,check=check)
             checkpoint(check)
         data=result.get("data")
         if result.get("success") is not True or not isinstance(data,dict):
