@@ -38,6 +38,7 @@ def isolated_quality_module(tmp_path,monkeypatch):
         ' def installed(self):self.digest="a"*64;return self.digest\n'
         ' def review(self,case,output,folder,metrics):\n'
         '  if case.get("behavior")=="hang":time.sleep(30)\n'
+        '  if case.get("behavior")=="log_flood":print("X"*262144,flush=True)\n'
         '  if case.get("behavior")=="mutate_source":Path(case["sources"][0]).write_bytes(b"changed")\n'
         '  state="BLOCKED" if case.get("behavior")=="reject" else "PASS"\n'
         '  return {"status":state,"model":self.model,"digest":self.digest,'
@@ -129,3 +130,15 @@ def test_real_child_source_mutation_is_infrastructure_failure(isolated_quality_m
         _call(isolated_quality_module,tmp_path,'mutate_source',5,with_source=True)
     info=json.loads((tmp_path/'proof'/'quality_process_error.json').read_text(encoding='utf-8'))
     assert info['error_type']=='RuntimeError'
+
+
+def test_real_owned_vision_child_log_flood_never_certifies_quality(isolated_quality_module,tmp_path):
+    from unittest.mock import patch
+    import native_process_runtime
+    with patch.object(native_process_runtime,'MAX_NATIVE_LOG_BYTES',4096):
+        with pytest.raises(RuntimeError,match='NATIVE_LOG_BUDGET_EXCEEDED'):
+            _call(isolated_quality_module,tmp_path,'log_flood',5)
+    diagnostic=json.loads((tmp_path/'proof'/'quality_process_error.json').read_text(encoding='utf-8'))
+    assert diagnostic['error_type']=='RuntimeError'
+    assert diagnostic['reason']=='NATIVE_LOG_BUDGET_EXCEEDED'
+    assert (tmp_path/'proof'/'quality_process.log').stat().st_size>4096
