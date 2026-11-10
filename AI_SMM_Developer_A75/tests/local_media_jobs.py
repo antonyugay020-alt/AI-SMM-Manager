@@ -177,7 +177,7 @@ def _render(request,sources,target,check):
     if task in ('video_cut','video_format'):
         if task=='video_cut' and 'width' not in request and 'height' not in request:
             scale='pad=ceil(iw/2)*2:ceil(ih/2)*2,setsar=1,format=yuv420p'
-        duration,_=_probe(sources[0])
+        duration,_=_probe(sources[0],check=check)
         command=base+['-i',str(sources[0])]
         if task=='video_cut':
             if request['end']>duration+.05:raise ValueError('Trim interval exceeds source video')
@@ -193,7 +193,7 @@ def _render(request,sources,target,check):
                 command+=['-loop','1','-t',str(duration),'-i',str(path)]
                 audio=False
             else:
-                duration,audio=_probe(path)
+                duration,audio=_probe(path,check=check)
                 command+=['-i',str(path)]
             total+=duration
             filters.append(f'[{index}:v]{scale},setpts=PTS-STARTPTS[v{index}]')
@@ -211,25 +211,26 @@ def _render(request,sources,target,check):
     _tool(command,check)
 
 
-def _verify_output(request,sources,target):
+def _verify_output(request,sources,target,*,check=None):
     """Independent tool readback checks the actual requested output properties."""
     task=request['task']
+    if check is not None:check()
     width,height=request.get('width',512 if task in GEN_TASKS else 720),request.get('height',512 if task in GEN_TASKS else 1280)
     if output_kind(request)=='image':
         with Image.open(target) as image:
             if image.size!=(width,height):raise ValueError('Local image dimensions differ from request')
         return
-    duration,audio,geometry=_probe(target,full=True)
+    duration,audio,geometry=_probe(target,full=True,check=check)
     source_audio=False
     if task=='video_generative':
         expected=request.get('frames',16)/request.get('fps',8)
-        source_audio=_probe(sources[0])[1]
+        source_audio=_probe(sources[0],check=check)[1]
     elif task=='video_from_images':
         expected=request.get('seconds_per_image',3)*len(sources)
     elif task=='video_montage':
-        expected=sum(_probe(path)[0] for path in sources);source_audio=True
+        expected=sum(_probe(path,check=check)[0] for path in sources);source_audio=True
     else:
-        original,source_audio,original_geometry=_probe(sources[0],full=True)
+        original,source_audio,original_geometry=_probe(sources[0],full=True,check=check)
         expected=request['end']-request.get('start',0) if task=='video_cut' else original
         if task=='video_cut' and 'width' not in request and 'height' not in request:
             width,height=tuple(value+(value%2) for value in original_geometry)
@@ -348,7 +349,7 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
                 with Image.open(path) as image:
                     if image.width*image.height>40_000_000:raise ValueError('Local source pixel budget exceeded')
                     image.load()
-            else:_probe(path)
+            else:_probe(path,check=check)
             if request['task'] in GEN_TASKS and any(path.samefile(previous) for previous in registered):raise ValueError('Source and reference/mask refer to the same file')
             actual=digest_file(path)
             expected=request.get('expected_sha256')
@@ -370,8 +371,8 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
             try:
                 _render(request,sources,target,check)
                 check()
-                validate_media_bytes(target,is_video=is_video)
-                _verify_output(request,sources,target)
+                validate_media_bytes(target,is_video=is_video,check=check)
+                _verify_output(request,sources,target,check=check)
                 if request['task'] in GEN_TASKS:
                     receipt_path=temp/'generation_receipt.json'
                     if not receipt_path.is_file() or receipt_path.stat().st_size>8192:raise ValueError('Missing local generation receipt')

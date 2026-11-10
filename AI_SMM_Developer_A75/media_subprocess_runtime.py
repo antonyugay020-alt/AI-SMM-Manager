@@ -95,6 +95,10 @@ def run_owned_media_process(command, check=None, *, timeout=1200, capture_stdout
             while True:
                 if check is not None:
                     check()
+                # Bound temporary disk usage while ffprobe is still running,
+                # not only after it exits. Never wait for an infinite producer.
+                if capture_stdout and os.fstat(output.fileno()).st_size > MAX_PROBE_STDOUT:
+                    raise ValueError('Media probe output exceeds safe bound')
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError('Local media tool deadline exceeded')

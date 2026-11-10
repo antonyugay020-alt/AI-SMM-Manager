@@ -9,8 +9,7 @@ Adapter endpoints are intentionally NOT guessed from the createTask documentatio
 from __future__ import annotations
 
 import json
-import subprocess
-from pathlib import Path
+ from pathlib import Path
 from PIL import Image
 from kie_media_contracts import (
     _url, VideoMetadata, nano_banana_pro, nano_banana_edit,
@@ -39,16 +38,20 @@ def verified_image(path, *, limit_mb, kling=False):
     return item
 
 
-def verified_video(path):
+def verified_video(path, *, check=None):
+    if check is not None:check()
     item=Path(path)
     if not item.is_file() or item.is_symlink() or item.suffix.lower() not in (".mp4",".mov"):
         raise ValueError("Kling source video must be a regular MP4/MOV")
     try:
-        process=subprocess.run(["ffprobe","-v","error","-show_entries",
-            "format=duration:stream=codec_type,width,height,r_frame_rate",
-            "-of","json",str(item)], capture_output=True, check=True,
-            timeout=20)
-        metadata=json.loads(process.stdout)
+        from media_subprocess_runtime import run_owned_media_process
+        code,output,_=run_owned_media_process(
+            ["ffprobe","-v","error","-show_entries",
+             "format=duration:stream=codec_type,width,height,r_frame_rate",
+             "-of","json",str(item)],check,timeout=20,capture_stdout=True)
+        if code:raise ValueError("nonzero ffprobe exit")
+        if check is not None:check()
+        metadata=json.loads(output)
         stream=next(s for s in metadata["streams"] if s.get("codec_type")=="video")
         numerator,denominator=stream["r_frame_rate"].split("/")
         fps=int(numerator)/int(denominator)
@@ -57,7 +60,7 @@ def verified_video(path):
             int(stream["width"]),int(stream["height"]),fps,item.suffix)
         result.validate()
         return item,result
-    except (OSError,subprocess.SubprocessError,KeyError,ValueError,
+    except (OSError,TimeoutError,KeyError,ValueError,
             StopIteration,ZeroDivisionError) as exc:
         raise ValueError("Kling source media failed ffprobe requirements") from exc
 
@@ -118,7 +121,8 @@ class KieMediaGateway:
     def prepare_video(self, project_id, *, prompt, source_video=None,
                       source_images=(), reference_mode=True,
                       duration=5, resolution="720p",aspect_ratio=None,
-                      audio=None, multi_prompt=(), explicit_upload_consent=False,job_id=None):
+                      audio=None, multi_prompt=(), explicit_upload_consent=False,job_id=None,
+                      cancel_check=None):
         """Reference mode creates from images; transformation edits existing video."""
         images=list(source_images)
         if (images or source_video is not None) and explicit_upload_consent is not True:
@@ -129,7 +133,7 @@ class KieMediaGateway:
             raise ValueError("Transformation requires source video")
         local=metadata=None
         if source_video is not None:
-            local,metadata=verified_video(self._authorized(project_id,source_video))
+            local,metadata=verified_video(self._authorized(project_id,source_video),check=cancel_check)
         # Fail invalid prompt/model settings before any external upload.
         preview_images=["https://preflight.invalid/photo" for _ in images]
         preview_video="https://preflight.invalid/video" if local is not None else None
@@ -142,6 +146,7 @@ class KieMediaGateway:
         else:
             kling_omni_transformation(prompt,preview_video,metadata,
                                       preview_images,resolution,aspect_ratio)
+        if cancel_check is not None:cancel_check()
         urls=self._upload_image_refs(project_id,images,limit=50,kling=True)
         video_url=_url(self.upload_file(local)) if local is not None else None
         if reference_mode:

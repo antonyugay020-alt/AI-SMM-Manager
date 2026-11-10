@@ -1,3 +1,15 @@
+# End-to-end owned media validation and cancellation propagation — 2026-11-10 (unreleased)
+
+Baseline e33168bd838a3106896a1308234ffabcc3e3bec6 on existing draft PR #4. The previous owned FFmpeg/ffprobe helper covered local `_tool` and `_probe`, but publication validation (`media_artifact_validation.validate_media_bytes`) and Kie source preflight (`kie_media_runtime.verified_video`) still launched unowned `subprocess.run(ffprobe)`. Local job source checks, rendering probes and final readback did not forward the durable attempt's cancellation callback. The shared subprocess helper also enforced its 1 MiB stdout bound only *after* child exit, allowing a malicious/defective producer to fill a temporary file until its deadline.
+
+All video probe boundaries now use the existing Windows Job Object/POSIX process-group owner with finite deadlines, bounded stdout, and optional cancellation. The helper checks stdout file size while the child is running. Local source validation, render-time probes, final readback and artifact validation forward the same attempt callback. Kie preflight forwards cancellation from intent creation and from preparation, without changing upload consent or paid task dispatch. Backward-compatible no-callback entry points remain available for remote media verification. Runtime mirrors Work/Developer/Developer/tests are updated as identical blobs.
+
+**Actual local verification**: Python 3.13.5 isolated exact proposed `media_subprocess_runtime` and `media_artifact_validation` code: 5/5 subprocess tests PASS with real FFmpeg/ffprobe, live stdout flood, cancellation before spawn, child reap and bounded error tail. A 720×720, 24 fps, 3.2 s real MP4 was independently generated and probed successfully. The new integrated CI module has been syntax-compiled, but its full original-repository imports and the full 263-module + all-CI regression **have not been run**; no Windows Job Object, Qt, CUDA or real model acceptance is claimed. RTX 2080 Super remains **0/10**. No GitHub Actions, paid APIs, model downloads, main merge, live bot changes or reboot.
+
+Next gate: run complete offline regression against a frozen final HEAD, then consolidated Windows RTX 3080 Ti preliminary and ten consecutive RTX 2080 Super Qt/CUDA E2E.
+
+---
+
 # Owned bounded FFmpeg/ffprobe lifecycle — 2026-11-10 (unreleased)
 
 Baseline `a558bcbcfe124bd478b624bc9df117021e61fbc9`, existing draft PR #4. A cross-service audit of local media, Qt cancellation and native ownership found that the local FFmpeg wrapper used `stderr=PIPE` plus repeated `communicate()` for up to 1200 seconds, allowing unbounded native diagnostics to accumulate in Python memory. The video metadata probe used a separate `subprocess.run` without the local media cancellation callback or Windows child-tree containment. A killed native tool could leave subprocess descendants outside the user's stopped job.

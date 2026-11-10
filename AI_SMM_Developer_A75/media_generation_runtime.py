@@ -51,7 +51,7 @@ def create_intent(db,workspace,project_id,request,*,job_id=None,cancel_check=Non
         path=gate._authorized(project_id,name)
         if path.suffix.lower() in ('.mp4','.mov'):
             if not mode.startswith('video') or video is not None:raise ValueError('Only one video source supported')
-            verified_video(path)
+            verified_video(path,check=cancel_check)
             video=str(path)
         else:
             verified_image(path,limit_mb=50 if mode.startswith('video') else (30 if mode=='image_pro' else 10),
@@ -67,7 +67,7 @@ def create_intent(db,workspace,project_id,request,*,job_id=None,cancel_check=Non
     prompt=value.get('prompt')
     ratio=value.get('aspect_ratio','1:1' if mode.startswith('image') else '16:9')
     resolution=value.get('resolution','1K' if mode.startswith('image') else '720p')
-    metadata=verified_video(video)[1] if video else None
+    metadata=verified_video(video,check=cancel_check)[1] if video else None
     if mode=='image_pro':nano_banana_pro(prompt,urls,ratio,resolution)
     elif mode=='image_edit':nano_banana_edit(prompt,urls,ratio)
     elif mode=='video_reference':
@@ -161,7 +161,8 @@ def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=Fa
             else:
                 job=gateway.prepare_video(owner,source_video=video,source_images=images,
                     reference_mode=request['mode']=='video_reference',duration=request.get('duration',5),
-                    explicit_upload_consent=True,job_id=ident,**options)
+                    explicit_upload_consent=True,job_id=ident,
+                    cancel_check=lambda:check_intent(db,owner,ident),**options)
         finally:gateway.upload_file=original_upload
         db.execute("UPDATE media_generation_intents SET state='prepared',updated_at=? WHERE id=? AND claim=?",(utcnow(),ident,claim));db.commit()
         check_intent(db,owner,ident)

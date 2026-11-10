@@ -12,8 +12,9 @@ def digest_file(path):
     return result.hexdigest()
 
 
-def validate_media_bytes(path, *, is_video):
+def validate_media_bytes(path, *, is_video, check=None):
     """Verify bytes before they cross the project publication boundary."""
+    if check is not None:check()
     if path.stat().st_size > (500 if is_video else 60)*1024*1024:
         raise ValueError("downloaded Kie media exceeds maximum size")
     if not is_video:
@@ -32,14 +33,15 @@ def validate_media_bytes(path, *, is_video):
         except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
             raise ValueError("downloaded photo cannot be fully decoded") from exc
     else:
-        import subprocess
+        from media_subprocess_runtime import run_owned_media_process
         try:
-            probe=subprocess.run(
+            code,output,_=run_owned_media_process(
                 ["ffprobe","-v","error","-show_entries",
                  "stream=codec_type:format=duration","-of","json",str(path)],
-                timeout=15, capture_output=True, check=True)
-            metadata=json.loads(probe.stdout)
-        except (OSError,subprocess.SubprocessError,ValueError) as exc:
+                check,timeout=15,capture_stdout=True)
+            if code:raise ValueError("nonzero ffprobe exit")
+            metadata=json.loads(output)
+        except (OSError,TimeoutError,ValueError) as exc:
             raise ValueError("downloaded video failed ffprobe verification") from exc
         if not any(item.get("codec_type")=="video"
                    for item in metadata.get("streams",[]) if isinstance(item,dict)):
@@ -49,3 +51,5 @@ def validate_media_bytes(path, *, is_video):
             raise ValueError("downloaded video duration invalid")
 
 
+
+    if check is not None:check()
