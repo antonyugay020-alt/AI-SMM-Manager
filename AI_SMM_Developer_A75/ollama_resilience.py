@@ -344,9 +344,10 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                         result=request_local(payload,timeout=local_timeout)
                         record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
                     else:
+                        http_started=time.monotonic()
                         with urllib.request.urlopen(req, timeout=local_timeout) as response:
                             raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
-                                deadline=time.monotonic()+local_timeout,check=check_cancelled)
+                                deadline=http_started+local_timeout,check=check_cancelled)
                             evidence=_UTF8_TRANSPORT.get()
                             if evidence is not None:
                                 evidence.update(response_sha256=hashlib.sha256(raw_response).hexdigest(),

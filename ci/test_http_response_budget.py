@@ -77,3 +77,21 @@ def test_no_unbounded_response_read():
         assert 'read_bounded_body(' in source
         assert 'response.read()' not in source
         assert 'exc.read()' not in source
+
+
+def test_llama_cpp_deadline_includes_header_wait():
+    from local_text_runtime import request_local
+    env={'AI_SMM_LOCAL_LLM_BACKEND':'llama_cpp','AI_SMM_LOCAL_LLM_MODEL':'fixture',
+         'AI_SMM_LOCAL_LLM_URL':'http://127.0.0.1:18080'}
+    def slow_headers(req,timeout):
+        time.sleep(.03)
+        return io.BytesIO(b'{"choices":[]}')
+    with pytest.raises(TimeoutError,match='deadline'):
+        request_local({'model':'fixture','messages':[{'role':'user','content':'hello'}]},
+            environ=env,opener=slow_headers,timeout=.01)
+
+
+def test_ollama_http_deadline_starts_before_open():
+    source=(ROOT/'AI_SMM_Work_Architecture_A75/ollama_resilience.py').read_text(encoding='utf-8')
+    assert 'http_started=time.monotonic()\n                        with urllib.request.urlopen(' in source
+    assert 'deadline=http_started+local_timeout' in source

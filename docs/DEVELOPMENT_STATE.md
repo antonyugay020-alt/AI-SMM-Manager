@@ -1,3 +1,9 @@
+# HTTP response deadline includes request headers — 2026-11-10 (unreleased)
+
+Continuation of the unified bounded HTTP transport contract on `df4f0b4504a5b4b8390dd080db9079b89a50c432`. Both local Ollama and llama.cpp now start the monotonic response deadline immediately before opening the HTTP connection, consistent with the cloud and Kie transports; waiting for response headers cannot reset the body-read clock. New CI checks cover delayed headers on the local llama.cpp adapter and source integration on Ollama. No change to model selection, paid authority, network retries or other worker lifecycle. The helper's six isolated CPU tests remain PASS; **the expanded CI suite and full original-repository regression remain unexecuted**. Windows target stays 0/10.
+
+---
+
 # Bounded model/provider HTTP response bodies — 2026-11-10 (unreleased)
 
 Baseline `ef30df2caa7e1a41df30a66d5837e267cbbde51a` on existing draft PR #4. Cross-service review found unbounded `response.read()` on Ollama and three cloud model paths, unbounded provider HTTPError bodies, and no cooperative streaming cancellation for llama.cpp and Kie JSON responses. New stdlib-only `http_response_budget.read_bounded_body` limits total body bytes, checks absolute monotonic deadline and cooperative stop between 64 KiB reads. Model responses are capped at 16 MiB, Kie JSON at 120 KiB, provider error bodies at 8192 bytes; Ollama event metadata no longer stores raw error bodies. Runtime mirrors Work/Developer/Developer/tests are updated together, with new offline integration CI. Socket-level reads still obey the existing socket timeout and are not forcibly interruptible mid-operation. No paid dispatch, consent or retry semantics change.

@@ -73,10 +73,11 @@ def request_local(payload,*,timeout=180,environ=None,opener=None):
     # Never send project text through an inherited outbound HTTP proxy.
     http=opener or request.build_opener(request.ProxyHandler({}),_NoRedirect()).open
     try:
+        http_started=time.monotonic()
         with http(req,timeout=timeout) as response:
             if getattr(response,'status',200)!=200:raise RuntimeError('Local model HTTP status unavailable')
             raw=read_bounded_body(response,max_bytes=MAX_RESPONSE,
-                deadline=time.monotonic()+timeout,check=check_cancelled)
+                deadline=http_started+timeout,check=check_cancelled)
         if len(raw)>MAX_RESPONSE:raise ValueError('Local model response exceeds byte budget')
         data=json.loads(raw)
     except error.HTTPError as exc:
