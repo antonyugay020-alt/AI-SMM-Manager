@@ -14,7 +14,10 @@ from project_file_boundary import require_managed_folder, require_managed_file
 
 
 @contextmanager
-def spool_lease(root, *, timeout=30):
+def spool_lease(root, *, timeout=30, check=None):
+    if check is not None and not callable(check):
+        raise TypeError('Media spool lease cancellation check must be callable')
+    if check is not None:check()
     if type(timeout) not in (int, float) or not 0 < timeout <= 120:
         raise ValueError('Invalid media spool lease timeout')
     root = Path(root)
@@ -31,6 +34,7 @@ def spool_lease(root, *, timeout=30):
         acquired = False
         try:
             while True:
+                if check is not None:check()
                 handle.seek(0)
                 try:
                     if os.name == 'nt':
@@ -44,6 +48,7 @@ def spool_lease(root, *, timeout=30):
                 except OSError as exc:
                     if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
                         raise
+                    if check is not None:check()
                     if time.monotonic() >= deadline:
                         raise TimeoutError('MEDIA_SPOOL_LEASE_TIMEOUT') from exc
                     time.sleep(min(.05, max(0, deadline - time.monotonic())))

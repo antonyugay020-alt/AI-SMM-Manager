@@ -60,3 +60,38 @@ def test_lease_releases_on_failure(tmp_path):
             raise RuntimeError('simulated SQL rollback')
     with spool_lease(tmp_path,timeout=.2):
         pass
+
+
+def test_lease_checks_cancellation_before_disk_io(tmp_path):
+    def cancelled():raise InterruptedError('user cancelled')
+    with pytest.raises(InterruptedError,match='user cancelled'):
+        with spool_lease(tmp_path,check=cancelled):
+            pytest.fail('Cancellation admitted')
+    assert not (tmp_path/'.ingest_spool').exists()
+    with pytest.raises(TypeError,match='callable'):
+        with spool_lease(tmp_path,check=42):pass
+
+
+def test_waiting_lease_remains_cooperatively_cancellable(tmp_path):
+    script = ('import sys,time\n'
+              'sys.path.insert(0,sys.argv[1])\n'
+              'from media_spool_lease import spool_lease\n'
+              'with spool_lease(sys.argv[2]):\n'
+              ' print("acquired",flush=True)\n'
+              ' time.sleep(20)\n')
+    child=subprocess.Popen([sys.executable,'-c',script,str(WORK),str(tmp_path)],
+                           stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        assert child.stdout.readline().strip()=='acquired'
+        checks=[0]
+        def stop():
+            checks[0]+=1
+            if checks[0]>=4:raise InterruptedError('user stopped waiting')
+        started=time.monotonic()
+        with pytest.raises(InterruptedError,match='user stopped waiting'):
+            with spool_lease(tmp_path,timeout=10,check=stop):pass
+        assert time.monotonic()-started<1 and checks[0]>=4
+    finally:
+        child.terminate();child.wait(timeout=5)
+        child.stdout.close();child.stderr.close()
+    with spool_lease(tmp_path,timeout=.2):pass

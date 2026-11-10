@@ -292,7 +292,7 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     # Preserve fail-fast validation before creating the permanent lock inode.
     if not re.fullmatch(r'\.[a-z0-9]{1,12}',Path(source).suffix.lower()):
         raise ValueError('Unsupported filename extension')
-    with spool_lease(root):
+    with spool_lease(root,check=authorize):
         return _ingest_under_lease(db,workspace,source,project_id=project_id,
             kind=kind,original_name=original_name,item_id=item_id,authorize=authorize)
 
