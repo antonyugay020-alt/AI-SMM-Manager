@@ -41,7 +41,7 @@ class TextProviderTests(unittest.TestCase):
         opened.assert_not_called()
 
     def test_groq_response_text_and_usage_are_normalized(self):
-        body={'choices':[{'message':{'content':' answer '}}],
+        body={'choices':[{'finish_reason':'stop','message':{'content':' answer '}}],
               'usage':{'prompt_tokens':12,'completion_tokens':7}}
         with patch('text_providers.urllib.request.urlopen',return_value=FakeResponse(body)) as opened:
             result=call_text('groq/openai/gpt-oss-20b',[{'role':'user','content':'synthetic'}],
@@ -53,7 +53,7 @@ class TextProviderTests(unittest.TestCase):
         self.assertEqual(result['usage']['prompt_tokens'],12)
 
     def test_openrouter_route_is_pinned_to_free_model(self):
-        body={'choices':[{'message':{'content':'result'}}]}
+        body={'choices':[{'finish_reason':'stop','message':{'content':'result'}}]}
         with patch('text_providers.urllib.request.urlopen',return_value=FakeResponse(body)) as opened:
             result=call_text('openrouter/vendor/model:free',[],environ={'OPENROUTER_API_KEY':'secret'})
         self.assertEqual(opened.call_args.args[0].full_url,'https://openrouter.ai/api/v1/chat/completions')
@@ -67,7 +67,7 @@ class TextProviderTests(unittest.TestCase):
         self.assertEqual(configured_cloud_models(env),['gemini/gemini-3.1-flash-lite'])
         with self.assertRaises(ValueError):
             configured_cloud_models({**env,'AI_SMM_CLOUD_MODELS':'gemini/gemini-3.1-pro'})
-        body={'output_text':'result','usage':{'input_tokens':3}}
+        body={'status':'completed','output_text':'result','usage':{'input_tokens':3}}
         with patch('text_providers.urllib.request.urlopen',return_value=FakeResponse(body)) as opened:
             result=call_text('gemini/gemini-3.1-flash-lite',
                 [{'role':'system','content':'system rules'}, {'role':'user','content':'synthetic brief'}],

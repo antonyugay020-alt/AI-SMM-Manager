@@ -21,7 +21,7 @@ class _FakeResponse:
 
     def read(self):
         return json.dumps({
-            'choices': [{'message': {'content': '{"ok":true}'}}],
+            'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ok":true}'}}],
             'usage': {'prompt_tokens': 3, 'completion_tokens': 2},
         }).encode('utf-8')
 

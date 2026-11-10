@@ -12,6 +12,7 @@ import os
 import urllib.error
 import urllib.request
 from provider_errors import ProviderHTTPError
+from model_completion_contract import require_completed
 
 _KEYS = {'groq': 'GROQ_API_KEY', 'openrouter': 'OPENROUTER_API_KEY',
          'gemini': 'GEMINI_API_KEY', 'openai': 'OPENAI_API_KEY',
@@ -175,6 +176,7 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
             from diagnostic_report import record_model_event
             record_model_event('cloud_transport_metadata',provider=provider,bytes_received=len(raw_response))
             result=json.loads(raw_response)
+        require_completed('gemini_interactions',result)
         text = str(result.get('output_text') or '').strip() if isinstance(result, dict) else ''
         if not text and isinstance(result, dict):
             parts = []
@@ -216,10 +218,8 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
         from diagnostic_report import record_model_event
         record_model_event('cloud_transport_metadata',provider=provider,bytes_received=len(raw_response))
         result=json.loads(raw_response)
-    choices = result.get('choices') if isinstance(result, dict) else None
-    if not isinstance(choices, list) or not choices:
-        raise ValueError(f'{provider} вернул пустой ответ')
-    message = choices[0].get('message') if isinstance(choices[0], dict) else None
+    choice = require_completed('chat_completions',result)
+    message = choice['message']
     content = message.get('content') if isinstance(message, dict) else None
     if isinstance(content, list):
         content = '\n'.join(str(x.get('text') or '') for x in content if isinstance(x, dict))

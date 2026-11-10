@@ -11,6 +11,7 @@ from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from provider_errors import OllamaStageError, ProviderHTTPError, AuthorExecutionAborted
+from model_completion_contract import require_completed
 
 _CASE_DEADLINE = ContextVar('a75_ollama_case_deadline', default=None)
 _UTF8_TRANSPORT = ContextVar('a75_utf8_transport',default=None)
@@ -365,6 +366,8 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                 scope['expired']=True
             if not isinstance(result, dict):
                 raise ValueError('Ollama returned a non-object response')
+            if cloud_model is None:
+                require_completed('ollama',result)
             try:
                 result, used_tool = _decode_response_contract(result, payload, stage,
                     wrapped_result=wrapped_result, require_json=contract_mode is not None,contract=requested_contract)

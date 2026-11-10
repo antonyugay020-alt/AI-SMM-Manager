@@ -5,6 +5,7 @@ GPT-OSS compatibility entry follows Ollama's documented levels; callers can
 register /api/show metadata for any other model without changing workflow code.
 """
 from __future__ import annotations
+from collections import OrderedDict
 import copy
 import hashlib
 import json
@@ -12,7 +13,8 @@ from threading import RLock
 
 _LOCK=RLock()
 _METADATA={}
-_PROMPT_ROUTES=set()
+_PROMPT_ROUTES=OrderedDict()
+_MAX_PROMPT_ROUTES=256
 _COMPATIBILITY={'gpt-oss':{'thinking':{'values':['low','medium','high'],'default':'medium'}}}
 
 
@@ -79,18 +81,34 @@ def prepare_model_payload(payload):
 
 
 def contract_key(model, schema):
+    """A negotiated route belongs to the complete schema, not just its keys."""
     if not isinstance(schema,dict):
         shape='json_object'
     else:
-        # Root protocol fields identify a contract, never a topic or a prompt.
-        shape=json.dumps({'type':schema.get('type'),
-            'fields':sorted(schema.get('properties',{}))},sort_keys=True)
-    return str(model).casefold(),hashlib.sha256(shape.encode()).hexdigest()[:16]
+        try:
+            shape=json.dumps(schema,sort_keys=True,ensure_ascii=False,
+                             separators=(',',':'),allow_nan=False)
+        except (TypeError,ValueError) as exc:
+            raise ValueError('Invalid structured response schema') from exc
+    return str(model).casefold(),hashlib.sha256(shape.encode('utf-8')).hexdigest()
 
 
 def uses_prompt_route(model, schema):
     with _LOCK:
-        return contract_key(model,schema) in _PROMPT_ROUTES
+        key=contract_key(model,schema)
+        if key not in _PROMPT_ROUTES:
+            return False
+        _PROMPT_ROUTES.move_to_end(key)
+        return True
+
+
+def _remember_prompt_route(model, schema):
+    """Bound long-running model negotiation state and isolate nested contracts."""
+    key=contract_key(model,schema)
+    _PROMPT_ROUTES[key]=None
+    _PROMPT_ROUTES.move_to_end(key)
+    if len(_PROMPT_ROUTES)>_MAX_PROMPT_ROUTES:
+        _PROMPT_ROUTES.popitem(last=False)
 
 
 def note_incompatible_tool_result(model, schema, response):
@@ -100,7 +118,9 @@ def note_incompatible_tool_result(model, schema, response):
     Schema validation is still mandatory on every later response; malformed
     arguments here are never interpreted, repaired, or returned to the caller.
     """
-    message = response.get('message') if isinstance(response, dict) else None
+    if not isinstance(response,dict):
+        return False
+    message = response.get('message')
     calls = message.get('tool_calls') if isinstance(message, dict) else None
     if response.get('done_reason') != 'stop' or not isinstance(calls, list) or len(calls) != 1:
         return False
@@ -108,7 +128,7 @@ def note_incompatible_tool_result(model, schema, response):
     if not isinstance(function, dict) or function.get('name') != 'return_structured_result':
         return False
     with _LOCK:
-        _PROMPT_ROUTES.add(contract_key(model, schema))
+        _remember_prompt_route(model,schema)
     return True
 
 
@@ -118,10 +138,12 @@ def note_empty_tool_result(model, schema, response):
     Truncation, timeouts, malformed values and semantic rejection cannot change
     route or become approval. The caller's existing retry budget is unchanged.
     """
-    message=response.get('message') if isinstance(response,dict) else None
+    if not isinstance(response,dict):
+        return False
+    message=response.get('message')
     empty=(isinstance(message,dict) and not message.get('content')
            and not message.get('tool_calls') and response.get('done_reason')=='stop')
     if empty:
         with _LOCK:
-            _PROMPT_ROUTES.add(contract_key(model,schema))
+            _remember_prompt_route(model,schema)
     return bool(empty)
