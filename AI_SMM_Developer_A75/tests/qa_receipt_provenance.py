@@ -4,6 +4,7 @@ No model, Qt, network or GPU dependencies. A completed child from an older
 run cannot certify a different output or changed source/reference/mask.
 """
 import hashlib
+import json
 from pathlib import Path
 import secrets
 
@@ -28,10 +29,30 @@ def _sources(case):
     return sources
 
 
+def case_sha256(case):
+    """Canonical, strict binding of the entire immutable visual QA instruction.
+
+    Source and output bytes are hashed separately. This additionally binds
+    prompt, edit kind, geometry, timing, references and every other case field.
+    A child may never certify a different instruction using the same pixels.
+    """
+    if case is not None and not isinstance(case,dict):
+        raise ValueError('LOCAL_QUALITY_REVIEW_CASE_BINDING_INVALID')
+    try:
+        encoded=json.dumps(case,ensure_ascii=False,sort_keys=True,
+                           separators=(',',':'),allow_nan=False).encode('utf-8')
+    except (TypeError,ValueError,OverflowError) as exc:
+        raise ValueError('LOCAL_QUALITY_REVIEW_CASE_BINDING_INVALID') from exc
+    if len(encoded)>262144:
+        raise ValueError('LOCAL_QUALITY_REVIEW_CASE_BINDING_INVALID')
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def make_request(output,case=None):
     return {'request_id':secrets.token_hex(16),
             'output_sha256':output_sha256(output),
-            'source_sha256':[output_sha256(path) for path in _sources(case)]}
+            'source_sha256':[output_sha256(path) for path in _sources(case)],
+            'case_sha256':case_sha256(case)}
 
 
 def validate_output_binding(request,output,case=None):
@@ -56,6 +77,9 @@ def validate_output_binding(request,output,case=None):
                 raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID')
         except OSError as exc:
             raise ValueError('LOCAL_QUALITY_REVIEW_SOURCE_BINDING_INVALID') from exc
+    if (not isinstance(request.get('case_sha256'),str)
+            or request['case_sha256']!=case_sha256(case)):
+        raise ValueError('LOCAL_QUALITY_REVIEW_CASE_BINDING_INVALID')
 
 
 def validate_provenance(report,request,output,case=None):
@@ -63,7 +87,8 @@ def validate_provenance(report,request,output,case=None):
     if (not isinstance(report,dict)
             or report.get('request_id')!=request['request_id']
             or report.get('output_sha256')!=request['output_sha256']
-            or report.get('source_sha256')!=request['source_sha256']):
+            or report.get('source_sha256')!=request['source_sha256']
+            or report.get('case_sha256')!=request['case_sha256']):
         raise ValueError('LOCAL_QUALITY_REVIEW_PROVENANCE_INVALID')
     return report
 

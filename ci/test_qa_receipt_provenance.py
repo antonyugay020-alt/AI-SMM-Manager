@@ -115,3 +115,39 @@ def test_video_metrics_require_frames_duration_and_source_audio(tmp_path):
     silent={**metrics,'source_audio':False,'audio':False}
     silent.pop('audio_comparison')
     assert validate_media_metrics(case,silent)==silent
+
+
+def test_entire_instruction_bound_not_just_source_pixels(tmp_path):
+    from qa_receipt_provenance import case_sha256
+    output=tmp_path/'result.png';output.write_bytes(b'generated')
+    source=tmp_path/'source.png';source.write_bytes(b'original')
+    case={'task':'image_instruction','prompt':'Make the sky blue','sources':[str(source)],
+          'width':256,'height':256}
+    receipt=make_request(output,case)
+    assert validate_provenance(dict(receipt,status='PASS'),receipt,output,case)
+    assert case_sha256(case)==case_sha256(dict(reversed(list(case.items()))))
+    for change in ({'prompt':'Make the sky red'}, {'task':'image_inpaint'},
+                   {'width':512}, {'unreviewed_parameter':True}):
+        with pytest.raises(ValueError,match='CASE_BINDING_INVALID'):
+            validate_output_binding(receipt,output,{**case,**change})
+
+
+def test_missing_or_forged_case_provenance_never_passes(tmp_path):
+    output=tmp_path/'result.png';output.write_bytes(b'generated')
+    case={'task':'image_instruction','prompt':'watercolor','sources':[]}
+    receipt=make_request(output,case)
+    for bad in (None,'f'*64):
+        with pytest.raises(ValueError,match='PROVENANCE_INVALID'):
+            validate_provenance(dict(receipt,status='PASS',case_sha256=bad),
+                                receipt,output,case)
+    with pytest.raises(ValueError,match='CASE_BINDING_INVALID'):
+        validate_output_binding({key:value for key,value in receipt.items()
+                                 if key!='case_sha256'},output,case)
+
+
+def test_non_json_and_oversized_case_fail_closed(tmp_path):
+    from qa_receipt_provenance import case_sha256
+    for case in ([1],{'prompt':float('nan')},{'prompt':float('inf')},
+                 {'prompt':object()},{'prompt':'x'*262145}):
+        with pytest.raises(ValueError,match='CASE_BINDING_INVALID'):
+            case_sha256(case)

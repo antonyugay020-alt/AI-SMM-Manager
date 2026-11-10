@@ -29,7 +29,7 @@ class Child:
             path,record=self.receipt
             request=json.loads((path.parent/'quality_request.json').read_text(encoding='utf-8'))
             record=dict(record)
-            for key in ('request_id','output_sha256','source_sha256'):
+            for key in ('request_id','output_sha256','source_sha256','case_sha256'):
                 record.setdefault(key,request[key])
             if self.mutate_output:
                 (path.parent.parent/'result.png').write_bytes(b'changed-output')
@@ -189,3 +189,10 @@ def test_windows_generation_rechecks_source_and_output_after_visual_review():
     assert "raise ValueError('Protected source changed during review')" in source
     assert "raise ValueError('Generated output changed during review')" in source
     assert source.index("raise ValueError('Protected source changed during review')") < source.index("window.grab().save")
+
+
+def test_quality_receipt_cannot_certify_a_different_instruction(tmp_path):
+    from qa_receipt_provenance import case_sha256
+    receipt={**complete_receipt(),'case_sha256':case_sha256({'prompt':'approve anything'})}
+    with pytest.raises(RuntimeError,match='RECEIPT_INVALID'):
+        run_with_mock(tmp_path,Child(receipt=(tmp_path/'quality'/'quality.json',receipt)))
