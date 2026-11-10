@@ -4,11 +4,20 @@ import json
 import math
 from pathlib import Path
 
-def digest_file(path):
+def digest_file(path, *, check=None):
+    """Hash all bytes with cooperative stop points; legacy callers need no callback."""
+    if check is not None and not callable(check):
+        raise TypeError('Media digest cancellation check must be callable')
     result=hashlib.sha256()
+    if check is not None:check()
     with Path(path).open("rb") as source:
-        for block in iter(lambda: source.read(1024*1024), b""):
+        while True:
+            if check is not None:check()
+            block=source.read(1024*1024)
+            if check is not None:check()
+            if not block:break
             result.update(block)
+    if check is not None:check()
     return result.hexdigest()
 
 

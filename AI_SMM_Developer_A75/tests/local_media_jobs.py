@@ -21,6 +21,7 @@ from PIL import Image,ImageOps
 from project_file_boundary import require_managed_folder,require_managed_file,reject_path_link
 from project_media_sources import registered_source
 from media_artifact_validation import digest_file,validate_media_bytes
+from media_upload_transfer import copy_snapshot_with_check
 from media_ingest_core import ingest,replay
 from local_media_contract import TASKS,validate_local_request as _validate
 from generative_contract import GEN_TASKS,output_kind,source_kind
@@ -351,7 +352,7 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
                     image.load()
             else:_probe(path,check=check)
             if request['task'] in GEN_TASKS and any(path.samefile(previous) for previous in registered):raise ValueError('Source and reference/mask refer to the same file')
-            actual=digest_file(path)
+            actual=digest_file(path,check=check)
             expected=request.get('expected_sha256')
             if expected is not None and expected[len(receipts)] is not None and expected[len(receipts)]!=actual:
                 raise ValueError('Local source differs from the dialogue receipt')
@@ -364,8 +365,8 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
             temp=Path(temporary);sources=[]
             for index,path in enumerate(registered):
                 check();snapshot=temp/(str(index)+path.suffix.lower())
-                shutil.copyfile(path,snapshot)
-                if digest_file(snapshot)!=receipts[index]['sha256']:raise ValueError('Local source changed during snapshot')
+                copy_snapshot_with_check(path,snapshot,check=check)
+                if digest_file(snapshot,check=check)!=receipts[index]['sha256']:raise ValueError('Local source changed during snapshot')
                 sources.append(snapshot)
             target=temp/('output.mp4' if is_video else 'output.png')
             try:
@@ -381,7 +382,7 @@ def _execute_locked(db,workspace,owner,job,*,cancel_check=None):
                         if generation.get(key)!=request['generation'][key]:raise ValueError('Generation receipt differs from durable request')
                     if generation.get('seed')!=request.get('seed',0):raise ValueError('Generation seed differs from durable request')
                     db.execute('INSERT OR REPLACE INTO local_generation_receipts VALUES(?,?,?,?)',
-                        (job,owner,json.dumps(generation,sort_keys=True),digest_file(target)));db.commit()
+                        (job,owner,json.dumps(generation,sort_keys=True),digest_file(target,check=check)));db.commit()
                 check()
                 receipt=ingest(db,workspace,target,project_id=owner,kind='video' if is_video else 'result',
                                item_id=job,original_name=request['task']+target.suffix,authorize=check)

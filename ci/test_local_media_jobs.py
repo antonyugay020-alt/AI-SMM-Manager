@@ -174,4 +174,23 @@ with _job_lock(lambda owner:Path(sys.argv[2]),sys.argv[3],sys.argv[4]) as acquir
         self.assertEqual(len(processes),1);self.assertIsNotNone(processes[0].poll())
         self.assertLess(time.monotonic()-started,3)
 
+    def test_cancel_during_snapshot_never_renders_or_publishes(self):
+        job=self.create_snapshot_stop_job()
+        def interrupt_snapshot(source,destination,*,check=None):
+            self.assertTrue(callable(check))
+            check()
+            raise jobs.LocalMediaStopped('stopped during source snapshot')
+        with patch.object(jobs,'copy_snapshot_with_check',side_effect=interrupt_snapshot), \
+             patch.object(jobs,'_render') as render:
+            with self.assertRaisesRegex(jobs.LocalMediaStopped,'source snapshot'):
+                jobs.execute_job(self.db,self.workspace,OWNER,job)
+            render.assert_not_called()
+        state=self.db.execute('SELECT state FROM local_media_jobs WHERE id=?',(job,)).fetchone()[0]
+        self.assertEqual(state,'cancelled')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],0)
+
+    def create_snapshot_stop_job(self):
+        return jobs.create_job(self.db,OWNER,self.request('image_resize',[self.image]))
+
+
 if __name__=='__main__':unittest.main()

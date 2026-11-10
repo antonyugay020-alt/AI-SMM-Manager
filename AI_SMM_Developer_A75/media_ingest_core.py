@@ -143,8 +143,13 @@ def _source_identity(path):
     return source_identity(path)
 
 
-def stage_source(root,source):
-    """Stage a stable source snapshot; reject replacement or mutation while copying."""
+def stage_source(root,source,*,check=None):
+    """Stage stable bytes with cooperative stop before durable SQL publication."""
+    if check is not None and not callable(check):
+        raise TypeError('Media staging cancellation check must be callable')
+    def checkpoint():
+        if check is not None:check()
+    checkpoint()
     src=Path(source)
     before=_source_identity(src)
     folder=require_managed_folder(root,'.ingest_spool')
@@ -157,20 +162,32 @@ def stage_source(root,source):
             opened=descriptor_identity(reader.fileno(),src)
             if opened!=before:
                 raise ValueError('Source changed before media staging')
-            for block in iter(lambda:reader.read(1024*1024),b''):
+            while True:
+                checkpoint()
+                block=reader.read(1024*1024)
+                checkpoint()
+                if not block:break
                 sha.update(block);length+=len(block);writer.write(block)
             # Metadata alone misses writes through pre-existing memory mappings
             # on Windows. Verify copied bytes against the still-owned handle.
             reader.seek(0);verified=hashlib.sha256()
-            for block in iter(lambda:reader.read(1024*1024),b''):verified.update(block)
+            while True:
+                checkpoint()
+                block=reader.read(1024*1024)
+                checkpoint()
+                if not block:break
+                verified.update(block)
             if verified.digest()!=sha.digest():
                 raise ValueError('Source changed during media staging (content verification)')
             closed=descriptor_identity(reader.fileno(),src)
             if (closed!=before
                     or _source_identity(src)!=before or length!=before[2]):
                 raise ValueError('Source changed during media staging')
+            checkpoint()
             writer.flush();os.fsync(writer.fileno())
+        checkpoint()
         _,target=_spool(root,sha.hexdigest())
+        checkpoint()
         try:os.link(tmp,target)
         except FileExistsError:
             observed,size=_digest(target)
@@ -201,7 +218,7 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     src=Path(source)
     ext=src.suffix.lower()
     if not re.fullmatch(r'\.[a-z0-9]{1,12}',ext):raise ValueError('Unsupported filename extension')
-    sha,length=stage_source(base,src)
+    sha,length=stage_source(base,src,check=authorize)
     item_id=item_id or uuid4().hex
     if not re.fullmatch(r'[a-f0-9]{32}',item_id):raise ValueError('Invalid imported item identity')
     folder=require_managed_folder(base,_KINDS[kind])
