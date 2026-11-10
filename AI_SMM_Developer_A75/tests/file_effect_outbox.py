@@ -23,39 +23,12 @@ _KINDS = ('export_document', 'verify_receipt', 'clear_pending')
 
 
 def install(db):
-    """Install or migrate the outbox as one SQLite-atomic schema unit.
-
-    The former ALTER RENAME / CREATE / COPY / DROP sequence ran without a
-    savepoint on a clean connection: an interrupted migration could leave
-    the only receipt table under its temporary name. This boundary works
-    both in the caller's completion transaction and during standalone replay.
+    """Atomically install or recover document-effect schema, including an
+    interrupted legacy rename/copy. Never silently discard an orphan table.
     """
-    from sqlite_transaction_core import compose
-    with compose(db, 'file_effect_schema'):
-        db.execute('''CREATE TABLE IF NOT EXISTS ai_file_effect_outbox (
-            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, artifact_id TEXT NOT NULL,
-            artifact_sha256 TEXT NOT NULL, request_sha256 TEXT NOT NULL,
-            kind TEXT NOT NULL CHECK(kind IN ('export_document','verify_receipt','clear_pending')),
-            receipt_name TEXT NOT NULL, pending_name TEXT NOT NULL, receipt_json TEXT NOT NULL,
-            state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','done')),
-            attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL)''')
-        schema = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='ai_file_effect_outbox'").fetchone()[0]
-        if "'export_document'" not in schema:
-            db.execute('ALTER TABLE ai_file_effect_outbox RENAME TO ai_file_effect_outbox_v1')
-            db.execute('''CREATE TABLE ai_file_effect_outbox (
-                id TEXT PRIMARY KEY, project_id TEXT NOT NULL, artifact_id TEXT NOT NULL,
-                artifact_sha256 TEXT NOT NULL, request_sha256 TEXT NOT NULL,
-                kind TEXT NOT NULL CHECK(kind IN ('export_document','verify_receipt','clear_pending')),
-                receipt_name TEXT NOT NULL, pending_name TEXT NOT NULL, receipt_json TEXT NOT NULL,
-                state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','done')),
-                attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL)''')
-            db.execute('''INSERT INTO ai_file_effect_outbox SELECT id,project_id,artifact_id,
-                artifact_sha256,request_sha256,kind,receipt_name,pending_name,receipt_json,
-                state,attempts,last_error,created_at FROM ai_file_effect_outbox_v1''')
-            db.execute('DROP TABLE ai_file_effect_outbox_v1')
-        db.execute('CREATE INDEX IF NOT EXISTS ai_file_effect_pending ON ai_file_effect_outbox(state,created_at)')
+    from file_effect_schema_recovery import install_schema
+    install_schema(db)
+
 
 def _name(name, kind):
     if not isinstance(name, str) or not ( _RECEIPT if kind == 'receipt' else _PENDING).fullmatch(name):
