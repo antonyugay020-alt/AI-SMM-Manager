@@ -95,3 +95,20 @@ def test_ollama_http_deadline_starts_before_open():
     source=(ROOT/'AI_SMM_Work_Architecture_A75/ollama_resilience.py').read_text(encoding='utf-8')
     assert 'http_started=time.monotonic()\n                        with urllib.request.urlopen(' in source
     assert 'deadline=http_started+local_timeout' in source
+
+
+def test_cloud_http_error_body_cancellation_is_not_reclassified():
+    from cooperative_cancellation import TaskCancelled,cancellation_scope
+    from text_providers import call_text
+    import urllib.error
+    error=urllib.error.HTTPError('https://fixture.invalid',503,'unavailable',{},
+                                io.BytesIO(b'{"error":{"code":"busy"}}'))
+    calls=[0]
+    def check():
+        calls[0]+=1
+        if calls[0]>1:raise TaskCancelled('user stopped')
+    with patch('text_providers._chat_request',side_effect=error):
+        with cancellation_scope(check):
+            with pytest.raises(TaskCancelled,match='user stopped'):
+                call_text('groq/openai/gpt-oss-20b',[{'role':'user','content':'hello'}],
+                    environ={'GROQ_API_KEY':'fixture','AI_SMM_GROQ_FREE_TIER_ACK':'1'})

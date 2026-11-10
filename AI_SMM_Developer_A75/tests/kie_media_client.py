@@ -59,6 +59,9 @@ class KieMediaClient:
             return result
         except urllib.error.HTTPError as exc:
             raise RuntimeError("Kie media HTTP "+str(exc.code)) from None
+        except InterruptedError:
+            # A cooperative stop is not a provider transport failure.
+            raise
         except (OSError, ValueError):
             raise RuntimeError("Kie media transport or response unavailable") from None
 

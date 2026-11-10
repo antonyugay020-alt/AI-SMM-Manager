@@ -1,3 +1,9 @@
+# Cancellation propagation in HTTP error paths — 2026-11-10 (unreleased)
+
+Baseline `a4ff02ef448a5b1c59c7f2f61dc7a8a524d90eed`: the cooperative HTTP response reader exposed three legacy exception classifiers swallowing user stop. Ollama and cloud HTTPError parsing now re-raise `TaskCancelled`; Kie JSON re-raises `InterruptedError` from its cooperative upload stop rather than reporting a network failure. New CI covers cloud HTTPError cancellation and existing Kie stop-before-network. No paid call or automatic retry. Full 263-module regression and CI remain unexecuted; Windows target 0/10.
+
+---
+
 # HTTP response deadline includes request headers — 2026-11-10 (unreleased)
 
 Continuation of the unified bounded HTTP transport contract on `df4f0b4504a5b4b8390dd080db9079b89a50c432`. Both local Ollama and llama.cpp now start the monotonic response deadline immediately before opening the HTTP connection, consistent with the cloud and Kie transports; waiting for response headers cannot reset the body-read clock. New CI checks cover delayed headers on the local llama.cpp adapter and source integration on Ollama. No change to model selection, paid authority, network retries or other worker lifecycle. The helper's six isolated CPU tests remain PASS; **the expanded CI suite and full original-repository regression remain unexecuted**. Windows target stays 0/10.

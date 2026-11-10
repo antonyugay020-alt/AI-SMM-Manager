@@ -406,7 +406,10 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             try:
                 raw_error=read_bounded_body(exc,max_bytes=8192,
                     deadline=time.monotonic()+5,check=check_cancelled)
-            except Exception:raw_error=b''
+            except Exception as read_exc:
+                from cooperative_cancellation import TaskCancelled
+                if isinstance(read_exc,TaskCancelled):raise
+                raw_error=b''
             finally:exc.close()
             record_model_event('model_provider_error',stage=stage,attempt=attempt,
                 status=exc.code,body_bytes=len(raw_error))

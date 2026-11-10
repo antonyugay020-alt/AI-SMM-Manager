@@ -11,7 +11,7 @@ import json
 import os
 import time
 from http_response_budget import read_bounded_body
-from cooperative_cancellation import check_cancelled
+from cooperative_cancellation import check_cancelled, TaskCancelled
 import urllib.error
 import urllib.request
 from provider_errors import ProviderHTTPError
@@ -286,6 +286,8 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
                 code=error.get('code')
                 if isinstance(code,str) and len(code)<=80 and code.replace('_','').replace('-','').isalnum():
                     safe_code=code
+        except TaskCancelled:
+            raise
         except Exception:
             pass
         finally:
