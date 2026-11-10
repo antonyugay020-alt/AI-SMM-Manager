@@ -288,7 +288,11 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
     if kind not in _KINDS:raise ValueError('Invalid ingest kind')
     _require_owner(db,project_id)
-    with spool_lease(_root(workspace,project_id)):
+    root=_root(workspace,project_id)
+    # Preserve fail-fast validation before creating the permanent lock inode.
+    if not re.fullmatch(r'\.[a-z0-9]{1,12}',Path(source).suffix.lower()):
+        raise ValueError('Unsupported filename extension')
+    with spool_lease(root):
         return _ingest_under_lease(db,workspace,source,project_id=project_id,
             kind=kind,original_name=original_name,item_id=item_id,authorize=authorize)
 
@@ -390,6 +394,10 @@ def _prune_unreferenced_spool_under_lease(db,workspace,*,project_id,max_delete=1
 def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
     """Serialize reference checks and deletion with every durable import intent."""
     if db.in_transaction:raise RuntimeError('Spool GC requires an unowned connection')
+    if type(max_delete) is not int or not 1<=max_delete<=1000:
+        raise ValueError('Invalid GC limit')
+    if type(min_age_seconds) not in (int,float) or min_age_seconds<86400:
+        raise ValueError('GC retention must be at least 24 hours')
     _require_owner(db,project_id)
     root=_root(workspace,project_id)
     folder=require_managed_folder(root,'.ingest_spool')

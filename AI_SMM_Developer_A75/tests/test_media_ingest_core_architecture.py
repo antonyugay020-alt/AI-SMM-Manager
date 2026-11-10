@@ -174,7 +174,10 @@ class DurableMediaTests(unittest.TestCase):
         with patch.object(media_ingest_core,'replay',return_value={'completed':0,'failed':0,'pending':1}):
             receipt=ingest(self.db,self.workspace,self.src,project_id=self.p1,kind='asset')
         spool=list((self.workspace(self.p1)/'.ingest_spool').iterdir())
-        for path in spool:path.unlink()
+        # Remove only content blobs; the permanent OS lock inode must survive.
+        for path in spool:
+            if len(path.name)==64 and all(c in '0123456789abcdef' for c in path.name):
+                path.unlink()
         self.assertEqual(replay(self.db,self.workspace)['failed'],1)
         self.assertFalse(receipt.final_path.exists())
 
