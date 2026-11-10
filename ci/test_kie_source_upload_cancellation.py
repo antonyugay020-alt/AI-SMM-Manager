@@ -87,3 +87,36 @@ def test_image_gateway_cancelled_before_external_upload(monkeypatch):
         gateway.prepare_image('owner',prompt='watercolor forest',
                               sources=['photo.png'],cancel_check=stop)
     assert called==[]
+
+
+def test_cancelled_intent_preparation_remains_resumable_not_failed():
+    import hashlib
+    import json
+    import sqlite3
+    from media_generation_runtime import install,prepare_intent
+    from media_task_control import LocalTaskStopped
+    db=sqlite3.connect(':memory:')
+    db.execute('CREATE TABLE projects (id TEXT PRIMARY KEY)')
+    db.execute("INSERT INTO projects VALUES ('owner')")
+    install(db)
+    request={'mode':'image_pro','prompt':'watercolor forest','sources':[]}
+    raw=json.dumps(request,sort_keys=True,separators=(',',':'))
+    job='e'*32
+    db.execute("""INSERT INTO media_generation_intents
+        (id,project_id,model,request_json,request_sha256,state,stop_requested,
+         claim,error_code,created_at,updated_at)
+        VALUES (?,?,?,?,?,'draft',0,NULL,NULL,'t','t')""",
+        (job,'owner','nano-banana-pro',raw,hashlib.sha256(raw.encode()).hexdigest()))
+    db.commit()
+    class Gateway:
+        upload_file=None
+        def prepare_image(self,*args,**kwargs):
+            raise LocalTaskStopped('user stopped source upload')
+    gateway=Gateway()
+    with pytest.raises(LocalTaskStopped):
+        prepare_intent(db,lambda _:Path('/tmp'),'owner',job,gateway,
+                       explicit_upload_consent=True)
+    assert db.execute('SELECT state FROM media_generation_intents WHERE id=?',
+                      (job,)).fetchone()==('interrupted',)
+    assert gateway.upload_file is None
+    db.close()

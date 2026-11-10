@@ -182,8 +182,11 @@ def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=Fa
         ensure_active()
         return job
     except BaseException as exc:
-        db.execute("UPDATE media_generation_intents SET state='failed',error_code=?,updated_at=? WHERE id=? AND claim=?",
-                   (type(exc).__name__,utcnow(),ident,claim));db.commit()
+        # A cooperative stop is resumable preparation, not a generation
+        # failure. A previously committed paid draft remains untouched.
+        state='interrupted' if isinstance(exc,LocalTaskStopped) else 'failed'
+        db.execute("UPDATE media_generation_intents SET state=?,error_code=?,updated_at=? WHERE id=? AND claim=?",
+                   (state,type(exc).__name__,utcnow(),ident,claim));db.commit()
         raise
 
 
