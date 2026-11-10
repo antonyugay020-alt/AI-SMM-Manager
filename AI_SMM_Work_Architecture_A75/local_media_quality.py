@@ -8,7 +8,7 @@ import io
 import json
 import math
 from pathlib import Path
-import subprocess
+from qa_media_tools import extract_frame,extract_pcm
 from urllib import request
 from PIL import Image,ImageChops,ImageStat
 from generative_runner import image as prepared_image
@@ -90,7 +90,7 @@ class LocalVision:
                 for index,time in enumerate((0,metrics['duration']/3,metrics['duration']*2/3)):
                     frame=Path(folder)/(role+'_'+str(index)+'.png')
                     moment=time+(case.get('start',0) if role=='source' else 0)
-                    subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-ss',str(moment),'-i',str(path),'-frames:v','1',str(frame)],check=True,capture_output=True,timeout=60)
+                    extract_frame(path,frame,moment)
                     images.append(frame);labels.append(role+' time '+str(round(time,3)))
         else:images=[source,Path(output)];labels=['source','result']
         if len(case['sources'])>1:images.append(Path(case['sources'][1]));labels.append('mask (white editable)' if case.get('task')=='image_inpaint' else 'reference')
@@ -134,7 +134,7 @@ def objective_quality(case,output,folder):
     duration,audio,geometry=_probe(output,full=True);frames=[]
     for index,t in enumerate((0,duration/3,duration*2/3)):
         frame=folder/('objective_'+str(index)+'.png')
-        subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-ss',str(t),'-i',str(output),'-frames:v','1',str(frame)],check=True,capture_output=True,timeout=60)
+        extract_frame(output,frame,t)
         with Image.open(frame) as value:frames.append({'contrast':sum(ImageStat.Stat(value.convert('RGB')).stddev)/3/255,'luma':ImageStat.Stat(value.convert('L')).mean[0]/255})
     if any(f['contrast']<.008 for f in frames):raise ObjectiveQualityRejected('Blank generated video frame')
     jump=max(abs(frames[i]['luma']-frames[i-1]['luma']) for i in (1,2))
@@ -149,11 +149,8 @@ def objective_quality(case,output,folder):
 
 
 def compare_audio(source,result,start,duration):
-    from array import array
     def pcm(path,offset):
-        command=['ffmpeg','-nostdin','-v','error','-ss',str(offset),'-i',str(path),'-t',str(min(duration,2)),'-vn','-ac','1','-ar','8000','-f','s16le','-']
-        data=subprocess.run(command,capture_output=True,check=True,timeout=60).stdout
-        values=array('h');values.frombytes(data);return list(values)[::4]
+        return extract_pcm(path,offset,min(duration,2))
     a=pcm(source,start);b=pcm(result,0)
     if not a or not b:raise ObjectiveQualityRejected('Missing decoded source/result audio')
     best=-1
