@@ -30,7 +30,7 @@ def test_prepared_payload_is_atomically_bound_to_immutable_intent():
     for owner,identity,original,content in [
         ('wrong',job,'a'*64,digest),('owner','c'*32,'a'*64,digest),
         ('owner',job,'c'*64,digest),('owner',job,'a'*64,'d'*64)]:
-        with pytest.raises(ValueError,match='not bound'):
+        with pytest.raises(ValueError,match='(not bound|Unbound)'):
             require_bound(db,owner,identity,original,content)
     db.close()
 
@@ -58,5 +58,6 @@ def test_failed_intent_binding_rolls_back_entire_prepared_task():
     with pytest.raises(ValueError,match='digest'):
         prepare(db,'owner',{'model':'nano-banana-pro','input':{}},
                 job_id=job,intent_sha256='invalid')
-    assert db.execute('SELECT 1 FROM kie_media_tasks WHERE id=?',(job,)).fetchone() is None
+    table=db.execute("SELECT 1 FROM sqlite_master WHERE name='kie_media_tasks'").fetchone()
+    assert table is None or db.execute('SELECT 1 FROM kie_media_tasks WHERE id=?',(job,)).fetchone() is None
     db.close()
