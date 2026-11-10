@@ -119,7 +119,7 @@ class BoundedQualityReview:
 
     def run_with_pump(self,case,output,folder,*,pump):
         from durable_json import atomic_write_json
-        from native_process_runtime import owned_native_process,native_command
+        from native_process_runtime import owned_native_process,native_command,wait_owned_native
         folder=Path(folder)
         folder.mkdir(parents=True,exist_ok=True)
         payload=folder/'quality_request.json'
@@ -139,12 +139,11 @@ class BoundedQualityReview:
                 cmd=native_command(sys.executable,Path(__file__),'--request',payload)
                 with owned_native_process(cmd,env=os.environ,stdout=log,stderr=log) as process:
                     child=process
-                    while process.poll() is None:
-                        if time.monotonic()-started>self.timeout:
-                            raise TimeoutError('LOCAL_QUALITY_REVIEW_TIMEOUT')
-                        pump()
-                        time.sleep(.03)
-                    if process.returncode!=0:
+                    try:
+                        exit_code=wait_owned_native(process,log,timeout=self.timeout,pump=pump)
+                    except TimeoutError as exc:
+                        raise TimeoutError('LOCAL_QUALITY_REVIEW_TIMEOUT') from exc
+                    if exit_code!=0:
                         raise RuntimeError('LOCAL_QUALITY_REVIEW_PROCESS_FAILED')
             report=json.loads((folder/'quality.json').read_text(encoding='utf-8'))
             try:

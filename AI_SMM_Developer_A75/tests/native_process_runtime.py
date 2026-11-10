@@ -5,14 +5,17 @@ kills or changes to global environment. Windows jobs contain only our child.
 """
 from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 _spawn_native=subprocess.Popen
 PROTOCOL='native_runtime_v1'
+MAX_NATIVE_LOG_BYTES = 16 * 1024 * 1024
 _BOOTSTRAP = """import os,sys,runpy
 owner=int(sys.argv.pop(1))
 if sys.platform.startswith('linux'):
@@ -79,6 +82,37 @@ def owned_native_process(command,*,env,stdout,stderr):
                 if process.stdin is not None:process.stdin.close()
 
 
+def wait_owned_native(process, log, *, timeout, pump=None, max_log_bytes=None):
+    """Wait for an owned native child with a finite deadline and disk budget.
+
+    The caller MUST keep the process inside owned_native_process so a timeout,
+    output flood or Qt interruption kills only its own child and descendants.
+    Both stdout and stderr must target the same regular file.
+    """
+    if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout) or not 0 < timeout <= 3600):
+        raise ValueError('Invalid native process deadline')
+    if max_log_bytes is None:
+        max_log_bytes = MAX_NATIVE_LOG_BYTES
+    if (type(max_log_bytes) is not int
+            or not 0 < max_log_bytes <= 16 * 1024 * 1024):
+        raise ValueError('Invalid native log budget')
+    if pump is not None and not callable(pump):
+        raise TypeError('Invalid native event pump')
+    deadline = time.monotonic() + timeout
+    while True:
+        if pump is not None:
+            pump()
+        if os.fstat(log.fileno()).st_size > max_log_bytes:
+            raise RuntimeError('NATIVE_LOG_BUDGET_EXCEEDED')
+        code = process.poll()
+        if time.monotonic() >= deadline:
+            raise TimeoutError('NATIVE_PROCESS_TIMEOUT')
+        if code is not None:
+            return code
+        time.sleep(min(.05, max(0, deadline - time.monotonic())))
+
+
 def validate_runtime_receipt(runtime):
     if not isinstance(runtime,dict):raise ValueError('Missing native runtime object')
     required={'cuda','name','capability','total','device_count','torch','diffusers',
@@ -110,10 +144,16 @@ def probe_native_runtime(python,environment,*,timeout=90,diagnostic_path=None):
             command=native_command(python,Path(__file__).with_name('generative_runner.py'),'--preflight')
             with owned_native_process(command,env=environment,stdout=log,stderr=log) as process:
                 evidence['child_pid']=process.pid
-                try:process.wait(timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    code='NATIVE_PREFLIGHT_TIMEOUT';raise
-                if process.returncode:raise RuntimeError('Native child failed')
+                try:
+                    exit_code=wait_owned_native(process,log,timeout=timeout)
+                except TimeoutError:
+                    code='NATIVE_PREFLIGHT_TIMEOUT'
+                    raise
+                except RuntimeError as exc:
+                    if str(exc)=='NATIVE_LOG_BUDGET_EXCEEDED':
+                        code='NATIVE_PREFLIGHT_LOG_BUDGET'
+                    raise
+                if exit_code:raise RuntimeError('Native child failed')
             log.seek(0);raw=log.read()
             receipts=[]
             for line in raw.splitlines():

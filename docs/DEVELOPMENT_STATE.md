@@ -1,3 +1,13 @@
+# Bounded native QA/preflight log ownership — 2026-11-10 (unreleased)
+
+Baseline `cac055cc91de8d6e3db3c72b4387a057a5860dbf` on existing draft PR #4. Cross-layer resource audit of native Torch/CUDA preflight and independent local vision QA found that both redirected **stdout and stderr to unbounded disk files**: preflight blocked in `process.wait(timeout=...)`, and the QA worker only polled process completion, without a log budget. A faulty native child could write gigabytes before the timeout even though media FFmpeg diagnostics were already bounded.
+
+Both call sites now use a single stdlib-only `native_process_runtime.wait_owned_native` with a 16 MiB combined stdout/stderr disk ceiling, finite monotonic deadline, 50 ms poll interval, and optional Qt event pump. On overflow, timeout or pump interruption the existing `owned_native_process` owner still closes its Windows Job Object / terminates its own child; no process-name kills or external GPU workload changes. Preflight distinguishes `NATIVE_PREFLIGHT_LOG_BUDGET` from timeout, preserving bounded diagnostic tail; QA records the error without accepting a partial vision receipt. The Work, Developer and Developer/tests runtime mirrors are updated together. No new dependency or model download.
+
+**Actually executed before GitHub commit:** 7/7 isolated Linux/Python CPU tests of the exact proposed `wait_owned_native` helper, including a real stdout flood, hung child, normal/nonzero exit, Qt-pump exception, boundary sizes and invalid limits. This is not the full original-repository CI or 263-module regression; the new integrated CI test is added for those gates but has not been executed against a complete checkout. Physical Windows Job Object/Qt/CUDA and independent visual quality remain untested on this HEAD; RTX 2080 Super remains **0/10**. No Actions, paid API, downloads, main merge, live-bot changes or reboot.
+
+---
+
 # Immutable complete-case binding for independent visual QA — 2026-11-10 (unreleased)
 
 Baseline `494181b823716db941c03c0869d22c6a9cabe1bd` in existing draft PR #4. Cross-layer review of Qt media acceptance → parent-owned Python reviewer → child objective/semantic verdict → parent receipt validation found a provenance gap: the request and receipt bound output bytes and source/reference bytes but **not the complete requested edit**. The same pixels could therefore be evaluated under a changed instruction, task type, dimensions or timing if the child request file was replaced, without the parent detecting a changed case. A model's `PASS` is meaningful only for the exact original instruction.
