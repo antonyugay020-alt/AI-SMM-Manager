@@ -14,7 +14,7 @@ import hashlib
 import os
 import re
 import sqlite3
-from stable_file_source import source_identity,descriptor_identity,open_source
+from stable_file_source import source_identity,descriptor_identity,open_source,read_stable_bytes
 from project_file_boundary import require_managed_folder,require_managed_file
 from media_spool_lease import spool_lease
 
@@ -34,11 +34,7 @@ def _sync_folder(folder):
 
 
 def _digest(path):
-    h=hashlib.sha256();length=0
-    with path.open('rb') as stream:
-        for chunk in iter(lambda:stream.read(1024*1024),b''):
-            h.update(chunk);length+=len(chunk)
-    return h.hexdigest(),length
+    return read_stable_bytes(path)
 
 
 def install(db):
@@ -119,11 +115,10 @@ def _publish_independent_copy(root, source, target, sha, size, kind):
     temporary=require_managed_file(
         root,folder/('.publish-'+uuid4().hex+'.tmp'),(_KINDS[kind],))
     try:
-        with source.open('rb') as reader, temporary.open('xb') as writer:
-            for block in iter(lambda:reader.read(1024*1024),b''):
-                writer.write(block)
+        with temporary.open('xb') as writer:
+            read_stable_bytes(source,write=writer.write,expected=(sha,size))
             writer.flush()
-            os.fsync(writer.fileno())
+            os.fsync(writer.fileno()
         if _digest(temporary)!=(sha,size):
             raise ValueError('Independent media publication copy failed verification')
         try:

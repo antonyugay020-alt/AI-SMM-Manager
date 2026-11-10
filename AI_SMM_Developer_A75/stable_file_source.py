@@ -106,3 +106,42 @@ def source_identity(path):
     fd=open_source(path)
     try:return descriptor_identity(fd,path)
     finally:os.close(fd)
+
+def read_stable_bytes(path, *, write=None, expected=None, check=None):
+    """Hash managed media through a stable, no-follow file handle.
+
+    Optionally stream to a caller-owned exclusive temporary writer. The source
+    pathname and descriptor must identify the same unchanged file throughout.
+    The caller owns temporary-file cleanup and durable fsync/commit.
+    """
+    import hashlib
+    if write is not None and not callable(write):
+        raise TypeError('Stable media sink must be callable')
+    if check is not None and not callable(check):
+        raise TypeError('Stable media cancellation check must be callable')
+    if expected is not None and (not isinstance(expected,tuple) or len(expected)!=2
+            or not isinstance(expected[0],str) or len(expected[0])!=64
+            or any(c not in '0123456789abcdef' for c in expected[0])
+            or type(expected[1]) is not int or expected[1]<0):
+        raise ValueError('Invalid expected stable media digest')
+    if check is not None:check()
+    before=source_identity(path)
+    with os.fdopen(open_source(path),'rb') as stream:
+        if descriptor_identity(stream.fileno(),path)!=before:
+            raise ValueError('Stable media source changed before reading')
+        digest=hashlib.sha256();length=0
+        while True:
+            if check is not None:check()
+            block=stream.read(1024*1024)
+            if check is not None:check()
+            if not block:break
+            digest.update(block);length+=len(block)
+            if write is not None:write(block)
+        if (descriptor_identity(stream.fileno(),path)!=before
+                or source_identity(path)!=before):
+            raise ValueError('Stable media source changed during reading')
+    if check is not None:check()
+    result=(digest.hexdigest(),length)
+    if expected is not None and result!=expected:
+        raise ValueError('Stable media source bytes differ from durable receipt')
+    return result
