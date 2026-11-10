@@ -94,6 +94,10 @@ class KieGenerationWorker(QThread):
                 result=create_intent(db,workspace,self.project_id,self.request,job_id=self.job_id,cancel_check=check)
                 self.done.emit(self.project_id,self.job_id,result)
                 return
+            def check_interrupted():
+                if self.isInterruptionRequested():
+                    raise LocalTaskStopped('Worker interrupted')
+            check_interrupted()
             gateway=self.gateway_factory(db,workspace)
             if self.operation=='reconcile':
                 from media_submission_recovery import recover_submission
@@ -101,7 +105,8 @@ class KieGenerationWorker(QThread):
                     gateway.query_task,gateway.cost_gate,evidence=self.recovery['evidence'],confirmed=True)
             elif self.operation=='prepare':
                 result=prepare_intent(db,workspace,self.project_id,self.job_id,gateway,
-                                      explicit_upload_consent=True)
+                                      explicit_upload_consent=True,
+                                      cancel_check=check_interrupted)
             else:
                 check_active(db,self.project_id,self.job_id)
                 if self.isInterruptionRequested():raise LocalTaskStopped('Worker stopped')

@@ -80,7 +80,8 @@ class PaidMediaComposition:
         from kie_media_client import KieMediaClient
         client = KieMediaClient(api_key=api_key, enabled=enable_paid, opener=opener)
         return self.gateway(
-            upload_file=lambda path: client.upload_file(path, explicit_upload_consent=True),
+            upload_file=lambda path, *, check=None: client.upload_file(
+                path, explicit_upload_consent=True, check=check),
             create_task=client.create_task, query_task=client.query_task,
             verified_price_quote=verified_price_quote,
             fetch_verified_file=fetch_verified_file)
@@ -112,7 +113,8 @@ class PaidMediaComposition:
             from media_generation_runtime import quote_for_job
             client=client_factory() if client_factory is not None else KieMediaClient(enabled=True)
             return KieMediaGateway(db,workspace,
-                upload_file=lambda path:client.upload_file(path,explicit_upload_consent=True),
+                upload_file=lambda path,*,check=None:client.upload_file(
+                    path,explicit_upload_consent=True,check=check),
                 create_task=client.create_task,query_task=client.query_task,cost_gate=gate,
                 verified_price_quote=lambda *_:quote_for_job(db,owner,job))
         return factory

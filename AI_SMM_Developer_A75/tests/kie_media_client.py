@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 import urllib.error
 import urllib.request
 from kie_media_contracts import CREATE_TASK_PATH, extract_task_id, TASK_ID, _url
+from media_upload_transfer import checkpoint
 
 API_ORIGIN = "https://api.kie.ai"
 SUPPORTED_MODELS = frozenset((
@@ -72,7 +73,7 @@ class KieMediaClient:
             raise ValueError("Kie task status identity or state invalid")
         return result
 
-    def upload_file(self, filename, *, explicit_upload_consent=False):
+    def upload_file(self, filename, *, explicit_upload_consent=False, check=None):
         """Stream a validated project source with distinct upload consent.
 
         Gateway checks ownership and byte validity before invoking this adapter.
@@ -80,6 +81,7 @@ class KieMediaClient:
         """
         if explicit_upload_consent is not True:
             raise RuntimeError("external source upload requires explicit user consent")
+        checkpoint(check)
         authorization=self._credential()
         path=Path(filename)
         from project_file_boundary import reject_path_link
@@ -100,16 +102,20 @@ class KieMediaClient:
         with path.open("rb") as source:
             size=os.fstat(source.fileno()).st_size
             def chunks():
+                checkpoint(check)
                 yield prefix
                 remaining=size
                 while remaining:
+                    checkpoint(check)
                     block=source.read(min(1024*1024,remaining))
+                    checkpoint(check)
                     if not block:
                         raise RuntimeError("Kie upload source changed")
                     remaining-=len(block)
                     yield block
                 if source.read(1):
                     raise RuntimeError("Kie upload source changed")
+                checkpoint(check)
                 yield suffix
             req=urllib.request.Request(
                 "https://kieai.redpandaai.co/api/file-stream-upload",data=chunks(),
@@ -117,11 +123,13 @@ class KieMediaClient:
                     "Content-Type":"multipart/form-data; boundary="+boundary,
                     "Content-Length":str(len(prefix)+size+len(suffix))},method="POST")
             result=self._read_json(req,timeout=90)
+            checkpoint(check)
         data=result.get("data")
         if result.get("success") is not True or not isinstance(data,dict):
             raise ValueError("Kie upload not confirmed")
         if type(data.get("fileSize")) is not int or data["fileSize"]!=size:
             raise ValueError("Kie upload byte count mismatch")
+        checkpoint(check)
         return _url(data.get("downloadUrl"))
 
     def create_task(self, payload, *, payment_reservation=None,

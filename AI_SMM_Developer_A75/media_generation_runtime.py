@@ -13,6 +13,7 @@ from cost_authorization import PaymentDenied
 from kie_media_jobs import utcnow, _project_exists, _owned_row, _digest_file
 from kie_media_runtime import KieMediaGateway, verified_image, verified_video
 from media_task_control import LocalTaskStopped
+from media_upload_transfer import copy_snapshot_with_check, upload_with_check
 
 MODES={'image_pro':'nano-banana-pro','image_edit':'google/nano-banana-edit',
        'video_reference':'kling-3.0-omni/reference-to-video',
@@ -102,11 +103,15 @@ def check_intent(db,owner,ident):
     if intent(db,owner,ident)[3]:raise LocalTaskStopped('Media preparation stopped locally')
 
 
-def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=False):
+def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=False,cancel_check=None):
     if explicit_upload_consent is not True:raise PermissionError('Source upload consent required')
     if db.in_transaction:raise RuntimeError('Foreign transaction owns preparation')
+    def ensure_active():
+        if cancel_check is not None:cancel_check()
+        check_intent(db,owner,ident)
+    ensure_active()
     row=intent(db,owner,ident)
-    check_intent(db,owner,ident)
+    ensure_active()
     # If a prior process created the payload and died before updating its intent,
     # the stable task identity is authoritative. Never upload/create it again.
     table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kie_media_tasks'").fetchone()
@@ -138,37 +143,43 @@ def prepare_intent(db,workspace,owner,ident,gateway,*,explicit_upload_consent=Fa
             if path.suffix.lower() in ('.mp4','.mov'):video=str(path)
             else:images.append(str(path))
         original_upload=gateway.upload_file
-        def upload(path):
+        def upload(path, *, check=None):
+            def upload_checkpoint():
+                ensure_active()
+                if check is not None:check()
             from tempfile import TemporaryDirectory
             from project_file_boundary import require_managed_folder
-            import shutil
-            check_intent(db,owner,ident)
+            ensure_active()
             expected=next(item['sha256'] for item in request['sources'] if item['path']==str(path))
             folder=require_managed_folder(Path(workspace(owner)),'.kie_upload_snapshots')
             folder.mkdir(parents=True,exist_ok=True)
             with TemporaryDirectory(dir=folder) as temporary:
                 snapshot=Path(temporary)/('source'+Path(path).suffix.lower())
-                shutil.copyfile(path,snapshot)
+                copy_snapshot_with_check(path,snapshot,check=upload_checkpoint)
                 if _digest_file(snapshot)!=expected:raise ValueError('Source changed before upload snapshot')
-                check_intent(db,owner,ident)
-                result=original_upload(snapshot)
-            check_intent(db,owner,ident)
+                ensure_active()
+                result=upload_with_check(original_upload,snapshot,check=upload_checkpoint)
+            ensure_active()
             return result
         gateway.upload_file=upload
         try:
             options={key:request[key] for key in ('prompt','aspect_ratio','resolution') if key in request}
             if request['mode'].startswith('image'):
                 job=gateway.prepare_image(owner,sources=images,pro=request['mode']=='image_pro',
-                    explicit_upload_consent=True,job_id=ident,intent_sha256=row[1],**options)
+                    explicit_upload_consent=True,job_id=ident,intent_sha256=row[1],
+                    cancel_check=ensure_active,**options)
             else:
                 job=gateway.prepare_video(owner,source_video=video,source_images=images,
                     reference_mode=request['mode']=='video_reference',duration=request.get('duration',5),
                     explicit_upload_consent=True,job_id=ident,
-                    cancel_check=lambda:check_intent(db,owner,ident),
+                    cancel_check=ensure_active,
                     intent_sha256=row[1],**options)
         finally:gateway.upload_file=original_upload
-        db.execute("UPDATE media_generation_intents SET state='prepared',updated_at=? WHERE id=? AND claim=?",(utcnow(),ident,claim));db.commit()
-        check_intent(db,owner,ident)
+        ensure_active()
+        changed=db.execute("UPDATE media_generation_intents SET state='prepared',updated_at=? WHERE id=? AND claim=?",(utcnow(),ident,claim)).rowcount
+        if changed!=1:raise RuntimeError('Media preparation claim lost')
+        db.commit()
+        ensure_active()
         return job
     except BaseException as exc:
         db.execute("UPDATE media_generation_intents SET state='failed',error_code=?,updated_at=? WHERE id=? AND claim=?",

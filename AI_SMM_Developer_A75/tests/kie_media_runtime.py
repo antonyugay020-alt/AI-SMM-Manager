@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from media_upload_transfer import upload_with_check
 from PIL import Image
 from kie_media_contracts import (
     _url, VideoMetadata, nano_banana_pro, nano_banana_edit,
@@ -83,14 +84,23 @@ class KieMediaGateway:
         from project_media_sources import registered_source
         return registered_source(self.db,self.workspace,project_id,filename)
 
-    def _upload_image_refs(self, project_id, paths, *, limit, kling=False):
-        validated=[verified_image(self._authorized(project_id,p),limit_mb=limit,
-                                  kling=kling) for p in paths]
-        return [_url(self.upload_file(image)) for image in validated]
+    def _upload_image_refs(self, project_id, paths, *, limit, kling=False,
+                           cancel_check=None):
+        validated=[]
+        for path in paths:
+            if cancel_check is not None:cancel_check()
+            validated.append(verified_image(self._authorized(project_id,path),
+                                            limit_mb=limit,kling=kling))
+        urls=[]
+        for image in validated:
+            if cancel_check is not None:cancel_check()
+            urls.append(_url(upload_with_check(self.upload_file,image,check=cancel_check)))
+        return urls
 
     def prepare_image(self, project_id, *, prompt, sources, pro=True,
                       aspect_ratio="1:1",resolution="1K",output_format=None,
-                      explicit_upload_consent=False,job_id=None,intent_sha256=None):
+                      explicit_upload_consent=False,job_id=None,intent_sha256=None,
+                      cancel_check=None):
         """No model generation; external source upload requires separate consent."""
         sources=list(sources)
         if sources and explicit_upload_consent is not True:
@@ -109,13 +119,15 @@ class KieMediaGateway:
         else:
             nano_banana_edit(prompt,preview_urls,aspect_ratio,
                              output_format or "png")
-        urls=self._upload_image_refs(project_id,sources,limit=30 if pro else 10)
+        urls=self._upload_image_refs(project_id,sources,limit=30 if pro else 10,
+                                     cancel_check=cancel_check)
         if pro:
             payload=nano_banana_pro(prompt, urls,aspect_ratio,resolution,
                                     output_format or "png")
         else:
             payload=nano_banana_edit(prompt, urls,aspect_ratio,
                                      output_format or "png")
+        if cancel_check is not None:cancel_check()
         binding={'intent_sha256':intent_sha256} if intent_sha256 is not None else {}
         return prepare(self.db,project_id,payload,job_id=job_id,**binding)
 
@@ -148,8 +160,9 @@ class KieMediaGateway:
             kling_omni_transformation(prompt,preview_video,metadata,
                                       preview_images,resolution,aspect_ratio)
         if cancel_check is not None:cancel_check()
-        urls=self._upload_image_refs(project_id,images,limit=50,kling=True)
-        video_url=_url(self.upload_file(local)) if local is not None else None
+        urls=self._upload_image_refs(project_id,images,limit=50,kling=True,
+                                     cancel_check=cancel_check)
+        video_url=_url(upload_with_check(self.upload_file,local,check=cancel_check)) if local is not None else None
         if reference_mode:
             payload=kling_omni_reference_to_video(
                 prompt,urls,video_url=video_url,metadata=metadata,
@@ -162,6 +175,7 @@ class KieMediaGateway:
                 raise ValueError("Transformation requires source video")
             payload=kling_omni_transformation(
                 prompt,video_url,metadata,urls,resolution,aspect_ratio)
+        if cancel_check is not None:cancel_check()
         binding={'intent_sha256':intent_sha256} if intent_sha256 is not None else {}
         return prepare(self.db,project_id,payload,job_id=job_id,**binding)
 
