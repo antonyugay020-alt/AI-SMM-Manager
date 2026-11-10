@@ -16,6 +16,7 @@ import re
 import sqlite3
 from stable_file_source import source_identity,descriptor_identity,open_source
 from project_file_boundary import require_managed_folder,require_managed_file
+from media_spool_lease import spool_lease
 
 _NAME=re.compile(r'[0-9a-f]{32}\.[a-z0-9]{1,12}\Z')
 _SHA=re.compile(r'[a-f0-9]{64}\Z')
@@ -208,7 +209,7 @@ class IngestReceipt:
     duplicate:bool=False
 
 
-def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None,authorize=None):
+def _ingest_under_lease(db,workspace,source,*,project_id,kind,original_name=None,item_id=None,authorize=None):
     if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
     if kind not in _KINDS:raise ValueError('Invalid ingest kind')
     _require_owner(db,project_id)
@@ -278,6 +279,20 @@ def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None
     return IngestReceipt(project_id,item_id,dest,True,bool(state and state[0]=='done'))
 
 
+def ingest(db,workspace,source,*,project_id,kind,original_name=None,item_id=None,authorize=None):
+    """Fence staging, immutable spool identity and SQL intent against GC.
+
+    The same permanent OS lock is held by spool GC. Never release it between
+    staging a previously unreferenced blob and committing its first receipt.
+    """
+    if db.in_transaction:raise RuntimeError('Existing SQLite transaction owns connection')
+    if kind not in _KINDS:raise ValueError('Invalid ingest kind')
+    _require_owner(db,project_id)
+    with spool_lease(_root(workspace,project_id)):
+        return _ingest_under_lease(db,workspace,source,project_id=project_id,
+            kind=kind,original_name=original_name,item_id=item_id,authorize=authorize)
+
+
 def replay(db,workspace,*,project_id=None,limit=100):
     if db.in_transaction:raise RuntimeError('Cannot replay import inside a foreign transaction')
     if type(limit) is not int or not 1<=limit<=1000:raise ValueError('Invalid replay limit')
@@ -329,7 +344,7 @@ def replay(db,workspace,*,project_id=None,limit=100):
     return dict(completed=completed,failed=failed,pending=pending)
 
 
-def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
+def _prune_unreferenced_spool_under_lease(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
     """Bounded GC of crash-before-commit leftovers; never remove referenced blobs.
 
     A staged blob may precede its still-uncommitted SQLite intent. Age-based
@@ -356,6 +371,7 @@ def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_se
         if not candidate.is_file():raise ValueError('Spool contains an unexpected directory')
         require_managed_file(root,candidate,('.ingest_spool',))
         name=candidate.name
+        if name=='.lease':continue  # permanent cross-process lifetime lock
         if not _SHA.fullmatch(name):
             kept+=1;continue  # temporary import may still be in progress
         if now-candidate.stat().st_mtime<min_age_seconds:
@@ -369,3 +385,15 @@ def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_se
         candidate.unlink();removed+=1
     if removed:_sync_folder(folder)
     return {'deleted':removed,'retained':kept}
+
+
+def prune_unreferenced_spool(db,workspace,*,project_id,max_delete=100,min_age_seconds=86400):
+    """Serialize reference checks and deletion with every durable import intent."""
+    if db.in_transaction:raise RuntimeError('Spool GC requires an unowned connection')
+    _require_owner(db,project_id)
+    root=_root(workspace,project_id)
+    folder=require_managed_folder(root,'.ingest_spool')
+    if not folder.exists():return {'deleted':0,'retained':0}
+    with spool_lease(root):
+        return _prune_unreferenced_spool_under_lease(db,workspace,
+            project_id=project_id,max_delete=max_delete,min_age_seconds=min_age_seconds)
