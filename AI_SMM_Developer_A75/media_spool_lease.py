@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 
 from project_file_boundary import require_managed_folder, require_managed_file
+from stable_file_source import open_managed_lock, source_identity, descriptor_identity
 
 
 @contextmanager
@@ -25,7 +26,7 @@ def spool_lease(root, *, timeout=30, check=None):
     folder.mkdir(parents=True, exist_ok=True)
     path = require_managed_file(root, folder / '.lease', ('.ingest_spool',))
     deadline = time.monotonic() + timeout
-    with path.open('a+b') as handle:
+    with open_managed_lock(path) as handle:
         # msvcrt.locking requires an existing byte; never remove this file.
         if os.fstat(handle.fileno()).st_size == 0:
             handle.write(b'1')
@@ -52,6 +53,8 @@ def spool_lease(root, *, timeout=30, check=None):
                     if time.monotonic() >= deadline:
                         raise TimeoutError('MEDIA_SPOOL_LEASE_TIMEOUT') from exc
                     time.sleep(min(.05, max(0, deadline - time.monotonic())))
+            if os.name != 'nt' and source_identity(path) != descriptor_identity(handle.fileno()):
+                raise ValueError('Media spool lock inode changed during acquisition')
             yield
         finally:
             if acquired:

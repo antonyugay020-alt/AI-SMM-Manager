@@ -80,10 +80,42 @@ def descriptor_identity(fd, path=None):
     return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
 
 
+def _open_posix_no_follow(path, *, flags=os.O_RDONLY):
+    """Open every path component by directory descriptor, never via a link.
+
+    O_NOFOLLOW on the final filename alone does not protect its parents: a
+    concurrent rename can replace an already-checked directory with a symlink.
+    O_NONBLOCK also prevents a substituted FIFO from hanging the media worker.
+    """
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_DIRECTORY'):
+        raise OSError('Safe no-follow media opening is unsupported on this POSIX host')
+    parts = path.parts
+    if len(parts) < 2:
+        raise ValueError('Source is not a file path')
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parent = os.open(parts[0], directory_flags)
+    try:
+        for component in parts[1:-1]:
+            child = os.open(component, directory_flags, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        fd = os.open(parts[-1], flags | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     0o600, dir_fd=parent)
+        try:
+            descriptor_identity(fd)
+            os.set_blocking(fd, True)
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+    finally:
+        os.close(parent)
+
+
 def open_source(path):
     path=Path(os.path.abspath(path));reject_path_link(path)
     if not _windows():
-        return os.open(path,os.O_RDONLY|getattr(os,'O_BINARY',0)|getattr(os,'O_NOFOLLOW',0))
+        return _open_posix_no_follow(path)
     import msvcrt
     c,w,k=_api()
     # FILE_SHARE_READ only: writers and deletion cannot race this snapshot.
@@ -97,12 +129,29 @@ def open_source(path):
     return fd
 
 
+def open_managed_lock(path):
+    """Open a permanent writable lock inode without POSIX symlink traversal.
+
+    The Windows locking path is unchanged until physical Win32 validation.
+    On POSIX the same no-follow walk protects the writable lock as the media
+    source. A hard-linked lock inode is rejected to avoid external writes.
+    """
+    path=Path(os.path.abspath(path));reject_path_link(path)
+    if _windows():
+        return path.open('a+b')
+    fd=_open_posix_no_follow(path,flags=os.O_RDWR|os.O_CREAT)
+    try:
+        if os.fstat(fd).st_nlink != 1:
+            raise ValueError('Media lock file has unexpected hard links')
+        return os.fdopen(fd,'r+b')
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def source_identity(path):
-    reject_path_link(Path(os.path.abspath(path)))
-    if not _windows():
-        info=os.stat(path,follow_symlinks=False)
-        if not stat.S_ISREG(info.st_mode):raise ValueError('Source is not a regular file')
-        return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+    # Use the same no-follow handle walk for pathname observations as for
+    # streaming. A separate os.stat(path) could traverse a swapped ancestor.
     fd=open_source(path)
     try:return descriptor_identity(fd,path)
     finally:os.close(fd)
