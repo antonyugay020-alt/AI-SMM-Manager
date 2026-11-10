@@ -118,7 +118,7 @@ def _publish_independent_copy(root, source, target, sha, size, kind):
         with temporary.open('xb') as writer:
             read_stable_bytes(source,write=writer.write,expected=(sha,size))
             writer.flush()
-            os.fsync(writer.fileno()
+            os.fsync(writer.fileno())
         if _digest(temporary)!=(sha,size):
             raise ValueError('Independent media publication copy failed verification')
         try:
