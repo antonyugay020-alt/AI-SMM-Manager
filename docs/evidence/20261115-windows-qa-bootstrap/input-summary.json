@@ -1,0 +1,31 @@
+{
+  "input_sha256": "5669bb5712460a4fb886ef921cb9da672d24877b270bb8a17d2761a24c3e2ccb",
+  "input_bytes": 2451,
+  "manifest_verified": {
+    "HOST.json": true,
+    "PREREQUISITES.json": true,
+    "runner_error.json": true,
+    "STATUS.json": true
+  },
+  "status": "BLOCKED",
+  "reason": "Missing QA dependency: PySide6; install requirements-qa.txt once",
+  "reported_platform": "Windows-11-10.0.26300-SP0",
+  "python_version": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "dependencies": {
+    "PySide6": "NOT_INSTALLED",
+    "Pillow": "12.1.1",
+    "gradio_client": "NOT_INSTALLED",
+    "pytest": "NOT_INSTALLED",
+    "pytest-subtests": "NOT_INSTALLED",
+    "psutil": "7.2.2"
+  },
+  "gpu_inventory": {
+    "exit_code": 0,
+    "output": "NVIDIA GeForce RTX 3080 Ti, 12288 MiB, 616.92\n",
+    "error": ""
+  },
+  "source_identity": "Folder name claims 627dde3; old early-failure archive has no source manifest, so source bytes are not attested.",
+  "qt_cuda_tests_started": false,
+  "target_clean_consecutive": 0,
+  "raw_archive_committed": false
+}

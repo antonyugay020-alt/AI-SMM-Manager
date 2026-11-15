@@ -95,3 +95,15 @@ def test_archive_does_not_extract_or_copy_unsafe_members(tmp_path):
     with pytest.raises(ValueError,match='Unsafe'):
         publish_latest_diagnostics(session,root)
     assert not (root/'DIAGNOSTICS.zip').exists()
+
+
+def test_before_child_native_failure_preserves_supervisor_evidence(tmp_path):
+    root=tmp_path/'reports';session=root/'failed_preflight';session.mkdir(parents=True)
+    names=('native_preflight_abcd.json','vram_preflight.json','ffmpeg_encoders.txt',
+           'source_manifest.json','PYTHON_ENVIRONMENT.json','SOURCE_SNAPSHOT.json')
+    for name in names:
+        (session/name).write_text('bounded diagnostic: '+name,encoding='utf-8')
+    (session/'STATUS.json').write_text('{"status":"BLOCKED"}',encoding='utf-8')
+    with ZipFile(publish_latest_diagnostics(session,root)) as final:
+        for name in names:
+            assert final.read('QA_SESSION/'+name)==(session/name).read_bytes()

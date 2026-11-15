@@ -16,6 +16,7 @@ import threading
 import time
 import traceback
 import uuid
+from windows_qa_environment import inspect_environment
 
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT/'AI_SMM_Work_Architecture_A75'))
@@ -178,8 +179,7 @@ def run_child(command,env,folder,timeout=43200):
 def execute(config,role,session,state):
     if os.name!='nt':raise RuntimeError('Actual Windows required; Linux does not advance counters')
     if role not in ROLES:raise ValueError('Unknown QA role')
-    for module in ('PySide6','PIL','gradio_client','pytest','pytest_subtests','psutil'):
-        if importlib.util.find_spec(module) is None:raise RuntimeError('Missing QA dependency: '+module+'; install requirements-qa.txt once')
+    require_qa_environment(session)
     if not shutil.which('ffmpeg') or not shutil.which('ffprobe') or not shutil.which('nvidia-smi'):raise RuntimeError('FFmpeg, ffprobe and NVIDIA driver/nvidia-smi must already be installed')
     memory=subprocess.run(['nvidia-smi','--query-gpu=uuid,name,memory.total,memory.used,utilization.gpu','--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=15)
     memory_report={'exit_code':memory.returncode,'samples':memory.stdout.strip().splitlines(),'error':memory.stderr[-2000:]}
@@ -346,10 +346,18 @@ def publish_latest_diagnostics(session,root):
                             name='VALIDATION_RESULTS/'+file.relative_to(report).as_posix()
                             out.write(file,arcname=name);entries.add(name)
             # Supervisor status takes priority over an earlier child verdict.
-            for name in ('STATUS.json','REPORT_MANIFEST.json','HOST.json',
+            supervisor_names=('STATUS.json','REPORT_MANIFEST.json','HOST.json',
+                         'SOURCE_SNAPSHOT.json','PYTHON_ENVIRONMENT.json',
                          'PREREQUISITES.json','qa_model_roster.json',
-                         'preflight.json','runner_error.json'):
+                         'source_manifest.json','vram_preflight.json','ffmpeg_encoders.txt',
+                         'vision_preflight.json','preliminary_input.json',
+                         'PRELIMINARY_ATTESTATION.json','preflight.json','runner_error.json')
+            # Native import failures happen before a child run exists. Retain
+            # their bounded traceback/output in the one diagnostic handoff.
+            supervisor_names+=tuple(p.name for p in sorted(session.glob('native_preflight_*.json')))
+            for name in supervisor_names:
                 file=session/name
+                if file.is_symlink():raise ValueError('Linked supervisor diagnostic')
                 if file.is_file():
                     out.write(file,arcname='QA_SESSION/'+name)
             if active is not None:
@@ -365,6 +373,13 @@ def publish_latest_diagnostics(session,root):
         return destination
     finally:
         if temp.exists():temp.unlink()
+
+
+def require_qa_environment(folder):
+    report=inspect_environment()
+    write_json(Path(folder)/'PYTHON_ENVIRONMENT.json',report)
+    if report['issues']:
+        raise RuntimeError('; '.join(report['issues'])+'. '+report['remedy'])
 
 
 def bootstrap_inventory(folder):
@@ -399,7 +414,11 @@ def main():
     write_json(root/'LATEST.json',{'session':str(session),'role':args.role});write_json(session/'STATUS.json',state);write_json(root/'STATUS.json',state)
     config_path=args.config or root/'settings.json'
     try:
+        # Bind even a blocked bootstrap to its actual source bytes. A folder
+        # name containing a commit ID is not evidence of an unchanged checkout.
+        write_json(session/'SOURCE_SNAPSHOT.json',source_snapshot(ROOT))
         bootstrap_inventory(session)
+        require_qa_environment(session)
         if not config_path.is_file() and not args.no_wizard:
             if os.name!='nt':raise RuntimeError('Windows required; setup wizard not opened on Linux')
             wizard(config_path)

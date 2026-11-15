@@ -1,3 +1,31 @@
+# Windows QA bootstrap checkpoint — 2026-11-15
+
+Baseline `627dde311f247324dc008dd386f9914bbd790ab7`, existing PR #4.
+New physical RTX 3080 Ti report stopped before tests: source ZIP used a system
+Python without PySide6, gradio_client, pytest and pytest-subtests. This is not
+an inference/CUDA result. Uploaded manifest verified; source bytes were not
+attested by the old early-failure format.
+
+Added explicit source-local QA setup, complete offline dependency diagnostics
+before the wizard/models, early source hashes and missing supervisor/native
+preflight evidence in the one handoff ZIP. Handles actual pytest 9 built-in
+subtests and pytest 8 plugin without lowering the test requirement.
+
+Final Linux: focused 38 PASS; full CI **586 + 94 PASS, 2 Windows-only skips**;
+all 263 developer modules **2109 + 1062 PASS**; tree/mirrors/diff PASS.
+Actual empty-venv subprocess reproduces the failure with preserved settings,
+complete hash-verified diagnostics and zero accepted runs. Application runtime
+fingerprint unchanged: `47bc181b6ecdf365f4c49b3e6b23a3f04cf17c96d5367dcdb04576f29d1ceacd`.
+
+[Input analysis, exact commands, tested bytes and logs](evidence/20261115-windows-qa-bootstrap).
+Next: RTX 3080 Ti source folder -> SETUP_WINDOWS_QA.cmd once ->
+RUN_WINDOWS_QA.cmd -> 1. Setup explicitly installs only free main-QA Python
+packages. Existing CUDA/model environments and QA settings are preserved.
+No physical Windows execution of the new setup/controller yet; target **0/10**.
+No Actions, paid calls, model downloads, main, merge or release.
+
+---
+
 # Current integration checkpoint — 2026-11-15
 
 Baseline `3c7863a6c209343a669ed2debd652d51d768eb8b`, same branch and draft PR #4.

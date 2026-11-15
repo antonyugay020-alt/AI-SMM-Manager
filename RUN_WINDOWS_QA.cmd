@@ -33,12 +33,14 @@ set "QA_RC=%ERRORLEVEL%"
 if not exist "%QA_REPORTS%\LATEST.json" (
  >"%QA_REPORTS%\STATUS.json" echo {"status":"BLOCKED","target_clean_consecutive":0,"release_eligible":false}
  echo Python could not start. See BOOTSTRAP_CONSOLE.txt.
- echo Install Python 3.12 x64 and requirements-qa.txt once, or set AI_SMM_QA_PYTHON.
+ echo Install Python 3.12 x64, then run SETUP_WINDOWS_QA.cmd once in this folder.
  rem Keep the same diagnostic ZIP path when Python itself cannot launch.
  powershell -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; $r=$env:QA_REPORTS; $files=@((Join-Path $r 'STATUS.json'),(Join-Path $r 'BOOTSTRAP_CONSOLE.txt'),(Join-Path $r 'BOOTSTRAP_STATUS.txt')); Compress-Archive -LiteralPath $files -DestinationPath (Join-Path $r 'DIAGNOSTICS.zip') -Force"
  if errorlevel 1 echo WARNING: Unable to publish the bootstrap failure diagnostic ZIP.
 )
 echo ONE REPORT TO SEND: %QA_REPORTS%\DIAGNOSTICS.zip
 echo Current status: %QA_REPORTS%\STATUS.json
+if exist "%QA_REPORTS%\STATUS.json" type "%QA_REPORTS%\STATUS.json"
+echo If Python dependencies are missing, run SETUP_WINDOWS_QA.cmd in this source folder.
 pause
 exit /b %QA_RC%
