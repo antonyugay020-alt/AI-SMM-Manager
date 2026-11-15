@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from media_upload_transfer import upload_with_check
+from media_upload_transfer import upload_with_check,checkpoint
 from PIL import Image
 from kie_media_contracts import (
     _url, VideoMetadata, nano_banana_pro, nano_banana_edit,
@@ -102,6 +102,7 @@ class KieMediaGateway:
                       explicit_upload_consent=False,job_id=None,intent_sha256=None,
                       cancel_check=None):
         """No model generation; external source upload requires separate consent."""
+        checkpoint(cancel_check)
         sources=list(sources)
         if sources and explicit_upload_consent is not True:
             raise RuntimeError("external source upload requires explicit user consent")

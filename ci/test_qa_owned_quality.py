@@ -141,7 +141,9 @@ def test_unproven_reference_or_video_temporal_quality_never_passes():
     with pytest.raises(ValueError,match='RECEIPT_INVALID'):
         validate_quality_receipt(report,{'task':'image_reference','sources':['a','b']},'gemma3:4b','a'*64)
     report=complete_receipt()
-    report['metrics']={'duration':2,'sampled_frames':[{'contrast':.3}]}
+    report['metrics']={'width':256,'height':256,'duration':2,
+        'sampled_frames':[{'contrast':.3,'luma':.5} for _ in range(3)],
+        'sampled_luma_jump':0,'audio':False,'source_audio':False}
     report['verdict']['temporal']='NOT_APPLICABLE'
     with pytest.raises(ValueError,match='RECEIPT_INVALID'):
         validate_quality_receipt(report,{'task':'video_generative','sources':['a']},'gemma3:4b','a'*64)

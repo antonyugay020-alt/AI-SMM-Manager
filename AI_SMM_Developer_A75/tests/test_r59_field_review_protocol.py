@@ -131,7 +131,7 @@ class FieldReviewTests(unittest.TestCase):
 
 class ModelProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.routes=patch.object(protocol,'_PROMPT_ROUTES',set());self.routes.start()
+        self.routes=patch.object(protocol,'_PROMPT_ROUTES',__import__('collections').OrderedDict());self.routes.start()
         self.metadata=patch.object(protocol,'_METADATA',{});self.metadata.start()
         self.addCleanup(self.routes.stop);self.addCleanup(self.metadata.stop)
 

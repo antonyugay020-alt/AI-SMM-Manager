@@ -7,11 +7,8 @@ from text_providers import (call_text, configured_cloud_models, parse_cloud_mode
                             is_ollama_cloud_tag)
 
 
-class FakeResponse:
-    def __init__(self, body): self.body=body
-    def __enter__(self): return self
-    def __exit__(self,*args): return False
-    def read(self,*args): return json.dumps(self.body).encode()
+class FakeResponse(io.BytesIO):
+    def __init__(self,body):super().__init__(json.dumps(body).encode('utf-8'))
 
 
 class TextProviderTests(unittest.TestCase):

@@ -27,7 +27,7 @@ def upload_with_check(upload, path, *, check=None):
             or p.kind==inspect.Parameter.VAR_KEYWORD for p in params)
     except (TypeError,ValueError):
         supports_check=False
-    result=upload(path,check=check) if supports_check else upload(path)
+    result=upload(path,check=check) if supports_check and check is not None else upload(path)
     checkpoint(check)
     return result
 

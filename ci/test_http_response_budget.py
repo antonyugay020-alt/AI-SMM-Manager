@@ -108,7 +108,8 @@ def test_cloud_http_error_body_cancellation_is_not_reclassified():
         calls[0]+=1
         if calls[0]>1:raise TaskCancelled('user stopped')
     with patch('text_providers._chat_request',side_effect=error):
-        with cancellation_scope(check):
-            with pytest.raises(TaskCancelled,match='user stopped'):
+        with pytest.raises(TaskCancelled,match='user stopped'):
+            with cancellation_scope(check):
                 call_text('groq/openai/gpt-oss-20b',[{'role':'user','content':'hello'}],
                     environ={'GROQ_API_KEY':'fixture','AI_SMM_GROQ_FREE_TIER_ACK':'1'})
+                pytest.fail('Transport swallowed cancellation before scope exit')

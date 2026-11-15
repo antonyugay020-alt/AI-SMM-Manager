@@ -129,4 +129,41 @@ class LocalQueueQtTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM project_files').fetchone()[0],0)
         self.assertEqual(self.db.execute('SELECT state FROM local_media_jobs').fetchone()[0],'cancelled')
 
+    def test_export_preset_uses_real_qt_worker_sqlite_audio_and_idempotent_retry(self):
+        import json,shutil,subprocess
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
+            self.skipTest('Native media tools unavailable')
+        source=self.root/OWNER/'originals'/'Ролик для экспорта.mp4'
+        subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi','-i',
+            'color=c=blue:s=160x120:r=30','-f','lavfi','-i',
+            'sine=frequency=440:sample_rate=48000','-t','0.4',
+            '-c:v','mpeg4','-c:a','aac','-shortest',str(source)],
+            check=True,capture_output=True,timeout=20)
+        original=jobs.digest_file(source)
+        self.db.execute('INSERT INTO project_files VALUES(?,?,?,?,?,?)',
+            ('original-video',OWNER,'video','Original',str(source),'now'));self.db.commit()
+        self.view.refresh()
+        for index in range(self.view.sources.count()):
+            item=self.view.sources.item(index);item.setSelected(item.data(256)==str(source))
+        self.view.smm_task.setCurrentText('video_format')
+        self.view.export_size.setCurrentIndex(self.view.export_size.findData('square'))
+        self.view.apply_export_size_button.click()
+        self.assertEqual((self.view.local_width.value(),self.view.local_height.value()),(1080,1080))
+        self.view.local_button.click()
+        self.assertFalse(self.view.apply_export_size_button.isEnabled())
+        self.drain()
+        self.assertTrue(self.view.apply_export_size_button.isEnabled())
+        job,state,request_json,output=self.db.execute(
+            'SELECT id,state,request_json,output_path FROM local_media_jobs').fetchone()
+        self.assertEqual(state,'completed');self.assertEqual(json.loads(request_json)['width'],1080)
+        duration,audio,size=jobs._probe(output,full=True)
+        self.assertEqual(size,(1080,1080));self.assertTrue(audio);self.assertLess(abs(duration-.4),.16)
+        self.assertEqual(jobs.digest_file(source),original)
+        self.view.table.selectRow(0)
+        with patch.object(jobs,'_render',side_effect=AssertionError('Committed export must not render twice')):
+            self.view.local_button.click();self.drain()
+        self.assertEqual(self.db.execute('SELECT id,output_path FROM local_media_jobs').fetchone(),(job,output))
+        self.assertEqual(self.db.execute('SELECT count(*) FROM project_files WHERE id=?',(job,)).fetchone()[0],1)
+        self.assertFalse((self.root/'paid_cost_ledger.sqlite').exists())
+
 if __name__=='__main__':unittest.main()

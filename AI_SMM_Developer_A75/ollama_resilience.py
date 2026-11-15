@@ -370,7 +370,11 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             if not isinstance(result, dict):
                 raise ValueError('Ollama returned a non-object response')
             if cloud_model is None:
-                require_completed('ollama',result)
+                try:require_completed('ollama',result)
+                except ValueError as exc:
+                    failure=StructuredResponseError(stage,str(exc))
+                    failure.response_diagnostics=response_diagnostics(result)
+                    raise failure from exc
             try:
                 result, used_tool = _decode_response_contract(result, payload, stage,
                     wrapped_result=wrapped_result, require_json=contract_mode is not None,contract=requested_contract)
@@ -404,7 +408,7 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             # authentication, request-contract errors, or a model timeout.
             from io import BytesIO
             try:
-                raw_error=read_bounded_body(exc,max_bytes=8192,
+                raw_error=read_bounded_body(exc,max_bytes=64*1024,
                     deadline=time.monotonic()+5,check=check_cancelled)
             except Exception as read_exc:
                 from cooperative_cancellation import TaskCancelled
@@ -412,7 +416,8 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                 raw_error=b''
             finally:exc.close()
             record_model_event('model_provider_error',stage=stage,attempt=attempt,
-                status=exc.code,body_bytes=len(raw_error))
+                status=exc.code,body_bytes=len(raw_error),
+                body=raw_error.decode('utf-8','replace'))
             body = _provider_response_body(BytesIO(raw_error))
             error = ProviderHTTPError(stage, exc.code, body)
             retry = exc.code in (500, 502, 503, 504) and attempt < attempts

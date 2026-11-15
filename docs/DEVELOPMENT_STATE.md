@@ -1,3 +1,30 @@
+# Current integration checkpoint — 2026-11-15
+
+Baseline `3c7863a6c209343a669ed2debd652d51d768eb8b`, same branch and draft PR #4.
+Full actual checkout regression now covers the intervening media/spool/process/
+HTTP/recovery changes. Connected completion-diagnostic, streaming-fixture,
+upload-cancellation and QA-contract mismatches are corrected. Explicit output
+sizes are integrated into the existing Qt job/SQLite workflow; no alternate
+archive application or 3/10 generator was imported.
+
+Runtime fingerprint:
+`47bc181b6ecdf365f4c49b3e6b23a3f04cf17c96d5367dcdb04576f29d1ceacd`.
+Final Linux: all 263 developer modules **2109 + 1062 PASS**; actual four-shard
+QA layout **2109 + 1061 PASS**; entire CI and forced-GC CI **576 + 94 PASS,
+2 native-Windows-only skips**. Real Qt/FFmpeg preset export preserves audio,
+source bytes, project identity and completed-job reuse. Actual cached tiny CPU
+image/video generation, stop/owner death/retry/SQLite receipt recovery PASS.
+177 runtime mirrors, dependency/byte/diff checks PASS.
+
+[Source manifest, exact commands, failures, logs and Qt screenshot](evidence/20261115-integrated-media-export).
+Next physical acceptance must use the current source and unchanged Windows QA
+launcher; actual Windows Qt/CUDA, trained-model quality and live reviewer
+admission remain unverified, target **0/10**. Report root stays Desktop
+AI_SMM_REPORTS. No main change, Actions, paid APIs, download, merge or release.
+Do not count source/CPU tests as an improvement in measured generation quality.
+
+---
+
 # POSIX no-follow media and spool lock boundary — 2026-11-10 (unreleased)
 
 Baseline `70b679c85fed3965269a8a0d504e92bdbb2d7dd1`, existing draft PR #4. Cross-boundary inspection of `stable_file_source`, `media_ingest_core`, project ownership checks and `media_spool_lease` found two related pathname races. A POSIX `O_NOFOLLOW` flag on the leaf did not protect ancestor directories swapped to symlinks after lexical validation. The lock file was opened with `Path.open('a+b')` after a separate ownership check, so a substituted symlink could redirect its initial write and split GC/import locking. A substituted FIFO could block a media read indefinitely before descriptor type validation.

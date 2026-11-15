@@ -1,5 +1,6 @@
 from test_paid_text_support import authorized_call
 import json
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -12,18 +13,12 @@ if str(APP_ROOT) not in sys.path:
 import text_providers
 
 
-class _FakeResponse:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-    def read(self):
-        return json.dumps({
+class _FakeResponse(io.BytesIO):
+    def __init__(self):
+        super().__init__(json.dumps({
             'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ok":true}'}}],
             'usage': {'prompt_tokens': 3, 'completion_tokens': 2},
-        }).encode('utf-8')
+        }).encode('utf-8'))
 
 
 class OpenAIProviderR36Tests(unittest.TestCase):

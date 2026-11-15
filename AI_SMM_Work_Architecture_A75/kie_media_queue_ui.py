@@ -83,6 +83,18 @@ class KieMediaQueuePanel(QWidget):
         self.local_button.clicked.connect(self.execute_local)
         local_row.addWidget(self.local_button)
         layout.addLayout(local_row)
+        from media_export_presets import EXPORT_SIZES
+        export_row=QHBoxLayout()
+        export_row.addWidget(QLabel('Быстрый размер результата'))
+        self.export_size=QComboBox()
+        for key,label,width,height in EXPORT_SIZES:self.export_size.addItem(label,key)
+        self.export_size.setToolTip('Подставляет ширину и высоту. Не изменяет длительность, стиль или исходники; ограничения генеративной модели сохраняются.')
+        self.apply_export_size_button=QPushButton('Подставить размер')
+        self.apply_export_size_button.setEnabled(local_service is not None)
+        self.apply_export_size_button.clicked.connect(self.apply_export_size)
+        export_row.addWidget(self.export_size);export_row.addWidget(self.apply_export_size_button)
+        export_row.addStretch()
+        layout.addLayout(export_row)
         generation_row=QHBoxLayout()
         self.local_profile=QComboBox()
         self.local_auxiliary=QComboBox();self.local_auxiliary.addItem('Без эталона / маски',None)
@@ -476,7 +488,7 @@ class KieMediaQueuePanel(QWidget):
         if not hasattr(window,'_background_workers'):window._background_workers=[]
         window._background_workers.append(worker)
         self._worker_window=weakref.ref(window)
-        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button,self.local_button,self.local_generation_button):button.setEnabled(False)
+        for button in (self.fetch_button,self.prepare_button,self.generate_button,self.create_button,self.local_button,self.local_generation_button,self.apply_export_size_button):button.setEnabled(False)
         if worker.project_id==self._owner():
             for row in range(self.table.rowCount()):
                 if self.table.item(row,3).data(Qt.UserRole)==worker.job_id:
@@ -524,6 +536,7 @@ class KieMediaQueuePanel(QWidget):
         self.generate_button.setEnabled(self._media_service is not None)
         self.create_button.setEnabled(True)
         self.local_button.setEnabled(self._local_service is not None)
+        self.apply_export_size_button.setEnabled(self._local_service is not None)
         self.local_generation_button.setEnabled(bool(self._generation_profiles) and self._local_service is not None)
 
     def closeEvent(self, event):
@@ -679,6 +692,12 @@ class KieMediaQueuePanel(QWidget):
         except (ValueError,RuntimeError,PermissionError,sqlite3.Error) as exc:
             self.note.setText('Восстановление недоступно: '+type(exc).__name__);return
         self._launch_worker(worker)
+
+    def apply_export_size(self):
+        if self._local_service is None or self._result_worker is not None:return
+        from media_export_presets import export_size
+        width,height=export_size(self.export_size.currentData())
+        self.local_width.setValue(width);self.local_height.setValue(height)
 
     def execute_local(self):
         if self._local_service is None or self._result_worker is not None:return

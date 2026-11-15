@@ -113,7 +113,7 @@ class SubstanceContractTests(unittest.TestCase):
             self.assertIn('quality_controls',schema['required'])
             answer=assessed_reply({'format':schema,'messages':body['messages']},{'pass':True,'issues':[]})
             if missing:answer.pop('quality_controls')
-            return io.BytesIO(json.dumps({'choices':[{'message':{'content':json.dumps(answer)}}]}).encode())
+            return io.BytesIO(json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps(answer)}}]}).encode())
         missing=False
         with patch.dict(os.environ,{'OPENAI_API_KEY':'mock-only','AI_SMM_ENABLE_OPENAI_API':'1'}), \
              patch('urllib.request.urlopen',side_effect=wire), \
