@@ -268,6 +268,9 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
     wrapped_result=isinstance(requested_contract,dict) and requested_contract.get('type')!='object'
     payload, contract_mode = _prepare_response_contract(base_payload)
     model = str(payload.get('model') or '').strip()
+    from local_text_runtime import configured_for
+    if model.startswith('lmstudio/') and not configured_for(model):
+        raise ValueError('LM Studio route is not explicitly configured; fallback forbidden')
     from text_providers import parse_cloud_model
     cloud_model = parse_cloud_model(model)
     if __import__('os').environ.get('AI_SMM_QA_LOCAL_ONLY')=='1':
@@ -283,7 +286,7 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
             data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
             headers={'Content-Type': 'application/json; charset=utf-8'})
         evidence=_UTF8_TRANSPORT.get()
-        if evidence is not None:
+        if evidence is not None and not configured_for(model):
             evidence.update(request_sha256=hashlib.sha256(req.data).hexdigest(),
                 request_bytes=len(req.data),request_utf8=req.data.decode('utf-8',errors='strict'))
     for attempt in range(1, attempts + 1):
@@ -341,8 +344,8 @@ def _request_chat(payload, *, stage, timeout=300, attempts=2, report=None,
                     if local_timeout<=0:raise TimeoutError('Local compute lease exhausted call deadline')
                     from local_text_runtime import configured_for,request_local
                     if configured_for(model):
-                        result=request_local(payload,timeout=local_timeout)
-                        record_model_event('local_model_transport',stage=stage,backend='llama_cpp')
+                        result=request_local(payload,timeout=local_timeout,evidence=_UTF8_TRANSPORT.get())
+                        record_model_event('local_model_transport',stage=stage,backend=__import__('os').environ['AI_SMM_LOCAL_LLM_BACKEND'])
                     else:
                         http_started=time.monotonic()
                         with urllib.request.urlopen(req, timeout=local_timeout) as response:

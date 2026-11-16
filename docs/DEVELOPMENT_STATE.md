@@ -1,3 +1,35 @@
+# LM Studio / local reviewer integration — 2026-11-16
+
+Baseline `bc067dbe810013577150c7ce5358775746840d78`, existing PR #4. This
+checkpoint supersedes the pending short-process instruction below: the supplied
+physical Windows diagnostic passed **26 + 9 subtests**, no failures/skips. Its
+three previously failing process/file cases now pass; this is not full acceptance.
+
+Integrated an explicit already-loaded LM Studio model into the shared text
+transport, Qt text/reviewer path and full source-QA roster. Qwen2.5 14B/7B/Coder
+remain one family; unchanged six-control qualification, bounded model calls,
+UTF-8 receipts, cancellation/device lease and route-bound admission are retained.
+QA records selected GGUF hash/server descriptor and rejects drift. A new
+`RUN_WINDOWS_REVIEWER_QA.cmd` offers one-time selection, preserves media settings
+and writes the same diagnostic ZIP without granting acceptance credit.
+
+Final Linux: all **263 modules, 2109 + 1062 subtests PASS**; full and forced-GC
+CI each **619 + 94 PASS, 2 native-Windows skips**; focused **50 PASS**; cached
+tiny CPU image/video/lifecycle and actual offscreen Qt dialogue/media/cancellation
+PASS. Fixed a detected import cycle via explicit transport-evidence injection;
+all three runtime mirrors and final dependency-graph guard pass. Runtime hash:
+`19dcb6f4b10b843ddbb149522e1e25faf8aa622f64090b75022669f7e5ad9f59`.
+[Evidence and tested source bytes](evidence/20261116-lmstudio-reviewers/README.md).
+
+Next: the [focused Windows editor check](LOCAL_MODEL_RUNTIME.md#focused-windows-check-before-another-full-media-run)
+with the already installed Qwen2.5 14B. No model was downloaded or physically
+qualified in Work. Prior zero qualified reviewers and insufficient host RAM
+remain actual blockers; RAM floors stay 6 GiB image / 10 GiB video. Full Windows
+Qt/CUDA and target RTX 2080 Super acceptance remain **0/10**. No paid calls,
+Actions, main changes, merge, intermediate build or release.
+
+---
+
 # Windows process-signal checkpoint — 2026-11-16
 
 Baseline `07cf5d2ef3400b6bd60025c49557592519acc6b9`, existing PR #4.

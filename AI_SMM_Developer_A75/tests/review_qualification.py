@@ -106,6 +106,8 @@ def build_controls(seed):
 
 
 def _valid_record(record,model):
+    from local_text_runtime import configuration_identity
+    if isinstance(record,dict) and record.get('local_route')!=configuration_identity(model):return False
     if (not isinstance(record,dict) or record.get('protocol')!=PROTOCOL
             or record.get('model')!=model or record.get('pass') is not True
             or record.get('contract_pass') is not True
@@ -135,7 +137,9 @@ def cached_qualification(model):
     name=str(model).strip()
     with _LOCK:
         cached=_CACHE.get(name)
+        from local_text_runtime import configuration_identity
         if (isinstance(cached,dict) and cached.get('protocol')==PROTOCOL
+                and cached.get('local_route')==configuration_identity(name)
                 and type(cached.get('checked_at')) in (int,float)
                 and 0<=time.time()-cached['checked_at']<(8*3600 if cached.get('contract_pass') is True or cached.get('contract_errors') else 120)
                 and (cached.get('pass') is False or _valid_record(cached,name))):
@@ -228,7 +232,8 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
         wanted='confirmed' if expected['needs_change'] else 'dismissed'
         outcomes.append({'kind':expected['kind'],'field':field,'expected':wanted,'actual':actual,
             'pass':actual==wanted})
-    result={'protocol':PROTOCOL,'model':name,'seed':seed,'checked_at':time.time(),
+    from local_text_runtime import configuration_identity
+    result={'protocol':PROTOCOL,'model':name,'local_route':configuration_identity(name),'seed':seed,'checked_at':time.time(),
         'contract_pass':contract,'author_response_compatible':author_response_compatible,
         'pass':contract and all(row['pass'] for row in outcomes),
         'controls':outcomes,'model_calls':calls,'duration_s':round(time.monotonic()-started,2),
@@ -249,6 +254,6 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
 def qualification_envelope(records):
     # Keep bounded proofs in the child environment; raw diagnostic replies stay
     # in the report (Windows environment variables have a finite size).
-    keys=('protocol','model','seed','checked_at','contract_pass','pass','controls','model_calls')
+    keys=('protocol','model','local_route','seed','checked_at','contract_pass','pass','controls','model_calls')
     return {'protocol':PROTOCOL,'results':{row['model']:{key:copy.deepcopy(row[key])
         for key in keys if key in row} for row in records if row.get('pass') is True}}

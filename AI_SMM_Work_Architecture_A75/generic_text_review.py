@@ -155,6 +155,17 @@ def list_installed_ollama_models(endpoint='http://127.0.0.1:11434/api/tags'):
     return list(dict.fromkeys(names))
 
 
+def list_installed_text_models(endpoint='http://127.0.0.1:11434/api/tags'):
+    """Ollama plus explicitly selected, already loaded LM Studio text model."""
+    from local_text_runtime import configured_models
+    extra=configured_models()
+    try:names=list_installed_ollama_models(endpoint)
+    except OSError:
+        if not extra:raise
+        names=[]
+    return list(dict.fromkeys([*names,*extra]))
+
+
 def list_acceptance_models(endpoint='http://127.0.0.1:11434/api/tags', *, include_cloud=None):
     """Scoped validation candidates or explicitly enabled application models."""
     scoped = _ACCEPTANCE_MODEL_POOL.get()
@@ -181,7 +192,7 @@ def list_acceptance_models(endpoint='http://127.0.0.1:11434/api/tags', *, includ
                if parse_cloud_model(name)[0]=='openai' or allow_free]
     inventory_error=None
     try:
-        names=list_installed_ollama_models(endpoint)
+        names=list_installed_text_models(endpoint)
     except (OSError,ValueError) as exc:
         if not cloud:raise
         names=[];inventory_error=type(exc).__name__

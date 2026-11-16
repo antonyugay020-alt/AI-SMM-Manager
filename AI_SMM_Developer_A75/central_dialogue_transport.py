@@ -35,7 +35,7 @@ def request_central_dialogue(payload, *, stage, timeout=180, attempts=1, report=
     if mode in {'local','hybrid'}:
         from text_providers import parse_cloud_model
         if not local or parse_cloud_model(local) is not None:
-            raise ValueError('Локальная модель диалога должна быть моделью Ollama')
+            raise ValueError('Локальная модель диалога должна использовать Ollama или явно настроенный локальный сервер')
         from ollama_resilience import request_chat
         if report:report('central_local_dialogue',model=local,reason='local_first')
         try:

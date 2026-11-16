@@ -127,7 +127,7 @@ def run_recovery_cases(target):
 def run():
     from compound_tasks import execute_compound
     from text_workflow import run_text_task
-    from generic_text_review import (acceptance_model_pool, list_installed_ollama_models,
+    from generic_text_review import (acceptance_model_pool, list_installed_text_models,
         select_independent_reviewers, _independent_panel, _model_family)
     from text_providers import configured_cloud_models, is_ollama_cloud_tag
     import os
@@ -137,7 +137,7 @@ def run():
     # Set AI_SMM_ACCEPTANCE_SEED to replay a specific reported run exactly.
     seed_text=os.environ.get('AI_SMM_ACCEPTANCE_SEED','').strip()
     task_seed=int(seed_text) if seed_text else secrets.randbits(64)
-    installed_models=list_installed_ollama_models()
+    installed_models=list_installed_text_models()
     cloud_enabled=(os.environ.get('AI_SMM_ENABLE_FREE_CLOUD_ACCEPTANCE','').strip()=='1' or
                    os.environ.get('AI_SMM_ENABLE_OPENAI_ACCEPTANCE','').strip()=='1')
     if cloud_enabled:

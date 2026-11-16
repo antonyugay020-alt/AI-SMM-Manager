@@ -13,6 +13,12 @@ if /i "%~1"=="--process-diagnostic" (
  echo Offline Windows process diagnostic. No models, no acceptance counter.
  goto selected_mode
 )
+if /i "%~1"=="--reviewer-diagnostic" (
+ set "QA_MODE=--reviewer-diagnostic"
+ set "QA_ROLE=preliminary_3080ti"
+ echo Local reviewer qualification only. No acceptance counter.
+ goto selected_mode
+)
 echo 1. RTX 3080 Ti - preliminary full Windows check
 echo 2. RTX 2080 Super 8 GB - ten clean target checks
 choice /c 12 /n /m "Select 1 or 2: "

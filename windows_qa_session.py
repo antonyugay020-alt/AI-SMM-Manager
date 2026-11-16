@@ -55,12 +55,40 @@ def model_roster_evidence(inventory,allowed,requested):
 def read_config(path):
     data=json.loads(Path(path).read_text(encoding='utf-8-sig'))
     required={'profiles','plan','vision_model'}
-    if not isinstance(data,dict) or not required<=set(data) or set(data)-required-{'preliminary_report','local_models'}:raise ValueError('QA configuration requires profiles, plan, vision_model')
+    if not isinstance(data,dict) or not required<=set(data) or set(data)-required-{'preliminary_report','local_models','local_text'}:raise ValueError('QA configuration requires profiles, plan, vision_model')
     for name in ('profiles','plan'):
         value=Path(data[name])
         if not value.is_absolute() or not value.is_file():raise ValueError('QA path missing: '+name)
     if not isinstance(data['vision_model'],str) or not data['vision_model']:raise ValueError('Installed local vision model required')
     return data
+
+
+def local_text_environment(config):
+    """Explicit loaded LM Studio model; hash existing GGUF, never load/download."""
+    from local_text_runtime import endpoint_for,lm_studio_model_id,loaded_model
+    value=config.get('local_text')
+    if value is None:return {},None
+    if not isinstance(value,dict) or set(value)!={'backend','url','model','model_file'} or value['backend']!='lm_studio':
+        raise ValueError('local_text requires lm_studio backend, url, model and model_file')
+    endpoint=endpoint_for(value['url']);lm_studio_model_id(value['model'])
+    path=Path(value['model_file'])
+    if not path.is_absolute() or not path.is_file() or path.suffix.lower()!='.gguf':
+        raise ValueError('Existing absolute single-file GGUF path required; no download attempted')
+    before=path.stat()
+    with path.open('rb') as source:
+        if source.read(4)!=b'GGUF':raise ValueError('Selected local text weights are not GGUF')
+    digest=sha(path)
+    after=path.stat()
+    if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)!=(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns):
+        raise ValueError('Local text weights changed during hashing')
+    env={'AI_SMM_LOCAL_LLM_BACKEND':'lm_studio','AI_SMM_LOCAL_LLM_URL':value['url'],
+         'AI_SMM_LOCAL_LLM_MODEL':value['model'],'AI_SMM_LOCAL_LLM_SHA256':digest}
+    descriptor=loaded_model(environ=env)
+    # The hash binds the user's selected local file, not a server attestation
+    # of in-memory weights. Both the descriptor and file must remain stable.
+    return env,{'model':value['model'],'endpoint':endpoint,'weights_sha256':digest,
+                'weights_bytes':after.st_size,'server_descriptor':descriptor,
+                'weight_binding':'user_selected_file_and_server_descriptor'}
 
 
 def wizard(path):
@@ -103,6 +131,41 @@ def wizard(path):
         data={'profiles':str(selected.resolve()),'plan':str(selected_plan.resolve()),'vision_model':model.strip()}
         write_json(path,data)
         return data
+    finally:root.destroy()
+
+
+def configure_local_text(path,config):
+    """Optional one-time selection from the user's already loaded LM Studio models."""
+    if config.get('local_text') is not None:return config
+    if os.name!='nt':raise RuntimeError('Windows required for local text setup')
+    import tkinter as tk
+    from tkinter import filedialog,simpledialog,messagebox
+    from local_text_runtime import lm_studio_inventory
+    root=tk.Tk();root.withdraw()
+    try:
+        if not messagebox.askyesno('Локальные редакторы',
+                'Добавить уже установленную модель LM Studio к проверке редакторов?\n'
+                'Сначала вручную загрузите её в LM Studio и включите локальный API Server.\n'
+                'Программа не скачивает и не загружает модели. «Нет» — проверить только Ollama.',parent=root):return config
+        url=simpledialog.askstring('LM Studio API','Адрес локального сервера:',initialvalue='http://127.0.0.1:1234',parent=root)
+        if not url:raise ValueError('Local text setup cancelled')
+        models=[item['id'] for item in lm_studio_inventory(url) if isinstance(item,dict)
+                and isinstance(item.get('id'),str) and item.get('type')=='llm' and item.get('state')=='loaded'
+                and not any(item.get(k) for k in ('remote_host','remote_model'))]
+        models=list(dict.fromkeys(models))
+        if not models:raise ValueError('No loaded local LM Studio text model; load an installed model manually and enable the server')
+        selection=simpledialog.askinteger('Выбор установленной модели',
+            '\n'.join(f'{index}. {model}' for index,model in enumerate(models,1))+'\nНомер модели:',
+            minvalue=1,maxvalue=len(models),parent=root)
+        if selection is None:raise ValueError('Local model selection cancelled')
+        filename=filedialog.askopenfilename(title='Укажите существующий GGUF выбранной модели (для SHA-256)',
+            filetypes=[('GGUF','*.gguf')],parent=root)
+        if not filename:raise ValueError('Local weights selection cancelled')
+        selected={**config,'local_text':{'backend':'lm_studio','url':url,
+            'model':'lmstudio/'+models[selection-1],'model_file':str(Path(filename).resolve())}}
+        local_text_environment(selected)
+        write_json(path,selected)
+        return selected
     finally:root.destroy()
 
 
@@ -197,21 +260,7 @@ def execute_process_diagnostic(session,state):
     return code
 
 
-def execute(config,role,session,state):
-    if os.name!='nt':raise RuntimeError('Actual Windows required; Linux does not advance counters')
-    if role not in ROLES:raise ValueError('Unknown QA role')
-    require_qa_environment(session)
-    if not shutil.which('ffmpeg') or not shutil.which('ffprobe') or not shutil.which('nvidia-smi'):raise RuntimeError('FFmpeg, ffprobe and NVIDIA driver/nvidia-smi must already be installed')
-    memory=subprocess.run(['nvidia-smi','--query-gpu=uuid,name,memory.total,memory.used,utilization.gpu','--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=15)
-    memory_report={'exit_code':memory.returncode,'samples':memory.stdout.strip().splitlines(),'error':memory.stderr[-2000:]}
-    write_json(session/'vram_preflight.json',memory_report)
-    if not valid_vram_sample(memory_report):raise RuntimeError('Actual NVIDIA VRAM measurements unavailable; see vram_preflight.json')
-    encoders=subprocess.run(['ffmpeg','-hide_banner','-encoders'],capture_output=True,text=True,timeout=30)
-    (session/'ffmpeg_encoders.txt').write_text(encoders.stdout+'\n'+encoders.stderr,encoding='utf-8')
-    if encoders.returncode or not {'libx264','aac'}<={line.split()[1] for line in encoders.stdout.splitlines() if len(line.split())>=2}:raise RuntimeError('Installed FFmpeg must support libx264 and AAC; no download attempted')
-    from generative_models import profiles
-    from local_media_quality import LocalVision
-    reviewer=LocalVision(config['vision_model']);reviewer.installed()
+def prepare_model_roster(config,reviewer):
     inventory=reviewer.call('/api/tags')['models']
     requested=config.get('local_models')
     if requested is not None and (not isinstance(requested,list) or not requested or any(not isinstance(m,str) for m in requested)):raise ValueError('local_models must be a nonempty local tag list')
@@ -228,8 +277,60 @@ def execute(config,role,session,state):
         allowed.append(model)
     if config['vision_model'] not in allowed:raise ValueError('Vision model must be in approved local roster')
     qa_roster=model_roster_evidence(inventory,allowed,requested)
+    text_env,text_binding=local_text_environment(config)
+    if text_binding:
+        allowed.append(text_binding['model'])
+        qa_roster['local_text']=text_binding
+    env=local_only_environment(os.environ,allowed);env.update(text_env)
+    return inventory,allowed,qa_roster,env,text_binding
+
+
+def execute_reviewer_diagnostic(config,session,state):
+    """Bounded real local text controls only; never a full acceptance run."""
+    state.update(scope='reviewer_qualification_diagnostic',acceptance_run=False,
+                 clean_consecutive=0,target_clean_consecutive=0,release_eligible=False)
+    if os.name!='nt':raise RuntimeError('Actual Windows required for reviewer diagnostic')
+    from local_media_quality import LocalVision
+    reviewer=LocalVision(config['vision_model'])
+    inventory,allowed,roster,env,text_binding=prepare_model_roster(config,reviewer)
+    write_json(session/'qa_model_roster.json',roster)
+    snapshot=source_snapshot(ROOT)
+    run=session/'run_01';run.mkdir();report=run/'report';report.mkdir()
+    code=run_child([sys.executable,str(ROOT/'ci/local_reviewer_diagnostic.py'),
+                    '--report',str(report)],env,run,timeout=180*len(allowed)+90)
+    verify_snapshot(ROOT,snapshot)
+    if prepare_model_roster(config,reviewer)[2]!=roster:
+        raise ValueError('Model roster/weights changed during reviewer diagnostic')
+    current=reviewer.call('/api/tags')['models']
+    original={m['name']:m['digest'] for m in inventory if m['name'] in allowed}
+    if {m['name']:m['digest'] for m in current if m['name'] in allowed}!=original:
+        raise ValueError('Ollama model weights changed during reviewer diagnostic')
+    result=json.loads((report/'reviewer_qualification.json').read_text(encoding='utf-8'))
+    passed=code==0 and result.get('status')=='PASS'
+    state.update(status='DIAGNOSTIC_COMPLETE' if passed else 'BLOCKED',exit_code=code,
+        reason='Local reviewer controls completed; full Windows Qt/CUDA acceptance not run' if passed
+            else 'Independent reviewer qualification failed; see reviewer_qualification.json')
+    return 0 if passed else 2
+
+
+def execute(config,role,session,state):
+    if os.name!='nt':raise RuntimeError('Actual Windows required; Linux does not advance counters')
+    if role not in ROLES:raise ValueError('Unknown QA role')
+    require_qa_environment(session)
+    if not shutil.which('ffmpeg') or not shutil.which('ffprobe') or not shutil.which('nvidia-smi'):raise RuntimeError('FFmpeg, ffprobe and NVIDIA driver/nvidia-smi must already be installed')
+    memory=subprocess.run(['nvidia-smi','--query-gpu=uuid,name,memory.total,memory.used,utilization.gpu','--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=15)
+    memory_report={'exit_code':memory.returncode,'samples':memory.stdout.strip().splitlines(),'error':memory.stderr[-2000:]}
+    write_json(session/'vram_preflight.json',memory_report)
+    if not valid_vram_sample(memory_report):raise RuntimeError('Actual NVIDIA VRAM measurements unavailable; see vram_preflight.json')
+    encoders=subprocess.run(['ffmpeg','-hide_banner','-encoders'],capture_output=True,text=True,timeout=30)
+    (session/'ffmpeg_encoders.txt').write_text(encoders.stdout+'\n'+encoders.stderr,encoding='utf-8')
+    if encoders.returncode or not {'libx264','aac'}<={line.split()[1] for line in encoders.stdout.splitlines() if len(line.split())>=2}:raise RuntimeError('Installed FFmpeg must support libx264 and AAC; no download attempted')
+    from generative_models import profiles
+    from local_media_quality import LocalVision
+    reviewer=LocalVision(config['vision_model']);reviewer.installed()
+    inventory,allowed,qa_roster,env,text_binding=prepare_model_roster(config,reviewer)
     write_json(session/'qa_model_roster.json',qa_roster)
-    env=local_only_environment(os.environ,allowed);env['AI_SMM_GENERATIVE_CONFIG']=config['profiles']
+    env['AI_SMM_GENERATIVE_CONFIG']=config['profiles']
     print('Verifying installed model bundles and fixture hashes (no download)...',flush=True)
     installed=profiles(env)
     if not installed:raise ValueError('No installed generation profiles')
@@ -258,7 +359,8 @@ def execute(config,role,session,state):
         current_inventory=reviewer.call('/api/tags')['models']
         current_roster={m['name']:m['digest'] for m in current_inventory if m['name'] in allowed}
         if current_roster!=roster:raise ValueError('Local model roster changed during QA')
-        return hashlib.sha256(json.dumps({'cases':input_binding(config,installed),'roster':roster,'runtimes':runtime_binding,'main_runtime':main_versions},sort_keys=True).encode()).hexdigest()
+        if local_text_environment(config)[1]!=text_binding:raise ValueError('Local text model/configuration changed during QA')
+        return hashlib.sha256(json.dumps({'cases':input_binding(config,installed),'roster':roster,'runtimes':runtime_binding,'main_runtime':main_versions,'local_text':text_binding},sort_keys=True).encode()).hexdigest()
     binding=combined_binding()
     required_runs=1 if role=='preliminary_3080ti' else 10
     fixture_bytes=sum(Path(p).stat().st_size for case in json.loads(Path(config['plan']).read_text())['cases'] for p in case['sources'])
@@ -441,6 +543,7 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--role',choices=ROLES,required=True);parser.add_argument('--config',type=Path)
     parser.add_argument('--output',type=Path,default=output_root());parser.add_argument('--no-wizard',action='store_true')
     parser.add_argument('--process-diagnostic',action='store_true')
+    parser.add_argument('--reviewer-diagnostic',action='store_true')
     args=parser.parse_args();root=Path(os.path.abspath(args.output));root.mkdir(parents=True,exist_ok=True)
     session=root/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+args.role+'_'+uuid.uuid4().hex[:8]);session.mkdir()
     state={'status':'PREPARING','role':args.role,'clean_consecutive':0,'target_clean_consecutive':0,'required':1 if args.role=='preliminary_3080ti' else 10,'release_eligible':False,'session':str(session),'windows_executed':os.name=='nt'}
@@ -459,7 +562,9 @@ def main():
                 if os.name!='nt':raise RuntimeError('Windows required; setup wizard not opened on Linux')
                 wizard(config_path)
             config=read_config(config_path)
-            code=execute(config,args.role,session,state)
+            if args.reviewer_diagnostic and not args.no_wizard:config=configure_local_text(config_path,config)
+            code=(execute_reviewer_diagnostic(config,session,state) if args.reviewer_diagnostic
+                  else execute(config,args.role,session,state))
     except BaseException as exc:
         state.update(status='BLOCKED',clean_consecutive=0,target_clean_consecutive=0,reason=str(exc),error=type(exc).__name__)
         write_json(session/'runner_error.json',{'error':type(exc).__name__,'reason':str(exc),'traceback':traceback.format_exc()});code=2

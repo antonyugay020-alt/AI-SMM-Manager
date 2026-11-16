@@ -428,10 +428,10 @@ def reviewer_model_probe():
     Author JSON compatibility and reviewer reasoning are recorded separately.
     A model failing a known-answer control cannot judge user content.
     """
-    from generic_text_review import _model_family, list_installed_ollama_models
+    from generic_text_review import _model_family, list_installed_text_models
     from review_qualification import probe_qualification, qualification_envelope, CERT_ENV
     try:
-        installed=list_installed_ollama_models()
+        installed=list_installed_text_models()
     except Exception as exc:
         record('reviewer_models',False,error=type(exc).__name__+': '+str(exc)[:320])
         return False
