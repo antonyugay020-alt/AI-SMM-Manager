@@ -103,7 +103,7 @@ class ProductionContractTests(unittest.TestCase):
     def test_both_entrypoints_use_same_gate(self):
         for name in ('app.py','real_workflow_acceptance.py'):
             sibling=Path(__file__).with_name(name)
-            body=(sibling if sibling.is_file() else Path(__file__).parent.parent/name).read_text()
+            body=(sibling if sibling.is_file() else Path(__file__).parent.parent/name).read_text(encoding='utf-8')
             self.assertIn('run_text_task(',body)
             self.assertNotIn('run_compound_with_retry(',body)
 
@@ -417,8 +417,8 @@ class DocumentRecoveryTests(unittest.TestCase):
     def test_corruption_cannot_reset_progress(self):
         with tempfile.TemporaryDirectory() as root:
             store=DocumentDraft(root,'task','strategy');store.save('body',False,'reason')
-            data=json.loads(store.path.read_text());data['content']='tampered'
-            store.path.write_text(json.dumps(data))
+            data=json.loads(store.path.read_text(encoding='utf-8'));data['content']='tampered'
+            store.path.write_text(json.dumps(data), encoding='utf-8')
             with self.assertRaises(ValueError):store.load()
 
     def test_patch_preserves_unmodified_bytes_and_line_endings(self):

@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "fingerprint_sha256": "3e7b82e87c7e7ea0abd3f81540ced051413cf8497fda384de9a92907720f2125",
+  "source_python_modules": 164,
+  "developer_test_modules": 263,
+  "file_hashes_count": 794,
+  "errors": [],
+  "scope": "structure, code/test mirror and source bytes; not model or Windows GUI acceptance"
+}

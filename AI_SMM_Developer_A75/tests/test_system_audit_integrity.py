@@ -33,7 +33,7 @@ class PersistedDocumentFaultInjection(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.folder = Path(self.tmp.name) / 'project'
         self.db = sqlite3.connect(':memory:')
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT)')
         self.db.execute('INSERT INTO projects VALUES(?,?)',('project','Тест'))
         self.db.execute('''CREATE TABLE manager_documents (id TEXT PRIMARY KEY,project_id TEXT,
@@ -91,11 +91,11 @@ class PersistedDocumentFaultInjection(unittest.TestCase):
         self.assertTrue(all(not p.exists() for p in self.paths))
 
     def test_existing_export_path_not_overwritten(self):
-        first=self.paths[0];first.parent.mkdir(parents=True);first.write_text('user file')
+        first=self.paths[0];first.parent.mkdir(parents=True);first.write_text('user file', encoding='utf-8')
         self.view._export_document_files=lambda *args: self.fail('overwrite')
         run=method('save_ai_document',self.env)
         with self.assertRaises(FileExistsError):run(self.view,'Пиши','Статья',kind='strategy')
-        self.assertEqual(first.read_text(),'user file')
+        self.assertEqual(first.read_text(encoding='utf-8'),'user file')
 
     def test_success_commits_both_document_and_exports(self):
         def exporter(*args,**kwargs):
@@ -115,7 +115,7 @@ class NewProjectFaultInjection(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.pid='12345678123412341234123412341234'
         self.folder=Path(self.tmp.name)/self.pid
-        self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
+        self.db=sqlite3.connect(':memory:');self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT,created_at TEXT,category TEXT,description TEXT)')
         self.db.execute('CREATE TABLE project_locations(project_id TEXT PRIMARY KEY,folder TEXT)');self.db.commit()
         self.selections=[];self.warnings=[]
@@ -157,9 +157,9 @@ class NewProjectFaultInjection(unittest.TestCase):
         self.assertTrue((self.folder/'texts').is_dir())
 
     def test_preexisting_folder_is_never_modified_on_collision(self):
-        self.folder.mkdir();(self.folder/'original.txt').write_text('preserve')
+        self.folder.mkdir();(self.folder/'original.txt').write_text('preserve', encoding='utf-8')
         self.run_create()
-        self.assertEqual((self.folder/'original.txt').read_text(),'preserve')
+        self.assertEqual((self.folder/'original.txt').read_text(encoding='utf-8'),'preserve')
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM projects').fetchone()[0],0)
 
     def test_success_creates_full_project_and_selects_it(self):

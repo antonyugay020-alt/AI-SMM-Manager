@@ -1,6 +1,8 @@
 """Canonical project-root authority survives storage settings and UI switches."""
 import ast
+import os
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,7 +42,20 @@ class WorkspaceAuthorityTests(unittest.TestCase):
         self.assertEqual(self.resolver(self.a),self.root/self.a)
 
     def test_reject_linked_workspace_ancestor(self):
-        linked=self.root/'link';linked.symlink_to(self.root, target_is_directory=True)
+        linked=self.root/'link'
+        try:
+            linked.symlink_to(self.root, target_is_directory=True)
+        except OSError as exc:
+            # Developer Mode and SeCreateSymbolicLinkPrivilege are not
+            # prerequisites for Windows QA. Junctions are also reparse links
+            # and must exercise the same fail-closed workspace boundary.
+            if os.name!='nt' or getattr(exc,'winerror',None) not in (5,1314):
+                raise
+            result=subprocess.run(
+                ['cmd.exe','/d','/c','mklink','/J',str(linked),str(self.root)],
+                capture_output=True,text=True,encoding='utf-8',errors='replace')
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertTrue(linked.is_junction())
         self.db.execute('UPDATE project_locations SET folder=? WHERE project_id=?',(str(linked/self.a),self.a))
         with self.assertRaises(ValueError):self.resolver(self.a)
 

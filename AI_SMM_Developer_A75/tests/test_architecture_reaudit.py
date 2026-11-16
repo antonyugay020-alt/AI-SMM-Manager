@@ -186,7 +186,7 @@ class AcceptedArtifactImmutabilityRegression(unittest.TestCase):
             sig=hashlib.sha256((td+'\n'+request+'\n1\n2').encode()).hexdigest()
             drafts=Path(td)/'drafts'; drafts.mkdir()
             check=drafts/f'publication_progress_{sig[:16]}.json'
-            check.write_text(json.dumps({'signature':sig,'posts':{'1/Вт':previous},'total':2,'completed':1},ensure_ascii=False))
+            check.write_text(json.dumps({'signature':sig,'posts':{'1/Вт':previous},'total':2,'completed':1},ensure_ascii=False), encoding='utf-8')
             def reviewer(ask,model,req,facts,slot,post,*_):
                 if slot['day']=='Вт': return None,['Новые требования редактора']
                 return post,[]

@@ -22,7 +22,11 @@ def reject_path_link(path):
     """
     path = _safe_path(path)
     for component in (path, *path.parents):
-        if component.is_symlink() or getattr(component, 'is_junction', lambda: False)():
+        try:
+            attributes=getattr(component.lstat(),'st_file_attributes',0)
+        except FileNotFoundError:
+            attributes=0
+        if attributes & 0x400 or component.is_symlink() or getattr(component, 'is_junction', lambda: False)():
             raise ValueError('Путь проекта проходит через ссылку: ' + str(component))
     return path
 

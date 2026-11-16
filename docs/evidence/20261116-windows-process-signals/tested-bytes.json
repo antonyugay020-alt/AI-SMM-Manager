@@ -1,0 +1,19 @@
+{
+  "baseline": "07cf5d2ef3400b6bd60025c49557592519acc6b9",
+  "files": {
+    "AI_SMM_Work_Architecture_A75/windows_process_group.py": "b1d78d97464c908c9975e3681835f06a5c187f97ba7b72b6da8234f64b3a1fe8",
+    "AI_SMM_Work_Architecture_A75/native_process_runtime.py": "ab5bb756565a38dcde756b35faf1b5705003b6183b13c9e0391c4058871ca34a",
+    "AI_SMM_Developer_A75/windows_process_group.py": "b1d78d97464c908c9975e3681835f06a5c187f97ba7b72b6da8234f64b3a1fe8",
+    "AI_SMM_Developer_A75/native_process_runtime.py": "ab5bb756565a38dcde756b35faf1b5705003b6183b13c9e0391c4058871ca34a",
+    "AI_SMM_Developer_A75/tests/windows_process_group.py": "b1d78d97464c908c9975e3681835f06a5c187f97ba7b72b6da8234f64b3a1fe8",
+    "AI_SMM_Developer_A75/tests/native_process_runtime.py": "ab5bb756565a38dcde756b35faf1b5705003b6183b13c9e0391c4058871ca34a",
+    "windows_qa_session.py": "799aed82bf7c499c1b48684175ff0e3210a7cf1a29b9750f9fdb2b1f046ab531",
+    "RUN_WINDOWS_QA.cmd": "4fc8b07427651415ed2241316c1f157484ae28f05ca926fc537a4ac957d884f4",
+    "RUN_WINDOWS_PROCESS_QA.cmd": "02914f99db75a7407b75ca94a09a1a2f5e80a442b0702b02232001797a8d1e9d",
+    "ci/windows_process_diagnostic.py": "51a98a78c8a6f1b09a04fb51355f5d75ce0934ad4bdf08c02b1e54e1ee0c3330",
+    "ci/test_windows_tree_drain.py": "bead8675a0ba81b0d9c13071c4bb82721f3c3eac53b2dee0c97c64a1f8c3a93d",
+    "ci/test_native_log_budget.py": "a75afbfea4b0e00045154bf7bec092562e876b7f2efd899dbc9a5c996109f6af",
+    "ci/test_process_diagnostic_scope.py": "6ceda1f1c4898ba2225ca506b214c25f36b80778e70b16558183f839643a7f05"
+  },
+  "runtime_fingerprint": "5950aea8c7ebe4730ada1c18c45a3cd1df33d0e9b572f0fc09312c86e851ea45"
+}

@@ -54,7 +54,7 @@ class QualifiedRoleAllocation(unittest.TestCase):
 
 class ActualQualificationCapacity(unittest.TestCase):
     def test_actual_received_controls_enable_local_author_and_both_cloud_readers(self):
-        data=json.loads(Path(__file__).with_name('r69_qualification_fixture.json').read_text())
+        data=json.loads(Path(__file__).with_name('r69_qualification_fixture.json').read_text(encoding='utf-8'))
         reviewers=[row['model'] for row in data['results'] if row['pass']]
         authors=[row['model'] for row in data['results'] if row['contract_pass']]
         viable,deferred=authors_with_review_capacity(authors,reviewers)
@@ -62,7 +62,7 @@ class ActualQualificationCapacity(unittest.TestCase):
         self.assertEqual(viable,['qwen3:8b']);self.assertEqual({row['model'] for row in deferred},set(reviewers))
         for row in deferred:self.assertEqual(row['available_reviewer_families'],1)
     def test_actual_r69_certificates_do_not_authorize_the_new_scope_protocol(self):
-        data=json.loads(Path(__file__).with_name('r69_qualification_fixture.json').read_text())
+        data=json.loads(Path(__file__).with_name('r69_qualification_fixture.json').read_text(encoding='utf-8'))
         passed=[row for row in data['results'] if row['pass']]
         with patch.dict(qualification._CACHE,{},clear=True), \
              patch.dict(os.environ,{qualification.CERT_ENV:json.dumps(qualification.qualification_envelope(passed))},clear=False), \
@@ -162,7 +162,7 @@ class MixedWorkflowRunner(unittest.TestCase):
              patch('review_qualification.probe_qualification',side_effect=lambda name:{'model':name,'pass':True}), \
              patch('text_workflow.run_text_task',side_effect=task),patch('builtins.print'):
             exit_code=acceptance.run()
-            result=json.loads((Path(home)/'real_workflow_results.json').read_text())
+            result=json.loads((Path(home)/'real_workflow_results.json').read_text(encoding='utf-8'))
             self.assertEqual(exit_code,0)
         self.assertEqual(len(calls),2);self.assertEqual({model for _,model in calls},{'writer'})
         self.assertEqual(len({req for req,_ in calls}),2)

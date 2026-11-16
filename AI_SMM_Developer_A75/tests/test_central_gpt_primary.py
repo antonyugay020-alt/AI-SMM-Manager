@@ -3,6 +3,10 @@ from unittest.mock import patch
 import central_dialogue_transport as c
 
 class CentralGPTPrimaryTests(unittest.TestCase):
+    def setUp(self):
+        self.mode=patch.dict('os.environ',{'AI_SMM_DIALOGUE_MODE':'gpt'})
+        self.mode.start();self.addCleanup(self.mode.stop)
+
     def test_cloud_is_primary(self):
         with patch('text_providers.call_text', return_value={'message':{'content':'{}'}}) as cloud:
             result=c.request_central_dialogue({'model':'openai/gpt-5','messages':[]},stage='dialogue')

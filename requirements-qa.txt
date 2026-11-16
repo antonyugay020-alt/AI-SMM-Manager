@@ -1,0 +1,5 @@
+# Main QA Python only. ML dependencies stay in each profile's separate Python.
+-r AI_SMM_Work_Architecture_A75/requirements.txt
+pytest>=8.3,<10
+pytest-subtests>=0.14,<1
+psutil>=6,<8

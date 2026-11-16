@@ -52,11 +52,11 @@ class GeneratedDocumentBoundaryTests(unittest.TestCase):
 
     def test_rejects_existing_file_and_foreign_project(self):
         path=_paths(self.root/'alpha','aaaaaaaa111','plans','Plan')[0]
-        path.parent.mkdir(parents=True);path.write_text('foreign data')
+        path.parent.mkdir(parents=True);path.write_text('foreign data', encoding='utf-8')
         with own(self.db):
             with self.assertRaises(FileExistsError):self.stage()
             with self.assertRaises(ValueError):self.stage('missing','cccccccc333')
-        self.assertEqual(path.read_text(),'foreign data')
+        self.assertEqual(path.read_text(encoding='utf-8'),'foreign data')
 
     def test_rejects_reserved_orphan_name(self):
         self.db.execute('''CREATE TABLE manager_document_exports

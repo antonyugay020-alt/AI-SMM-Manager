@@ -18,6 +18,9 @@ from dialogue_runtime import DialoguePlan, digest
 def validate_live_plan(db,project_id,plan):
     if not isinstance(plan,DialoguePlan) or plan.project_id!=project_id:
         raise ValueError('Реплика относится к другому проекту')
+    if plan.action['operation']=='local_media':
+        from project_media_sources import resolve_media_ids
+        resolve_media_ids(db,project_id,plan.snapshot.get('media',{}),plan.action['media']['source_ids'])
     project=db.execute('SELECT name,category,description FROM projects WHERE id=?',(project_id,)).fetchone()
     if not project or tuple(project)!=tuple(plan.snapshot['project'][key] for key in ('name','category','description')):
         raise ValueError('Контекст проекта изменился во время анализа')

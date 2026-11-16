@@ -20,7 +20,7 @@ class ProviderBoundaryRegressions(TestCase):
 
     def test_cloud_http_error_is_caught_by_legacy_ollama_exception_import(self):
         from ollama_resilience import ProviderHTTPError
-        from text_providers import call_text
+        from test_paid_text_support import authorized_call as call_text
         response = io.BytesIO(json.dumps({'error': {'code': 'rate_limit_exceeded'}}).encode())
         failure = urllib.error.HTTPError('https://api.openai.com', 429, 'Too Many Requests', {}, response)
         with patch('urllib.request.urlopen', side_effect=failure):

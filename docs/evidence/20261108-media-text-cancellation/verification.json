@@ -1,0 +1,60 @@
+{
+  "source_commit": "3ed71fc5ee50cc1d5fa5b2613d9a92603a18bae6",
+  "baseline": "019c1e1e8bd7679c04041460532d3bf0f566ed87",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "full_developer_suite": {
+    "passed": 2109,
+    "subtests": 1031,
+    "modules": 263,
+    "status": "PASS"
+  },
+  "offline_ci": {
+    "passed": 213,
+    "subtests": 77,
+    "status": "PASS"
+  },
+  "forced_gc_after_every_ci_case": {
+    "passed": 213,
+    "subtests": 77,
+    "status": "PASS"
+  },
+  "scope": "Linux development integration; all provider calls and prices are fixtures/operator-confirmed inputs, not live Kie or real model quality evidence",
+  "windows_e2e": {
+    "status": "NOT_RUN",
+    "passes": 0,
+    "required": 10
+  },
+  "paid_api_calls": 0,
+  "github_actions_dispatched": 0,
+  "independent_review": "NOT_RUN; paid automation remains disabled",
+  "failure_inventory": [
+    {
+      "stage": "initial paid text contracts",
+      "result": "20 failing cases",
+      "cause": "legacy offline tests lacked explicit durable authorizations; fixture grants added, production default-denial coverage added"
+    },
+    {
+      "stage": "import graph",
+      "cause": "cancellation control imported orchestration in both directions",
+      "fix": "leaf control now reads scoped task state independently; graph test passes"
+    },
+    {
+      "stage": "UI application boundary",
+      "cause": "new cancellation handler directly committed SQLite",
+      "fix": "ApplicationRuntime owns atomic cancellation and its commit"
+    },
+    {
+      "stage": "Qt native suite",
+      "result": "reproduced segmentation faults",
+      "cause": "native widget lifetime and cyclic Python callbacks/deferred deletion; GC-disabled diagnostic passed",
+      "fix": "weak window references, QObject signal collectors, deterministic GUI-thread native deletion; normal and forced-GC whole CI pass"
+    },
+    {
+      "stage": "video edit fixture",
+      "cause": "320px test clip violated documented 700px source minimum",
+      "fix": "720px actual video fixture; production contract kept strict"
+    }
+  ],
+  "next_milestone": "shared local FFmpeg/Pillow dispatcher and GUI integration, then supported local generative model adapters; preserve all release gates"
+}

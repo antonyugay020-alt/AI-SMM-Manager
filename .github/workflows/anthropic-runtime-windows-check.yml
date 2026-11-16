@@ -1,0 +1,40 @@
+name: AI SMM / Direct Anthropic Windows Qt transport (one-time)
+
+# Only this diagnostic workflow change triggers a small paid connection probe.
+on:
+  push:
+    branches: [integration/ai-smm-pr2-20261106]
+    paths: [.github/workflows/anthropic-runtime-windows-check.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-anthropic-native-qt:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install Qt test runtime
+        shell: pwsh
+        run: |
+          python -m pip install PySide6
+      - name: Verify source and acceptance test mirrors
+        run: python ci/verify_tree.py
+      # Verify the model-compatible native payload; only status codes are diagnostic.
+      - name: Perform one genuine bounded Claude call from Windows Qt thread
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AI_SMM_CLOUD_MODELS: anthropic/claude-sonnet-5-5
+          AI_SMM_ENABLE_ANTHROPIC_API: '1'
+          AI_SMM_ENABLE_ANTHROPIC_ACCEPTANCE: '1'
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: '1'
+        working-directory: AI_SMM_Work_Architecture_A75
+        run: python ../ci/anthropic_runtime_windows_smoke.py

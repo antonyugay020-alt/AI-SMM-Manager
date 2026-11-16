@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "provenance": {
+    "test_only": true,
+    "quality_accepted": false,
+    "source": "hf-internal-testing/tiny-stable-diffusion-torch",
+    "revision": "a88cdfbd91f96ec7f61eb7484b652ff0f4ee701d",
+    "transformation": "Tiny pretrained image topology with random untrained MotionAdapter; temporal quality NOT accepted"
+  },
+  "files": {
+    "motion/config.json": {
+      "sha256": "331ec48b8f48fc5d9023f050e897c69d00ba59154084236f0cbf70910bd11ccb",
+      "bytes": 440
+    },
+    "motion/diffusion_pytorch_model.safetensors": {
+      "sha256": "86663d5da1f03dca1b9a6e0e1bfc88ab8f1e15bc438e353c17d2fe5cf9b2be8a",
+      "bytes": 2766120
+    },
+    "model/model_index.json": {
+      "sha256": "2fd6c026ca2ba48f888351a80dcee64689e622f3840c32db6fb923116845d8e0",
+      "bytes": 646
+    },
+    "model/scheduler/scheduler_config.json": {
+      "sha256": "5e40db79fd547dacd82bae5c3e6101e6f154d1923fa9ffaaed6fd0e994b4233f",
+      "bytes": 374
+    },
+    "model/unet/config.json": {
+      "sha256": "16f221c9d32d46387c195f9d7be7011a28f78b2dcd633c1429f812d0f46d088a",
+      "bytes": 1717
+    },
+    "model/unet/diffusion_pytorch_model.safetensors": {
+      "sha256": "c69e435ef37a4e0fe3471d2c9488924bdf534cb51c08e9450420784d53336d73",
+      "bytes": 5742160
+    },
+    "model/tokenizer/tokenizer_config.json": {
+      "sha256": "586921976d6bcac1b9c225708565ae2b0a3236e53aed24f2712278c83bbd29a6",
+      "bytes": 727
+    },
+    "model/tokenizer/merges.txt": {
+      "sha256": "38e3006b0c2382dc853454c0643ce3d6f62544c7d6ded433d8d15dab639f0b5b",
+      "bytes": 4780
+    },
+    "model/tokenizer/vocab.json": {
+      "sha256": "f27915ca8a787e651ea25684f581739403b46354a9a5be29a5afad0112d60d46",
+      "bytes": 15554
+    },
+    "model/tokenizer/special_tokens_map.json": {
+      "sha256": "c4864a9376a8401918425bed71fc14fc0e81f9b59ec45c1cf96cccb2df508eac",
+      "bytes": 472
+    },
+    "model/feature_extractor/preprocessor_config.json": {
+      "sha256": "205d45875859846dc1ca211b9a19f5db72f47e953b396954ee34d48d8e95c3c6",
+      "bytes": 466
+    },
+    "model/text_encoder/model.safetensors": {
+      "sha256": "103860291b96610a23d9dda96f6a3c4e6c6dd67e5984a0d5e7c8e62769ac6412",
+      "bytes": 283212
+    },
+    "model/text_encoder/config.json": {
+      "sha256": "c273fbd7081cface48406bcd057cbee8ad0b81b28d8a47fb54c18fde75228465",
+      "bytes": 548
+    },
+    "model/vae/config.json": {
+      "sha256": "eea45a7adcb13b708468e6a5d9ff3379b8c7fa949b2661bb98d54eff22795716",
+      "bytes": 712
+    },
+    "model/vae/diffusion_pytorch_model.safetensors": {
+      "sha256": "7999b516094ac4239121d9f62a37e6be99620e7016220011bb99cf8b1a391aad",
+      "bytes": 2646532
+    }
+  }
+}

@@ -55,7 +55,7 @@ class CompleteRepairTargets(unittest.TestCase):
             with patch.object(ct,'extract_facts',side_effect=StopAfterReopening),self.assertRaises(StopAfterReopening):
                 ct.execute_compound(request,{'project_workspace':home,'task_mode':'final_review_repair',
                     'final_review_repair_slots':['1/Ср'],'final_review_issues_by_slot':{'1/Ср':issues}})
-            repair=json.loads((drafts/('publication_repair_'+hashlib.sha256(sig.encode('utf-8')).hexdigest()+'.json')).read_text())
+            repair=json.loads((drafts/('publication_repair_'+hashlib.sha256(sig.encode('utf-8')).hexdigest()+'.json')).read_text(encoding='utf-8'))
             self.assertEqual(repair['drafts']['1/Ср']['issues'],issues)
             backup=next(drafts.glob('*.final_review_backup.json'));self.assertEqual(backup.read_bytes(),original)
 

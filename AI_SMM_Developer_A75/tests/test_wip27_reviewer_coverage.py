@@ -25,7 +25,7 @@ class ReviewerProbeFailureIsolation(unittest.TestCase):
         with patch.dict(sys.modules, {
             'generic_text_review': types.SimpleNamespace(
                 _model_family=lambda name: name.split(':')[0],
-                list_installed_ollama_models=lambda: ['alpha:bad','alpha:good','beta:good']),
+                list_installed_text_models=lambda: ['alpha:bad','alpha:good','beta:good']),
             'review_qualification': types.SimpleNamespace(
                 probe_qualification=lambda model,**kw: (_ for _ in ()).throw(RuntimeError('offline')) if model=='alpha:bad' else
                     {'model':model,'pass':True,'author_response_compatible':True},

@@ -1,0 +1,61 @@
+name: AI SMM / Real local photo and video acceptance
+
+# Bounded real-bytes acceptance, not a cloud-generative or release test.
+on:
+  push:
+    branches: [integration/ai-smm-pr2-20261106]
+    paths:
+      - .github/workflows/native-media-processing-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-media-acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install native Qt Linux dependencies and FFmpeg
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libegl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0
+      - name: Install FFmpeg on Windows when absent
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg -y --no-progress
+            $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH', 'User')
+          }
+          ffmpeg -version
+          ffprobe -version
+      - name: Install production photo/Qt dependencies
+        run: python -m pip install -r AI_SMM_Work_Architecture_A75/requirements.txt
+      - name: Verify source mirrors
+        run: python ci/verify_tree.py
+      # Exercise regression-fixed VideoTrimWorker.start without a synthetic FFmpeg mock.
+      - name: Run native Qt photo processing and FFmpeg video trimming
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: '1'
+        run: python ci/native_media_processing_acceptance.py
+      - name: Preserve sanitized media test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-media-${{ runner.os }}
+          path: ci_evidence/native_media_acceptance.json
+          if-no-files-found: warn
+          retention-days: 30

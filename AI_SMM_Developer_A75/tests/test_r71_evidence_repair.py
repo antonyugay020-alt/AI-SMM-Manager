@@ -102,7 +102,7 @@ class RecoverySnapshot(unittest.TestCase):
             self.assertFalse(result['documents'][1]['valid'])
             self.assertEqual(result['content_delivery']['independent_editor']['status'],'BLOCKED')
             self.assertTrue(result['failed_repair_attempts'])
-            saved=json.loads(next((Path(home)/'drafts').glob('content_delivery_*.json')).read_text())
+            saved=json.loads(next((Path(home)/'drafts').glob('content_delivery_*.json')).read_text(encoding='utf-8'))
             self.assertEqual(saved['failed_repair_attempts'],result['failed_repair_attempts'])
             self.assertTrue(any(e['stage']=='failed_repair_draft_retained' for e in events))
 

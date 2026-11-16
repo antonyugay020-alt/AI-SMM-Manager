@@ -1,0 +1,2 @@
+Fontconfig error: No writable cache directories
+{"status": "PASS", "scope": "actual Linux offscreen Studio, durable active text task cancellation, native QThread, stale result rejection, clean shutdown; model execution mocked"}

@@ -1,0 +1,48 @@
+{
+  "status": "PASS",
+  "module_count": 263,
+  "passed": 2109,
+  "subtests": 1047,
+  "shards": [
+    {
+      "shard": 1,
+      "modules": 66,
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 542,
+      "skipped": 0,
+      "subtests": 388,
+      "log": "unit_tests_shard_01.log"
+    },
+    {
+      "shard": 2,
+      "modules": 66,
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 548,
+      "skipped": 0,
+      "subtests": 211,
+      "log": "unit_tests_shard_02.log"
+    },
+    {
+      "shard": 3,
+      "modules": 66,
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 523,
+      "skipped": 0,
+      "subtests": 124,
+      "log": "unit_tests_shard_03.log"
+    },
+    {
+      "shard": 4,
+      "modules": 65,
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 496,
+      "skipped": 0,
+      "subtests": 324,
+      "log": "unit_tests_shard_04.log"
+    }
+  ]
+}

@@ -43,7 +43,7 @@ class RuntimeArchitectureTests(unittest.TestCase):
     def test_batch_does_not_stop_on_one_project_failure(self):
         ids=[self.create(str(i)) for i in range(3)]
         broken=sorted(ids)[0];path=Path(self.temp.name)/broken/'texts'
-        path.rmdir();path.write_text('occupied')
+        path.rmdir();path.write_text('occupied', encoding='utf-8')
         result=self.runtime.recover_batch(batch_size=32)
         self.assertIn(broken,result.errors)
         self.assertEqual(len(result.succeeded),2)

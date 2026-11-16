@@ -19,3 +19,17 @@ def reference_requested(instruction):
         return False
     return bool(re.search(r'\b'+_USE+r'\b[^.!?;\n]{0,90}\b'+_REFERENCE+r'\b', text)
                 or re.search(r'\b(?:как\s+на|по|с\s+уч[её]том)\s+'+_REFERENCE+r'\b', text))
+
+
+def explicit_reference(reference, enabled=False, *, source=None):
+    """Runtime authority: semantic boolean or explicit user choice, never text."""
+    if enabled is not None and type(enabled) is not bool:
+        raise ValueError('Reference permission must be an exact boolean')
+    if enabled is not True:return None
+    if not reference:raise ValueError('Reference requested but not supplied')
+    if source is not None:
+        from pathlib import Path
+        a,b=Path(source),Path(reference)
+        if a.resolve()==b.resolve() or (a.exists() and b.exists() and a.samefile(b)):
+            raise ValueError('Source and reference must be different files')
+    return reference

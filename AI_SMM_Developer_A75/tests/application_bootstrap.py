@@ -70,7 +70,11 @@ def install_schema(db):
         install_manual(db)
         ensure_questions(db)
         install_publication(db)
-        ExecutionCoordinator(db)._ensure()
+        # A pre-constraint legacy DB may have duplicate stale workers: fence
+        # them before restoring both UNIQUE indexes in this schema transaction.
+        # Current-schema workers are intentionally left for ApplicationRuntime's
+        # atomic execution+batch recovery, preserving cross-service ownership.
+        ExecutionCoordinator(db).migrate_legacy_on_bootstrap()
         db.execute('CREATE TABLE IF NOT EXISTS ai_task_transitions (event_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL, status_before TEXT, status_after TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)')
         db.execute('CREATE TABLE IF NOT EXISTS ai_dialogue_publications (intake_id TEXT PRIMARY KEY, message_id INTEGER NOT NULL UNIQUE, content TEXT NOT NULL, FOREIGN KEY(intake_id) REFERENCES ai_task_intake(intake_id), FOREIGN KEY(message_id) REFERENCES messages(id))')
         db.execute('CREATE TABLE IF NOT EXISTS result_publication_events (operation_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, record_id TEXT NOT NULL, payload_hash TEXT NOT NULL, attempt_id TEXT, dialogue_turn_id TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)')

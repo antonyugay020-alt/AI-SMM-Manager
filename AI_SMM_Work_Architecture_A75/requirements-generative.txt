@@ -1,0 +1,8 @@
+# Install in a SEPARATE virtual environment; configure its Python in the profile.
+# Install torch==2.8.0 from the official PyTorch wheel index appropriate to the
+# host CUDA/CPU runtime first. CPU wheels do not certify NVIDIA/Windows support.
+diffusers==0.36.0
+transformers==4.57.3
+accelerate==1.12.0
+safetensors==0.7.0
+Pillow==12.1.0

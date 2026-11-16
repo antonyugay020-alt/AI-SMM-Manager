@@ -141,7 +141,7 @@ class BoundedDeliveryTests(unittest.TestCase):
         self.assertTrue(all(e['status']=='BLOCKED' for e in verdicts))
         self.assertEqual(result['content_delivery']['independent_editor']['status'],'BLOCKED')
 
-    def test_probe_leaves_output_room_without_second_request_or_longer_timeout(self):
+    def test_probe_leaves_output_room_with_single_bounded_cold_start_call(self):
         import generic_text_review as review
         calls=[]
         def model(payload,**kwargs):
@@ -156,7 +156,7 @@ class BoundedDeliveryTests(unittest.TestCase):
             self.assertTrue(review._has_structured_json_contract('unknown-reasoning-model'))
         self.assertEqual(len(calls),1)
         self.assertEqual(calls[0][1]['attempts'],1)
-        self.assertEqual(calls[0][1]['timeout'],45)
+        self.assertEqual(calls[0][1]['timeout'],180)
 
 
 if __name__=='__main__': unittest.main()

@@ -14,52 +14,57 @@ def _stamp():
 
 
 def ensure_registry(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS ai_task_registry (
-        task_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
-        request TEXT NOT NULL, question TEXT NOT NULL,
-        revision_id TEXT, status TEXT NOT NULL
-        CHECK(status IN ('active','paused','completed','cancelled')),
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        legacy_origin INTEGER NOT NULL DEFAULT 0 CHECK(legacy_origin IN (0,1)),
-        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)''')
-    if 'legacy_origin' not in {r[1] for r in db.execute('PRAGMA table_info(ai_task_registry)')}:
-        db.execute('ALTER TABLE ai_task_registry ADD COLUMN legacy_origin INTEGER NOT NULL DEFAULT 0')
-    db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS ai_task_registry_single_active
-                  ON ai_task_registry(project_id) WHERE status='active' ''')
-    db.execute('''CREATE TABLE IF NOT EXISTS ai_task_contexts (
-        task_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, context_json TEXT NOT NULL,
-        FOREIGN KEY(task_id) REFERENCES ai_task_registry(task_id) ON DELETE CASCADE)''')
-    # Migrate legacy state without changing or silently cancelling any work.
-    existing = {r[1] for r in db.execute('PRAGMA table_info(ai_pending_tasks)')}
-    if not {'project_id','request','question','revision_id'} <= existing:
-        return
-    for project_id, request, question, revision_id in db.execute(
-            'SELECT project_id,request,question,revision_id FROM ai_pending_tasks').fetchall():
-        active = db.execute("SELECT task_id,request FROM ai_task_registry WHERE project_id=? AND status='active'",
-                            (project_id,)).fetchone()
-        if active is None:
-            at = _stamp()
-            db.execute('''INSERT INTO ai_task_registry
-                       (task_id,project_id,request,question,revision_id,status,created_at,updated_at,legacy_origin)
-                       VALUES(?,?,?,?,?,?,?,?,1)''',
-                       (uuid4().hex,project_id,request,question,revision_id,'active',at,at))
-        elif active[1] != request:
-            # Inconsistent legacy pointer: do not resolve ownership by guessing.
-            raise ValueError('Активное задание и legacy указатель расходятся')
-        # Bind existing R97 contexts to an identity before the request-keyed
-        # compatibility table can be overwritten by a later identical task.
-        row=db.execute("SELECT task_id,legacy_origin FROM ai_task_registry WHERE project_id=? AND status='active'",
-                       (project_id,)).fetchone()
-        # Once a task belongs to the new registry, never reconstruct its
-        # missing contract from the ambiguous request-keyed legacy table.
-        if row[1] and not db.execute('SELECT 1 FROM ai_task_contexts WHERE task_id=?',(row[0],)).fetchone():
-            has_table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_semantic_tasks'").fetchone()
-            if has_table:
-                context=db.execute('SELECT context_json FROM ai_semantic_tasks WHERE project_id=? AND request=?',
-                                   (project_id,request)).fetchone()
-                if context:
-                    db.execute('INSERT INTO ai_task_contexts VALUES(?,?,?)',
-                               (row[0],project_id,context[0]))
+    """Atomically create and backfill legacy task identities without committing
+    an enclosing application transaction or exposing a half-migrated registry.
+    """
+    from sqlite_transaction_core import compose
+    with compose(db, 'task_registry'):
+        db.execute('''CREATE TABLE IF NOT EXISTS ai_task_registry (
+            task_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
+            request TEXT NOT NULL, question TEXT NOT NULL,
+            revision_id TEXT, status TEXT NOT NULL
+            CHECK(status IN ('active','paused','completed','cancelled')),
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            legacy_origin INTEGER NOT NULL DEFAULT 0 CHECK(legacy_origin IN (0,1)),
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)''')
+        if 'legacy_origin' not in {r[1] for r in db.execute('PRAGMA table_info(ai_task_registry)')}:
+            db.execute('ALTER TABLE ai_task_registry ADD COLUMN legacy_origin INTEGER NOT NULL DEFAULT 0')
+        db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS ai_task_registry_single_active
+                      ON ai_task_registry(project_id) WHERE status='active' ''')
+        db.execute('''CREATE TABLE IF NOT EXISTS ai_task_contexts (
+            task_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, context_json TEXT NOT NULL,
+            FOREIGN KEY(task_id) REFERENCES ai_task_registry(task_id) ON DELETE CASCADE)''')
+        # Migrate legacy state without changing or silently cancelling any work.
+        existing = {r[1] for r in db.execute('PRAGMA table_info(ai_pending_tasks)')}
+        if not {'project_id','request','question','revision_id'} <= existing:
+            return
+        for project_id, request, question, revision_id in db.execute(
+                'SELECT project_id,request,question,revision_id FROM ai_pending_tasks').fetchall():
+            active = db.execute("SELECT task_id,request FROM ai_task_registry WHERE project_id=? AND status='active'",
+                                (project_id,)).fetchone()
+            if active is None:
+                at = _stamp()
+                db.execute('''INSERT INTO ai_task_registry
+                           (task_id,project_id,request,question,revision_id,status,created_at,updated_at,legacy_origin)
+                           VALUES(?,?,?,?,?,?,?,?,1)''',
+                           (uuid4().hex,project_id,request,question,revision_id,'active',at,at))
+            elif active[1] != request:
+                # Inconsistent legacy pointer: do not resolve ownership by guessing.
+                raise ValueError('Активное задание и legacy указатель расходятся')
+            # Bind existing R97 contexts to an identity before the request-keyed
+            # compatibility table can be overwritten by a later identical task.
+            row=db.execute("SELECT task_id,legacy_origin FROM ai_task_registry WHERE project_id=? AND status='active'",
+                           (project_id,)).fetchone()
+            # Once a task belongs to the new registry, never reconstruct its
+            # missing contract from the ambiguous request-keyed legacy table.
+            if row[1] and not db.execute('SELECT 1 FROM ai_task_contexts WHERE task_id=?',(row[0],)).fetchone():
+                has_table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_semantic_tasks'").fetchone()
+                if has_table:
+                    context=db.execute('SELECT context_json FROM ai_semantic_tasks WHERE project_id=? AND request=?',
+                                       (project_id,request)).fetchone()
+                    if context:
+                        db.execute('INSERT INTO ai_task_contexts VALUES(?,?,?)',
+                                   (row[0],project_id,context[0]))
 
 
 def paused_tasks(db, project_id):

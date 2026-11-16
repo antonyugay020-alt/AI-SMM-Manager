@@ -34,7 +34,7 @@ class CompletionLedgerTests(unittest.TestCase):
         self.db.commit()
         self.receipt=self.root/'drafts'/('text_receipt_task_'+self.task+'.json')
         self.pending=self.root/'drafts'/('pending_text_task_'+self.task+'.json')
-        self.pending.write_text(json.dumps({'request':self.req,'task_id':self.task}))
+        self.pending.write_text(json.dumps({'request':self.req,'task_id':self.task}), encoding='utf-8')
         data={'request':self.req,'request_sha256':hashlib.sha256(self.req.encode()).hexdigest(),
               'artifact_id':self.art,'artifact_sha256':hashlib.sha256(self.content.encode()).hexdigest(),
               'saved_and_read_back':False}

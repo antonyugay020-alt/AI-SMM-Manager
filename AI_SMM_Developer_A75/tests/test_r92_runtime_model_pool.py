@@ -98,7 +98,7 @@ class RuntimePoolTests(unittest.TestCase):
         error=qualification.ReviewerQualificationUnavailable('No review capacity',[record])
         self.assertIn('model_not_found',str(error));self.assertNotIn('PRIVATE_RESPONSE',str(error))
     def test_recorded_windows_controls_keep_their_actual_scores(self):
-        fixtures=json.loads(Path(__file__).with_name('r92_received_qualification.json').read_text())
+        fixtures=json.loads(Path(__file__).with_name('r92_received_qualification.json').read_text(encoding='utf-8'))
         self.assertEqual(len(fixtures),6);passed=[]
         for case in fixtures:
             data=json.loads(case['request_payload']['messages'][-1]['content']);raw=case['response']['message']['content']

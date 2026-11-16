@@ -1,0 +1,12 @@
+{
+  "baseline": "627dde311f247324dc008dd386f9914bbd790ab7",
+  "files": {
+    "RUN_WINDOWS_QA.cmd": "265da5fa59cc5d16959c64f586ffec9aa5f7a4e803dd428a449c052720f7c6a0",
+    "SETUP_WINDOWS_QA.cmd": "974abe313784f462751a30c3a2585dbefd99351b86cde797ff3842c6ca8b56e7",
+    "windows_qa_session.py": "b56cd3c28b8e454963989a70d635151703510fb24513a6f351ee785680c0e7e3",
+    "windows_qa_environment.py": "e9e4ff812c442b2b6b9987f8177c0b9bfef65aa8b04380b19e21d687ec1769fe",
+    "ci/test_windows_qa_environment.py": "a5a6e947dd205cabe4efa071c7321714ab7ab6ccd66d1f1277a1c8f2754750e9",
+    "ci/test_qa_single_archive.py": "acf0596c7deb72f86242067aa87995827bd02e420b5824cf9e2dc2f5fd29851a"
+  },
+  "runtime_fingerprint": "47bc181b6ecdf365f4c49b3e6b23a3f04cf17c96d5367dcdb04576f29d1ceacd"
+}

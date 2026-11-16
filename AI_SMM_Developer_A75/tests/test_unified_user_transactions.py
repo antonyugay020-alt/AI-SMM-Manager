@@ -38,7 +38,7 @@ class TransactionalEdit(unittest.TestCase):
         self.root = Path(folder.name)
         self.id = 'd' * 32
         self.db = sqlite3.connect(':memory:')
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')
         self.db.execute('INSERT INTO projects VALUES(?)',('p',))
         self.db.execute('CREATE TABLE manager_documents(id TEXT PRIMARY KEY,project_id TEXT,kind TEXT,title TEXT,content TEXT,updated_at TEXT)')
@@ -81,24 +81,24 @@ class TransactionalEdit(unittest.TestCase):
     def test_failed_sql_update_restores_existing_exports(self):
         self.db.execute("CREATE TRIGGER no_write BEFORE UPDATE ON manager_documents BEGIN SELECT RAISE(ABORT,'readonly'); END")
         def valid(*args,**kwargs):
-            self.oldpaths[0].write_text('Changed')
+            self.oldpaths[0].write_text('Changed', encoding='utf-8')
             self.oldpaths[1].write_bytes(b'%PDF-updated-document-payload')
         self.assertFalse(self.run_edit(valid))
         self.original_unchanged()
 
     def test_success_updates_files_and_database(self):
         def valid(*args,**kwargs):
-            self.oldpaths[0].write_text('Changed')
+            self.oldpaths[0].write_text('Changed', encoding='utf-8')
             self.oldpaths[1].write_bytes(b'%PDF-updated-document-payload')
         self.assertTrue(self.run_edit(valid))
         self.assertEqual(self.db.execute('SELECT content FROM manager_documents').fetchone(),('Changed',))
-        self.assertEqual(self.oldpaths[0].read_text(),'Changed')
+        self.assertEqual(self.oldpaths[0].read_text(encoding='utf-8'),'Changed')
 
     def test_failed_relocation_keeps_kind_and_old_export(self):
         self.db.execute("CREATE TRIGGER no_move BEFORE UPDATE ON manager_documents BEGIN SELECT RAISE(ABORT,'readonly'); END")
         other=self.root/'texts' / ('Old_'+self.id[:8]+'.txt')
         def valid(*args,**kwargs):
-            other.parent.mkdir(parents=True,exist_ok=True);other.write_text('Changed')
+            other.parent.mkdir(parents=True,exist_ok=True);other.write_text('Changed', encoding='utf-8')
             self.oldpaths[1].write_bytes(b'%PDF-changed-document-payload')
         self.assertFalse(extract_method('save_manager_document', {**self.env,
             'export_document_files': valid})(self.view,kind_override='tasks'))
@@ -110,12 +110,12 @@ class TransactionalEdit(unittest.TestCase):
         renamed=self.root/'strategies'/('New_'+self.id[:8]+'.txt')
         newpdf=self.root/'pdf'/('New_'+self.id[:8]+'.pdf')
         def valid(*args,**kwargs):
-            renamed.write_text('Changed')
+            renamed.write_text('Changed', encoding='utf-8')
             newpdf.write_bytes(b'%PDF-new-document-payload')
         self.assertTrue(extract_method('save_manager_document', {**self.env,
             'export_document_files': valid})(self.view,title_override='New'))
         self.assertEqual(self.db.execute('SELECT title FROM manager_documents').fetchone(),('New',))
-        self.assertEqual(renamed.read_text(),'Changed')
+        self.assertEqual(renamed.read_text(encoding='utf-8'),'Changed')
 
     def test_rename_never_overwrites_existing_unowned_file(self):
         destination=self.root/'strategies'/('New_'+self.id[:8]+'.txt')
@@ -184,7 +184,7 @@ class AssetImportTransaction(unittest.TestCase):
         self.pid='f'*32
         self.root=Path(folder.name)/self.pid
         self.root.mkdir()
-        self.db=sqlite3.connect(':memory:');self.addCleanup(self.db.close)
+        self.db=sqlite3.connect(':memory:');self.addCleanup(lambda: self.db.close())
         self.db.execute('CREATE TABLE assets(id TEXT PRIMARY KEY,project_id TEXT,original_name TEXT,stored_path TEXT,sha256 TEXT,imported_at TEXT)')
         self.db.execute('CREATE TABLE project_files(id TEXT PRIMARY KEY,project_id TEXT,kind TEXT,display_name TEXT,path TEXT,created_at TEXT)')
         self.db.execute('CREATE TABLE projects(id TEXT PRIMARY KEY)')

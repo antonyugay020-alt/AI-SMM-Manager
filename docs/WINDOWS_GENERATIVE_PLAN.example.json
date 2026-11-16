@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cases": [
+    {"profile":"instruction","sources":["C:/AI-SMM-QA/photo.png"],"prompt":"Change the photo into a watercolor painting while preserving its subject and composition.","width":256,"height":256,"steps":20,"seed":100,"strength":0.65},
+    {"profile":"reference","sources":["C:/AI-SMM-QA/photo.png","C:/AI-SMM-QA/reference.png"],"prompt":"Apply the reference color palette and visual style to the source while preserving its subject.","width":256,"height":256,"steps":20,"seed":101,"strength":0.65},
+    {"profile":"inpaint","sources":["C:/AI-SMM-QA/photo.png","C:/AI-SMM-QA/background-mask.png"],"prompt":"A sunny garden background with realistic lighting.","width":256,"height":256,"steps":20,"seed":102,"strength":0.75},
+    {"profile":"inpaint","sources":["C:/AI-SMM-QA/photo.png","C:/AI-SMM-QA/object-mask.png"],"prompt":"A red ceramic vase with detailed glossy surface.","width":256,"height":256,"steps":20,"seed":103,"strength":0.75},
+    {"profile":"video","sources":["C:/AI-SMM-QA/clip-with-audio.mp4"],"prompt":"A watercolor animation of the scene, preserving the original motion.","width":256,"height":256,"steps":20,"seed":104,"strength":0.5,"frames":8,"fps":8,"start":0},
+    {"profile":"video","sources":["C:/AI-SMM-QA/clip-with-audio.mp4","C:/AI-SMM-QA/reference.png"],"prompt":"The source motion in the visual style and palette of the reference.","width":256,"height":256,"steps":20,"seed":105,"strength":0.5,"frames":8,"fps":8,"start":0}
+  ]
+}

@@ -47,8 +47,8 @@ class AuditWorkflows(unittest.TestCase):
                 (root/f'{index}_synthetic_documents.json').write_text(json.dumps(v),encoding='utf-8')
             with patch.object(review,'review_text',side_effect=audit),patch.object(editor,'call_editor',side_effect=control_editor):
                 result=editor.review_saved_results(root,ready_only=True,checkpoint_path=root/'report.json' if destination else None)
-            if destination:self.assertEqual(json.loads((root/'report.json').read_text()),result)
-            self.assertEqual([json.loads((root/f'{index}_synthetic_documents.json').read_text()) for index in range(len(values))],values)
+            if destination:self.assertEqual(json.loads((root/'report.json').read_text(encoding='utf-8')),result)
+            self.assertEqual([json.loads((root/f'{index}_synthetic_documents.json').read_text(encoding='utf-8')) for index in range(len(values))],values)
         return result,seen
     def test_two_standalone_candidates_run_control_on_same_route_and_can_pass(self):
         values=[standalone(),standalone()];values[1]['response']['answer']='A different useful completed post.'
@@ -87,13 +87,13 @@ class AuditWorkflows(unittest.TestCase):
         class Interrupted(BaseException):pass
         with tempfile.TemporaryDirectory() as home:
             root=Path(home);data=standalone()
-            (root/'one_synthetic_documents.json').write_text(json.dumps(data))
+            (root/'one_synthetic_documents.json').write_text(json.dumps(data), encoding='utf-8')
             def audit(request,answer,*args,**kw):
                 if 'Неизвестная 999' in answer:raise Interrupted()
                 return {'pass':True,'issues':[]}
             with patch.object(review,'review_text',side_effect=audit),patch.object(editor,'call_editor',side_effect=control_editor),self.assertRaises(Interrupted):
                 editor.review_saved_results(root,ready_only=True,checkpoint_path=root/'report.json')
-            out=json.loads((root/'report.json').read_text())
+            out=json.loads((root/'report.json').read_text(encoding='utf-8'))
             self.assertEqual(out['active_stage'],'negative_control');self.assertFalse(out['finished'])
             self.assertEqual(out['cases'][0]['status'],'PASS')
     def test_revision_creators_and_content_permission_preserved_in_both_calls(self):
@@ -116,7 +116,7 @@ class AuditWorkflows(unittest.TestCase):
     def test_compound_partial_control_is_not_a_negative_success(self):
         with tempfile.TemporaryDirectory() as home:
             root=Path(home)
-            for index in range(2):(root/f'{index}_synthetic_documents.json').write_text(json.dumps(packet(True)))
+            for index in range(2):(root/f'{index}_synthetic_documents.json').write_text(json.dumps(packet(True)), encoding='utf-8')
             def audit(req,st,ca,**kw):
                 out=control_editor(req,st,ca,**kw)
                 if 'Неизвестная 999' in st:out['review_state']='unavailable'
@@ -136,7 +136,7 @@ class AuditWorkflows(unittest.TestCase):
             editor._audit_control_model([(standalone(),'unqualified:cloud')],live=True)
         with tempfile.TemporaryDirectory() as home:
             root=Path(home)
-            for i in range(2):(root/f'{i}_synthetic_documents.json').write_text(json.dumps(standalone()))
+            for i in range(2):(root/f'{i}_synthetic_documents.json').write_text(json.dumps(standalone()), encoding='utf-8')
             with patch.object(review,'review_text',return_value={'pass':True,'issues':[],'reviewer_models':{}}), \
                  patch.object(editor,'_call_editor_once',wraps=editor._call_editor_once) as network:
                 # Keep live-route identity while preventing any default control traffic.

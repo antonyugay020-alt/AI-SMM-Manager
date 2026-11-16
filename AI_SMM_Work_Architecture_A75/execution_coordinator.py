@@ -27,21 +27,97 @@ class ExecutionCoordinator:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
 
-    def _ensure(self):
+    def _ensure_base(self):
+        """Install durable storage without assuming legacy worker rows are unique.
+
+        A pre-constraint database can contain multiple stale running attempts
+        for one project. Restart recovery must fence them before UNIQUE indexes
+        are installed; ordinary worker operations must never bypass the indexes.
+        """
         self.db.execute('''CREATE TABLE IF NOT EXISTS execution_attempts (
           attempt_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL,
           state TEXT NOT NULL CHECK(state IN ('running','accepted','failed','interrupted')),
           started_at TEXT NOT NULL, finished_at TEXT,
           FOREIGN KEY(task_id) REFERENCES ai_task_registry(task_id) ON DELETE CASCADE,
           FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE)''')
-        self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_task
-          ON execution_attempts(task_id) WHERE state='running' ''')
         self.db.execute('''CREATE INDEX IF NOT EXISTS execution_project_states
           ON execution_attempts(project_id,state)''')
-        # Enforce project-wide worker fencing in SQLite too. A pre-insert SELECT
-        # cannot replace a database constraint when separate connections race.
+
+    @staticmethod
+    def _required_indexes():
+        return (
+            ('execution_one_running_task', 'task_id'),
+            ('execution_one_running_project', 'project_id'),
+        )
+
+    def _invalid_constraints(self):
+        """Check the actual UNIQUE/partial predicate, not merely an index name.
+
+        Old or externally migrated SQLite files can contain a non-unique or
+        incorrectly filtered index with the expected name. CREATE IF NOT EXISTS
+        silently accepts that impostor and would allow concurrent workers.
+        A canonical definition is required for the durable ownership contract.
+        """
+        invalid = []
+        for name, column in self._required_indexes():
+            row = self.db.execute(
+                """SELECT sql FROM sqlite_master
+                   WHERE type='index' AND tbl_name='execution_attempts'
+                   AND name=?""", (name,)).fetchone()
+            expected = ("createuniqueindex" + name
+                        + "onexecution_attempts(" + column
+                        + ")wherestate='running'")
+            actual = ''.join(row[0].lower().split()) if row and row[0] else ''
+            if actual != expected:
+                invalid.append((name, bool(row)))
+        return invalid
+
+    def _ensure_constraints(self):
+        """Enforce both worker ownership invariants at the database boundary."""
+        self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_task
+          ON execution_attempts(task_id) WHERE state='running' ''')
+        # A pre-insert SELECT cannot replace a constraint across connections.
         self.db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS execution_one_running_project
           ON execution_attempts(project_id) WHERE state='running' ''')
+        if self._invalid_constraints():
+            raise sqlite3.DatabaseError(
+                'Execution worker UNIQUE indexes do not enforce the canonical '
+                'project/task running ownership constraints')
+
+    def _ensure(self):
+        """Normal execution paths fail closed on unmigrated legacy duplicates."""
+        self._ensure_base()
+        self._ensure_constraints()
+
+    def migrate_legacy_on_bootstrap(self):
+        """Install constraints safely without preempting normal app recovery.
+
+        Existing current-schema workers are fenced later by the application's
+        cross-service recovery transaction (execution + batch together). Only
+        a pre-constraint legacy schema needs immediate global fencing before
+        the missing UNIQUE indexes can be created.
+        """
+        from sqlite_transaction_core import compose
+        with compose(self.db, 'execution_coordinator_migration'):
+            self._ensure_base()
+            invalid = self._invalid_constraints()
+            if not invalid:
+                self._ensure_constraints()
+                return 0
+            # Name collisions are not proof of UNIQUE ownership. Drop only
+            # noncanonical indexes, within the same rollback-safe migration,
+            # then fence BOTH worker kinds before restoring strict constraints.
+            for name, exists in invalid:
+                if exists:
+                    self.db.execute('DROP INDEX "' + name + '"')
+            # A partially migrated database must not commit execution fencing
+            # while leaving batch claims live if subsequent recovery fails.
+            # Both worker kinds and both UNIQUE indexes share the bootstrap
+            # transaction; any batch trigger/constraint failure rolls it back.
+            from batch_runtime import recover_inflight_batch_receipts
+            changed = self.recover()
+            recover_inflight_batch_receipts(self.db)
+            return changed
 
     def _transaction(self, action):
         from sqlite_transaction_core import compose
@@ -104,11 +180,25 @@ class ExecutionCoordinator:
             raise ValueError('Execution attempt already settled or lost ownership')
 
     def recover(self, *, project_id=None):
-        """Fail closed after process restart; never auto-approve old worker results."""
-        def action():
+        """Fence stale workers and restore both unique indexes atomically.
+
+        On startup, global recovery migrates legacy databases with duplicate
+        running rows before constraints are created. Scoped recovery preserves
+        other projects; if their unmigrated rows violate an index, it fails and
+        rolls back instead of silently fencing another project's workers.
+        Task statuses, active pointers and checkpoints are never rewritten.
+        """
+        from sqlite_transaction_core import compose
+        with compose(self.db, 'execution_coordinator_recover'):
+            self._ensure_base()
             if project_id is None:
-                return self.db.execute('''UPDATE execution_attempts
-                   SET state='interrupted', finished_at=? WHERE state='running' ''',(_now(),)).rowcount
-            return self.db.execute('''UPDATE execution_attempts SET state='interrupted',finished_at=?
-                   WHERE state='running' AND project_id=?''',(_now(),project_id)).rowcount
-        return self._transaction(action)
+                changed = self.db.execute('''UPDATE execution_attempts
+                    SET state='interrupted', finished_at=? WHERE state='running' ''',
+                    (_now(),)).rowcount
+            else:
+                changed = self.db.execute('''UPDATE execution_attempts
+                    SET state='interrupted', finished_at=?
+                    WHERE state='running' AND project_id=?''',
+                    (_now(), project_id)).rowcount
+            self._ensure_constraints()
+            return changed

@@ -40,7 +40,7 @@ class ProjectionContractTests(unittest.TestCase):
 
     def test_export_publishes_complete_validated_projection(self):
         txt,pdf,png=self.export('project','a'*32,'tasks','document','verified',None,workspace_root=self.root)
-        self.assertEqual(txt.read_text(),'verified')
+        self.assertEqual(txt.read_text(encoding='utf-8'),'verified')
         self.assertTrue(pdf.read_bytes().startswith(b'%PDF-'))
         self.assertIsNone(png)
 
@@ -49,10 +49,10 @@ class ProjectionContractTests(unittest.TestCase):
         self.TextDoc.invalid=True
         with self.assertRaisesRegex(RuntimeError,'PDF'):
             self.export('project','a'*32,'tasks','document','new',None,workspace_root=self.root)
-        self.assertEqual(txt.read_text(),'old')
+        self.assertEqual(txt.read_text(encoding='utf-8'),'old')
         self.assertTrue(pdf.read_bytes().startswith(b'%PDF-'))
         self.TextDoc.invalid=False
         self.export('project','a'*32,'tasks','document','new',None,workspace_root=self.root)
-        self.assertEqual(txt.read_text(),'new')
+        self.assertEqual(txt.read_text(encoding='utf-8'),'new')
 
 if __name__=='__main__':unittest.main()

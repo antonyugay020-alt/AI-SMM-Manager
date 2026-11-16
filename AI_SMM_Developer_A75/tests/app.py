@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 from cloud_credentials import get_openai_key, set_openai_key, clear_openai_key
+from reference_policy import explicit_reference
 from PySide6.QtCore import Qt, QThread, Signal, QMimeData, QUrl, QTimer, QSize
 from PySide6.QtGui import QPixmap, QImage, QPainter, QPen, QColor, QDrag, QBrush, QFont, QTextDocument, QIcon
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFormLayout,
@@ -332,7 +333,9 @@ class DialogueWorker(QThread):
             save_turn(self.workspace,self.turn_id,status='understanding',utterance=self.message,
                       project_id=self.snapshot['project_id'],snapshot=self.snapshot)
             from execution_time_budget import worker_model_budget
-            with worker_model_budget('dialogue'), capture_task(self.workspace,self.message):
+            from cooperative_cancellation import cancellation_scope,worker_check
+            from paid_text_runtime import text_authorization_scope
+            with text_authorization_scope(getattr(self,'text_authorizer',None)), cancellation_scope(worker_check(self)), worker_model_budget('dialogue'), capture_task(self.workspace,self.message):
                 plan=understand_dialogue(self.message,self.snapshot,model=CENTRAL_MODEL,turn_id=self.turn_id,
                     report=lambda stage,**details:self.progress.emit({'stage':stage,**details}))
             save_turn(self.workspace,self.turn_id,status='plan_prepared',completion_verified=False,decision=plan.action,
@@ -361,7 +364,9 @@ class TaskWorker(QThread):
             from contextlib import nullcontext
             scope=capture_task(self.context['project_workspace'],original) if self.context.get('project_workspace') else nullcontext()
             from execution_time_budget import worker_model_budget
-            with worker_model_budget('content'), scope:
+            from cooperative_cancellation import cancellation_scope,worker_check
+            from paid_text_runtime import text_authorization_scope
+            with text_authorization_scope(getattr(self,'text_authorizer',None)), cancellation_scope(worker_check(self)), worker_model_budget('content'), scope:
                 result=run_text_task(original,self.context,model=MODEL,
                                      progress=self.progress.emit)
             if (self.context.get('semantic_execution_kind')=='bundle') if self.context.get('semantic_authorized') else is_compound_request(original):
@@ -397,29 +402,29 @@ class VideoTrimWorker(QThread):
     failed=Signal(str)
     def __init__(self, source, output, start, end):
         super().__init__()
-        self.source,self.output,self.start,self.end=source,output,start,end
+        self.source,self.output,self.clip_start,self.clip_end=source,output,start,end
     def run(self):
         try:
             if not shutil.which('ffmpeg'):raise RuntimeError('FFmpeg не найден. Установите FFmpeg и добавьте в PATH.')
-            if not (isinstance(self.start,(int,float)) and isinstance(self.end,(int,float)) and 0<=self.start<self.end):
+            if not (isinstance(self.clip_start,(int,float)) and isinstance(self.clip_end,(int,float)) and 0<=self.clip_start<self.clip_end):
                 raise ValueError('Нужны корректные начало и конец фрагмента в секундах.')
             self.output.parent.mkdir(parents=True,exist_ok=True)
             flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
             # NVENC is a separate hardware encoder; its availability is tested by FFmpeg.
             # If unavailable, fall back to the existing high-quality CPU pipeline.
             encoder_check=subprocess.run(['ffmpeg','-hide_banner','-encoders'],capture_output=True,text=True,
-                timeout=15,creationflags=flags)
+                timeout=15,creationflags=flags, encoding='utf-8', errors='replace')
             nvenc='h264_nvenc' in encoder_check.stdout
-            common=['ffmpeg','-hide_banner','-nostdin','-y','-ss',str(self.start),'-i',str(self.source),
-                '-t',str(self.end-self.start),'-map','0:v:0','-map','0:a?']
+            common=['ffmpeg','-hide_banner','-nostdin','-y','-ss',str(self.clip_start),'-i',str(self.source),
+                '-t',str(self.clip_end-self.clip_start),'-map','0:v:0','-map','0:a?']
             gpu_args=['-c:v','h264_nvenc','-preset','p4','-cq','20','-b:v','0','-c:a','aac',str(self.output)]
             cpu_args=['-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac',str(self.output)]
             started=time.monotonic()
             proc=subprocess.run(common+(gpu_args if nvenc else cpu_args),capture_output=True,text=True,
-                timeout=3600,creationflags=flags)
+                timeout=3600,creationflags=flags, encoding='utf-8', errors='replace')
             if proc.returncode and nvenc:
                 # Failed GPU attempt may have left an incomplete file. Overwrite on CPU retry.
-                proc=subprocess.run(common+cpu_args,capture_output=True,text=True,timeout=3600,creationflags=flags)
+                proc=subprocess.run(common+cpu_args,capture_output=True,text=True,timeout=3600,creationflags=flags, encoding='utf-8', errors='replace')
             if proc.returncode:raise RuntimeError(proc.stderr[-1500:])
             record_performance('video_trim',time.monotonic()-started,{'gpu_encoder_attempted':nvenc})
             self.done.emit(str(self.output))
@@ -448,9 +453,10 @@ class AIWorker(QThread):
 class EditWorker(QThread):
     done = Signal(str)
     failed = Signal(str)
-    def __init__(self, source, reference, output, instruction):
+    def __init__(self, source, reference, output, instruction, *, use_reference=False, adjustments=None):
         super().__init__()
-        self.source, self.reference, self.output, self.instruction = source, (reference if mentions_reference(instruction) else None), output, instruction
+        self.source, self.reference, self.output, self.instruction = source, explicit_reference(reference,use_reference,source=source), output, instruction
+        self.adjustments=adjustments or {}
     def run(self):
         try:
             with Image.open(self.source) as raw:
@@ -476,17 +482,15 @@ class EditWorker(QThread):
             else:
                 edited = ImageOps.autocontrast(original, cutoff=0.5, preserve_tone=True)
                 edited = ImageEnhance.Contrast(edited).enhance(1.07)
-            command = self.instruction.lower()
-            if any(word in command for word in ('ярче', 'светлее', 'осветл')):
-                edited = ImageEnhance.Brightness(edited).enhance(1.12)
-            if any(word in command for word in ('темнее', 'затемн')):
-                edited = ImageEnhance.Brightness(edited).enhance(0.88)
-            if any(word in command for word in ('контраст', 'тени глубже')):
-                edited = ImageEnhance.Contrast(edited).enhance(1.12)
-            if any(word in command for word in ('насыщен', 'сочнее')):
-                edited = ImageEnhance.Color(edited).enhance(1.12)
-            if any(word in command for word in ('менее насыщ', 'приглуш')):
-                edited = ImageEnhance.Color(edited).enhance(0.88)
+            # Technical parameters are explicit. Natural language is interpreted
+            # by the semantic AI pipeline, never by a list of image keywords.
+            import math
+            if set(self.adjustments)-{'brightness','contrast','saturation'}:raise ValueError('Unknown tonal control')
+            for key,enhancer in [('brightness',ImageEnhance.Brightness),('contrast',ImageEnhance.Contrast),('saturation',ImageEnhance.Color)]:
+                amount=self.adjustments.get(key,1)
+                if type(amount) not in (int,float) or not math.isfinite(amount) or not 0<=amount<=4:
+                    raise ValueError('Invalid explicit tonal value')
+                edited=enhancer(edited).enhance(amount)
             self.output.parent.mkdir(parents=True, exist_ok=True)
             edited.save(self.output, format='JPEG', quality=94, subsampling=0)
             self.done.emit(str(self.output))
@@ -666,7 +670,7 @@ class ModernLocalWorker(QThread):
     def __init__(self, source, reference, output, prompt, install=False, offload="sequential", steps=12, max_side=512, *, use_reference=None):
         super().__init__()
         self.offload,self.steps,self.max_side=offload,steps,max_side
-        self.source,self.reference,self.output,self.prompt,self.install=source,(reference if (mentions_reference(prompt) if use_reference is None else use_reference) else None),output,prompt,install
+        self.source,self.reference,self.output,self.prompt,self.install=source,explicit_reference(reference,use_reference,source=source),output,prompt,install
         self.proc=None
         self.cancel_requested=threading.Event()
         self.started_at=time.monotonic()
@@ -732,7 +736,7 @@ class ModernLocalWorker(QThread):
             self.progress.emit('Модель скачана. Запускаю редактирование фотографии…')
             cmd=[ai_python(),'-u',str(Path(__file__).with_name('modern_local_editor.py')),
                  '--model-path',model_path,'--offload',self.offload,'--steps',str(self.steps),'--max-side',str(self.max_side),'--source',self.source,'--output',str(self.output),'--prompt',self.prompt]
-            if self.reference:cmd+=['--reference',self.reference]
+            if self.reference:cmd+=['--reference',self.reference,'--use-reference']
             try:
                 execute(cmd)
             except RuntimeError as exc:
@@ -742,7 +746,7 @@ class ModernLocalWorker(QThread):
                     fallback=[ai_python(),'-u',str(Path(__file__).with_name('modern_local_editor.py')),
                         '--model-path',model_path,'--offload','sequential','--steps',str(min(self.steps,8)),
                         '--max-side',str(min(self.max_side,512)),'--source',self.source,'--output',str(self.output),'--prompt',self.prompt]
-                    if self.reference:fallback+=['--reference',self.reference]
+                    if self.reference:fallback+=['--reference',self.reference,'--use-reference']
                     try:
                         execute(fallback)
                     except RuntimeError as fallback_exc:
@@ -756,7 +760,7 @@ class ModernLocalWorker(QThread):
                     fallback=[ai_python(),'-u',str(Path(__file__).with_name('modern_local_editor.py')),
                         '--model-path',model_path,'--offload','sequential','--steps',str(min(self.steps,8)),
                         '--max-side',str(min(self.max_side,512)),'--source',self.source,'--output',str(self.output),'--prompt',self.prompt]
-                    if self.reference:fallback+=['--reference',self.reference]
+                    if self.reference:fallback+=['--reference',self.reference,'--use-reference']
                     execute(fallback)
                 else:
                     raise
@@ -773,9 +777,19 @@ class CloudEditWorker(QThread):
     failed=Signal(str)
     def __init__(self, source, reference, output, instruction, api_key, *, use_reference=None):
         super().__init__()
-        self.source,self.reference,self.output,self.instruction,self.api_key=source,(reference if (mentions_reference(instruction) if use_reference is None else use_reference) else None),output,instruction,api_key
+        self.source,self.reference,self.output,self.instruction,self.api_key=source,explicit_reference(reference,use_reference,source=source),output,instruction,api_key
     def run(self):
         try:
+            from durable_cost_gate import DurableCostGate
+            from paid_image_runtime import image_operation
+            gate=getattr(self,'cost_gate',None)
+            binding=getattr(self,'payment_binding',None)
+            if not isinstance(gate,DurableCostGate) or not binding:
+                raise PermissionError('Платная обработка изображения требует общего журнала и точного разрешения')
+            owner,task,operation,reservation=binding
+            if image_operation(owner,task,self.source,self.reference,self.instruction)!=operation:
+                raise PermissionError('Исходники или запрос изменились после подтверждения стоимости')
+            gate.assert_reservation(reservation,'openai',operation)
             boundary='AISMM'+uuid4().hex
             chunks=[]
             def field(name, value):
@@ -800,6 +814,7 @@ class CloudEditWorker(QThread):
             chunks.append(f'--{boundary}--\r\n'.encode())
             req=urllib.request.Request('https://api.openai.com/v1/images/edits',data=b''.join(chunks),
                 headers={'Authorization':'Bearer '+self.api_key,'Content-Type':'multipart/form-data; boundary='+boundary},method='POST')
+            gate.claim_dispatch(reservation,'openai',operation)
             try:
                 with urllib.request.urlopen(req,timeout=300) as response: result=json.load(response)
             except urllib.error.HTTPError as exc:
@@ -920,7 +935,7 @@ class InstallSegmentationWorker(QThread):
             self.progress.emit('Скачиваю rembg и ONNX Runtime. Подождите…')
             flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
             proc=subprocess.run([sys.executable,'-m','pip','install','rembg[cpu]>=2.0.60,<3'],
-                capture_output=True,text=True,timeout=900,creationflags=flags)
+                capture_output=True,text=True,timeout=900,creationflags=flags, encoding='utf-8', errors='replace')
             if proc.returncode:
                 raise RuntimeError((proc.stderr or proc.stdout)[-1800:])
             self.progress.emit('Библиотеки установлены. Готовлю модель…')
@@ -938,7 +953,7 @@ class InstallOpenCVWorker(QThread):
                 [sys.executable, '-m', 'pip', 'install',
                  'opencv-python-headless>=4.8,<5', 'numpy>=1.26,<3'],
                 capture_output=True, text=True, timeout=240,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), encoding='utf-8', errors='replace')
             if proc.returncode:
                 raise RuntimeError((proc.stderr or proc.stdout)[-1800:])
             self.done.emit()
@@ -1304,7 +1319,7 @@ class Studio(QMainWindow):
             workspace_root=self.core.workspace(project_id))
 
     def __setattr__(self, name, value):
-        if name in ('task_worker', 'dialogue_worker', 'report_worker', 'video_worker',
+        if name in ('task_worker', 'dialogue_worker', 'report_worker', 'video_worker', 'media_worker',
                     'cloud_worker', 'modern_worker', 'edit_worker', 'smart_mask_worker',
                     'neural_worker', 'generator', 'worker', 'cuda_install_worker',
                     'download_worker', 'smart_worker', 'vision_worker', 'neural_install', 'opencv_install'):
@@ -1319,6 +1334,17 @@ class Studio(QMainWindow):
         from project_workspace_runtime import ProjectWorkspaceResolver
         self.core = ApplicationRuntime(self.db, ProjectWorkspaceResolver(self.db))
         self.core.configure_project_control(ROOT / 'backups')
+        # One stable global ledger shared by the GUI and future verified Kie
+        # adapters. A damaged/unavailable paid ledger must not block offline
+        # project work or silently authorize any paid transport.
+        from application_paid_media import PaidMediaComposition
+        self.paid_media = None
+        self._paid_media_boot_error = None
+        try:
+            self.paid_media = PaidMediaComposition(
+                self.core.db, self.core.workspace, ROOT / 'paid_cost_ledger.sqlite3')
+        except (sqlite3.Error, OSError) as exc:
+            self._paid_media_boot_error = type(exc).__name__
         # One atomic startup fence for text/model and batch worker attempts.
         # No Qt-local interpretation of which incomplete projects to discard.
         self.core.recover_inflight()
@@ -1343,10 +1369,16 @@ class Studio(QMainWindow):
         self._semantic_media_project=None
         self.report_worker = None
         self.video_worker = None
+        self.media_worker = None
+        self._semantic_local_identity=None
         self.edit_worker = None
         self.generator = None
         self._generator_owner = None
         self._edit_owner = None
+        from local_media_dispatcher import LocalMediaDispatcher
+        self.local_media=LocalMediaDispatcher(self.core.db,self.core.workspace)
+        from qt_text_approval import TextApprovalBroker
+        self.text_approval_broker=TextApprovalBroker(self,self.paid_media) if self.paid_media is not None else None
         self.cloud_key = None  # Legacy compatibility; credential source is cloud_credentials (RAM/env)
         self.cloud_worker = None
         self.modern_worker = None
@@ -1734,6 +1766,9 @@ class Studio(QMainWindow):
         send.clicked.connect(self.send_message)
         self.send_button = send
         command.addWidget(send, 1)
+        self.stop_text_button=QPushButton('Остановить AI-задание')
+        self.stop_text_button.clicked.connect(self.cancel_text_task)
+        command.addWidget(self.stop_text_button)
         batch = QPushButton('Обработать выбранные')
         batch.setToolTip('Выделите несколько исходников через Ctrl/Shift и введите команду')
         batch.clicked.connect(self.start_batch)
@@ -2050,6 +2085,19 @@ class Studio(QMainWindow):
             blocks.addWidget(pane,1)
         gallery_lay.addLayout(blocks)
         self.pub_tabs.addTab(gallery_page,'Медиатека и блоки')
+        # Kie ledger and explicit result refresh; no paid dispatch at startup.
+        from kie_media_queue_ui import KieMediaQueuePanel
+        self.kie_queue_panel = KieMediaQueuePanel(
+            self.core.db, lambda: self.current_project, self,
+            cost_gate=(self.paid_media.cost_gate
+                       if self.paid_media is not None else None),
+            result_worker_factory=(self.paid_media.result_worker
+                                   if self.paid_media is not None else None),
+            media_service=self.paid_media,local_service=self.local_media)
+        self.pub_tabs.addTab(self.kie_queue_panel, 'Медиа · задания')
+        self.pub_tabs.currentChanged.connect(
+            lambda index: self.kie_queue_panel.refresh()
+            if self.pub_tabs.widget(index) is self.kie_queue_panel else None)
         schedule_page=QWidget();schedule_lay=QVBoxLayout(schedule_page)
         schedule_lay.addWidget(QLabel('ОБЩЕЕ РАСПИСАНИЕ БЛОКА'))
         rules=QHBoxLayout()
@@ -2946,6 +2994,8 @@ class Studio(QMainWindow):
         if not self.current_project:
             self.heading.setText('Выберите проект')
             self._switching_project = False
+            if hasattr(self, 'kie_queue_panel'):
+                self.kie_queue_panel.refresh()
             self.show_section('overview')
             return
         view = destination_view
@@ -2965,6 +3015,8 @@ class Studio(QMainWindow):
             self.append_chat('Вы' if role == 'user' else 'AI', content, created_at)
         # Restore the selected project's own workspace, never another project's content.
         self._switching_project = False
+        if hasattr(self, 'kie_queue_panel'):
+            self.kie_queue_panel.refresh()
         self.show_section(self.project_section_state.get(self.current_project, 'overview'))
         self.update_dashboard()
         QTimer.singleShot(0,self.offer_resume_batch)
@@ -3481,7 +3533,7 @@ class Studio(QMainWindow):
         layout.addWidget(QLabel('AI-агент использует доступные инструменты. Облачные операции — только с разрешения.'))
         layout.addWidget(QLabel('Состояние: '+', '.join(k+': '+('доступно' if v else 'не подключено') for k,v in available_tools().items())))
         layout.addWidget(QLabel('Режим генерации:'))
-        selector=QComboBox();selector.addItems(['Локально: Qwen Image Edit 2509 (тяжёлая модель)','OpenAI API (с подтверждением каждой отправки)','Hugging Face Space (публичный Gradio API)'])
+        selector=QComboBox();selector.addItems(['Локально: установленные SD-профили / Qwen Image Edit (legacy)','OpenAI API (с подтверждением каждой отправки)','Hugging Face Space (публичный Gradio API)'])
         selector.setCurrentIndex(getattr(self,'engine_mode',0));layout.addWidget(selector)
         layout.addWidget(QLabel('OpenAI API-ключ (только в памяти до закрытия программы):'))
         key=QLineEdit();key.setEchoMode(QLineEdit.Password)
@@ -3661,13 +3713,16 @@ class Studio(QMainWindow):
         self.append_chat('Система','Загрузка gemma3:4b запущена. Открыто окно с прогрессом.')
 
     def task_reference(self, instruction, *, use_reference=None):
-        """Never include the reference unless the user explicitly requests it."""
-        if not (mentions_reference(instruction) if use_reference is None else use_reference):
-            return None
-        reference=getattr(self.reference, 'path', None)
+        """Semantic boolean or explicit GUI choice is the only reference authority."""
+        reference=getattr(self.reference,'path',None)
+        if use_reference is None:
+            if not reference:return None
+            use_reference=QMessageBox.question(self,'Использовать выбранный эталон?',
+                'Передать выбранный эталон вместе с исходником для этой операции?',
+                QMessageBox.Yes|QMessageBox.No,QMessageBox.No)==QMessageBox.Yes
+        if use_reference is not True:return None
         if not reference:
-            self.append_chat('Система', 'В задании упомянут эталон, но эталон не выбран. Обработка без эталона.')
-            return None
+            self.append_chat('Система','Выберите эталон перед выполнением операции.');return None
         return reference
 
     def checked_source(self):
@@ -3690,7 +3745,7 @@ class Studio(QMainWindow):
         if getattr(self,'engine_mode',0)==1:self.cloud_generate(prompt.strip())
         elif getattr(self,'engine_mode',0)==2:self.hf_generate(prompt.strip())
         else:
-            self.modern_local_generate(prompt.strip())
+            if not self.try_installed_image_edit(prompt.strip()):self.modern_local_generate(prompt.strip())
 
     def open_results_folder(self):
         if not self.current_project:
@@ -3857,15 +3912,15 @@ class Studio(QMainWindow):
             'Экспериментальный · group offload · 12 шагов · 512px (может быть быстрее; зависит от diffusers)'
         ]
         choice, accepted = QInputDialog.getItem(self, 'Режим локального редактирования',
-            '12 ГБ VRAM: совместимый режим надёжнее, но медленнее. Быстрый может вызвать OOM:', choices, 2, False)
+            '8 ГБ VRAM: совместимый режим надёжнее, но медленнее. Быстрый может вызвать OOM:', choices, 2, False)
         if not accepted:
             return
         mode_index = choices.index(choice)
         offload, steps, max_side = [('model',8,512), ('model',16,640), ('sequential',12,512), ('sequential',8,512), ('group',12,512)][mode_index]
         reference=self.task_reference(prompt,use_reference=use_reference)
         output=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.png')
-        self.append_chat('Система', f'Редактируемый исходник: {Path(self.source.path).name}. Эталон: '+('только справочно' if reference else 'не используется')+'.')
-        self.modern_worker=ModernLocalWorker(self.source.path,reference,output,prompt,install=not installed,offload=offload,steps=steps,max_side=max_side,use_reference=use_reference)
+        self.append_chat('Система', f'Редактируемый исходник: {Path(self.source.path).name}. Эталон: '+('используется как визуальное условие' if reference else 'не используется')+'.')
+        self.modern_worker=ModernLocalWorker(self.source.path,reference,output,prompt,install=not installed,offload=offload,steps=steps,max_side=max_side,use_reference=bool(reference))
         self.modern_worker.progress.connect(self.modern_progress)
         self.modern_worker.done.connect(lambda path, pid=self.current_project, claim=self.batch_claim:self.cloud_done(path,project_id=pid,batch_claim=claim))
         self.modern_worker.failed.connect(lambda err:self.append_chat('Ошибка Qwen Image Edit',err))
@@ -3921,7 +3976,7 @@ class Studio(QMainWindow):
             return
         if self.cloud_worker is not None:return
         if not self.source.path or not self.current_project:return
-        if mentions_reference(prompt) if use_reference is None else use_reference:
+        if self.task_reference(prompt,use_reference=use_reference) is not None:
             self.append_chat('Система','Этот Hugging Face Space не поддерживает эталон. Выберите другой движок или уберите ссылку на эталон.')
             return
         reply=QMessageBox.question(self,'Отправка фотографии в Hugging Face',
@@ -3940,6 +3995,47 @@ class Studio(QMainWindow):
         self.append_chat('AI-менеджер',f'Отправляю задачу в {space} через {endpoint}.')
         self.cloud_worker.start()
 
+    def cancel_text_task(self):
+        worker=getattr(self,'task_worker',None)
+        if worker is None or not worker.isRunning():
+            media=getattr(self,'media_worker',None) or getattr(self,'video_worker',None)
+            if media is None or getattr(media,'operation',None)!='local' or not media.isRunning():return
+            if media.project_id!=self.current_project:return
+            try:
+                accepted=self.local_media.stop(media.project_id,media.job_id)
+                if accepted:media.requestInterruption()
+                self.append_chat('Система','Локальное медиа-задание остановлено.' if accepted else 'Результат уже зафиксирован; отмена не удаляет сохранённые файлы.')
+            except (ValueError,RuntimeError,sqlite3.Error) as exc:self.append_chat('Система','Остановка не сохранена: '+type(exc).__name__)
+            return
+        if getattr(self,'task_project_id',None)!=self.current_project:return
+        if self.db.in_transaction:
+            self.append_chat('Система','Остановка ожидает завершения операции хранения.');return
+        attempt=getattr(self,'task_attempt',None)
+        try:
+            if attempt is not None and getattr(worker,'execution_attempt',None)==attempt:
+                self.core.cancel_text_execution(attempt.project_id,self.task_instruction,task_id=attempt.task_id)
+                self.task_attempt=None
+            elif worker is getattr(self,'dialogue_worker',None):
+                self._dialogue_error='Задание остановлено пользователем'
+                self._resolved_dialogue=None
+                pid=getattr(self,'task_project_id',None)
+                turn=getattr(self,'task_dialogue_turn_id',None)
+                if pid and turn:self.core.conversations.transition(pid,turn,'failed')
+            else:
+                self.append_chat('Система','Для этого задания не подтверждён механизм отмены.');return
+        except (ValueError,RuntimeError,sqlite3.Error) as exc:
+            self.append_chat('Система','Не удалось сохранить отмену: '+type(exc).__name__);return
+        worker.requestInterruption()
+        worker.finished.connect(self._cancelled_text_finished)
+        self.send_button.setEnabled(False)
+        self.append_chat('Система','Отмена сохранена. Текущий запрос завершится без применения результата; новые вызовы не запускаются.')
+
+    def _cancelled_text_finished(self):
+        worker=self.sender()
+        if self.task_worker is worker:self.task_worker=None
+        self.send_button.setEnabled(self.task_worker is None)
+        if hasattr(self,'_task_clock'):self._task_clock.stop()
+
     def cloud_generate(self, prompt, confirmed=False, *, use_reference=None):
         if not self.checked_source():
             self.append_chat('Система', 'Выберите допустимый исходник, отличный от эталона.')
@@ -3949,15 +4045,40 @@ class Studio(QMainWindow):
             return
         if self.cloud_worker is not None:return
         reference=self.task_reference(prompt,use_reference=use_reference)
-        reply=QMessageBox.Yes if confirmed else QMessageBox.question(self,'Подтверждение платной облачной обработки',
-            'В OpenAI будут отправлены исходная фотография'+(' и эталон' if reference else '')+'.\n'
-            'API может списать плату. Точную стоимость приложение пока не рассчитывает. '
-            'Проверьте действующие тарифы OpenAI перед согласием.\n\nОтправить файлы и выполнить платную операцию?',
+        from PySide6.QtWidgets import QInputDialog
+        from paid_image_runtime import image_operation
+        service=getattr(self,'paid_media',None)
+        if service is None:
+            self.append_chat('Система','Общий платный журнал недоступен; запрос не отправлен.');return
+        owner=self.current_project
+        task=uuid4().hex
+        source=self.source.path
+        operation=image_operation(owner,task,source,reference,prompt)
+        maximum,ok=QInputDialog.getText(self,'Проверенная максимальная стоимость',
+            'Максимальная стоимость одного запроса USD по проверенному тарифу (не оценка модели):')
+        if not ok:return
+        evidence,ok=QInputDialog.getText(self,'Источник тарифа','Источник проверки максимальной стоимости:')
+        if not ok or not evidence.strip():return
+        reply=QMessageBox.question(self,'Подтверждение платной облачной обработки',
+            'Разрешить один запрос OpenAI Images с максимальной стоимостью $'+maximum+
+            '? Резерв сохранится при таймауте. Источник: '+evidence,
             QMessageBox.Yes|QMessageBox.No,QMessageBox.No)
-        if not confirmed and reply!=QMessageBox.Yes:return
+        if reply!=QMessageBox.Yes or self.current_project!=owner:return
+        if image_operation(owner,task,self.source.path,reference,prompt)!=operation:
+            self.append_chat('Система','Исходники изменились во время подтверждения; запрос не отправлен.');return
+        try:
+            from durable_cost_gate import units
+            if units(maximum)<=0:raise PermissionError('Нужна положительная проверенная стоимость')
+            token=service.cost_gate.approve('openai',operation,maximum)
+            reservation=service.cost_gate.reserve('openai',operation,maximum,token=token,unique_operation=True)
+            service.cost_gate.record_authorization_evidence(reservation,evidence=evidence,confirmed_by_user=True)
+        except (ValueError,PermissionError,OSError,sqlite3.Error) as exc:
+            self.append_chat('Система','Платный запуск заблокирован: '+type(exc).__name__);return
         output=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.png')
         self.append_chat('Система', f'Облачный исходник: {Path(self.source.path).name}. Эталон: '+('отправляется по запросу' if reference else 'не отправляется')+'.')
-        self.cloud_worker=CloudEditWorker(self.source.path,reference,output,prompt,get_openai_key(),use_reference=use_reference)
+        self.cloud_worker=CloudEditWorker(self.source.path,reference,output,prompt,get_openai_key(),use_reference=bool(reference))
+        self.cloud_worker.cost_gate=service.cost_gate
+        self.cloud_worker.payment_binding=(owner,task,operation,reservation)
         self.cloud_worker.done.connect(lambda path, pid=self.current_project, claim=self.batch_claim:self.cloud_done(path,project_id=pid,batch_claim=claim))
         self.cloud_worker.failed.connect(lambda err:self.append_chat('Ошибка облачного API',err))
         self.cloud_worker.finished.connect(self.cloud_finished)
@@ -4078,7 +4199,7 @@ class Studio(QMainWindow):
         reference = self.task_reference(self.message.toPlainText().strip())
         output = self.core.workspace(self.current_project) / 'processed' / (uuid4().hex + '.jpg')
         self._edit_owner = (self.current_project, str(output))
-        self.edit_worker = EditWorker(self.source.path, reference, output, self.message.toPlainText().strip())
+        self.edit_worker = EditWorker(self.source.path, reference, output, self.message.toPlainText().strip(),use_reference=bool(reference))
         self.edit_worker.done.connect(self.image_done)
         self.edit_worker.failed.connect(self.image_failed)
         self.process_button.setEnabled(False)
@@ -4540,6 +4661,8 @@ class Studio(QMainWindow):
         self.task_dialogue_turn_id=turn_id
         worker=DialogueWorker(msg,snapshot,str(self.core.workspace(self.current_project)),self.task_dialogue_turn_id)
         self.dialogue_worker=worker;self.task_worker=worker
+        if self.text_approval_broker is not None:
+            worker.text_authorizer=self.text_approval_broker.for_worker(worker,self.current_project,self.task_dialogue_turn_id)
         worker.done.connect(self._dialogue_resolved)
         worker.failed.connect(self._dialogue_failed)
         worker.progress.connect(self.task_progress)
@@ -4667,12 +4790,19 @@ class Studio(QMainWindow):
                 else:
                     self._fail_dialogue_intake(plan.project_id,plan.turn_id)
                 return
+            elif op=='local_media':
+                self.start_semantic_local_media(plan)
+                self._record_dialogue_projection(workspace,plan.turn_id,status='tool_dispatched',completion_verified=False)
+                return
             elif op in ('image_edit','video_trim'):
                 if str(self.source.path or '')!=str(plan.snapshot['ui_context'].get('source_path') or ''):
                     raise ValueError('Исходный файл изменился во время анализа')
                 if str(self.reference.path or '')!=str(plan.snapshot['ui_context'].get('reference_path') or ''):
                     raise ValueError('Эталон изменился во время анализа')
                 if a['use_reference'] and not self.reference.path:raise ValueError('AI выбрал эталон, но файл не задан')
+                if op=='image_edit' and self.try_semantic_local_generation(plan):
+                    self._record_dialogue_projection(workspace,plan.turn_id,status='tool_dispatched',completion_verified=False)
+                    return
                 if op=='image_edit':
                     self.dispatch_semantic_image(plan.utterance,a['use_reference'])
                 else:self._apply_task_result({'action':'video_trim','instruction':plan.utterance,'start':a['start'],'end':a['end']})
@@ -4709,6 +4839,10 @@ class Studio(QMainWindow):
                     execution_kind=self.task_semantic_kind,revision_id=self.task_revision_id)
                 worker=TaskWorker(plan.utterance,context);self.task_worker=worker
                 issued=self.task_attempt
+                worker.execution_attempt=issued
+                if self.text_approval_broker is not None:
+                    worker.text_authorizer=self.text_approval_broker.for_worker(worker,issued.project_id,issued.task_id)
+                worker.execution_database_path=self.core.execution_database_path()
                 worker.done.connect(lambda result,attempt=issued:self.task_ready_for_attempt(result,attempt))
                 worker.failed.connect(lambda error,attempt=issued:self.task_failed_for_attempt(error,attempt))
                 worker.progress.connect(self.task_progress)
@@ -4851,6 +4985,11 @@ class Studio(QMainWindow):
             event.ignore();return
         if self.report_worker is not None and self.report_worker.isRunning():
             self.statusBar().showMessage('Собирается отчёт. Дождитесь завершения перед закрытием.',6000)
+            event.ignore();return
+        try:
+            self.core.close()
+        except (RuntimeError, sqlite3.Error) as exc:
+            self.statusBar().showMessage('Не удалось завершить хранение: '+str(exc),6000)
             event.ignore();return
         super().closeEvent(event)
 
@@ -5323,14 +5462,10 @@ class Studio(QMainWindow):
             elif not isinstance(task.get('start'),(int,float)) or not isinstance(task.get('end'),(int,float)):
                 self.append_chat('AI-менеджер','Укажите начало и конец нужного фрагмента в секундах.')
             else:
-                out=self.core.workspace(self.current_project)/'processed'/(uuid4().hex+'.mp4')
-                self.video_worker=VideoTrimWorker(src,out,task['start'],task['end'])
-                self.video_worker.done.connect(lambda path, pid=self.current_project:
-                                               self.video_done(path, project_id=pid))
-                self.video_worker.failed.connect(lambda err:self.append_chat('Ошибка видеомонтажа',err))
-                self.video_worker.finished.connect(self.video_finished)
-                self.video_worker.start()
-                self.append_chat('AI-менеджер','Обрабатываю видео локально. Исходник не изменяется.')
+                pid=self.current_project
+                start,end=task['start'],task['end']
+                turn=getattr(self,'task_dialogue_turn_id',None) if getattr(self,'_dialogue_applying',False) else None
+                self._after_result_commit(lambda:self.start_local_video_trim(pid,str(src),start,end,dialogue_turn_id=turn))
         from task_routing import creation_checkpoint_required
         incomplete_response=(action=='respond' and (semantic or creation_checkpoint_required(self.task_instruction)))
         self.ai_status.setText('Задание не завершено' if incomplete_response else
@@ -5368,6 +5503,134 @@ class Studio(QMainWindow):
             self.append_chat('AI-менеджер',response if failure_saved else
                 'Сохранение ошибки ожидает восстановления. '+response)
 
+    def start_semantic_local_media(self,plan):
+        if self.media_worker is not None:raise RuntimeError('A semantic media worker still owns the slot')
+        from dialogue_runtime import local_media_request
+        request=local_media_request(plan.snapshot,plan.action['media'])
+        self._launch_semantic_local_request(plan,request)
+
+    def _launch_semantic_local_request(self,plan,request):
+        if self.media_worker is not None:raise RuntimeError('A semantic media worker still owns the slot')
+        worker=self.local_media.worker(plan.project_id,request=request,dialogue_turn_id=plan.turn_id)
+        kind=__import__('generative_contract').output_kind(request)
+        self._semantic_local_identity=(plan.project_id,plan.turn_id,kind,worker.job_id)
+        self.media_worker=worker
+        worker.done.connect(self.semantic_local_done)
+        worker.failed.connect(self.semantic_local_failed)
+        worker.stopped.connect(self.semantic_local_stopped)
+        worker.finished.connect(self.semantic_local_finished)
+        self._track_background(worker)
+        self.projects.setEnabled(False)
+        self.ai_status.setText('Локальная обработка медиа…')
+        self.append_chat('AI-менеджер','Медиа-задание сохранено и выполняется локально. Исходники сохраняются.')
+        worker.start()
+
+    def try_installed_image_edit(self,prompt):
+        try:
+            from generative_models import profiles
+            installed=profiles()
+            if not installed:return False
+            reference=self.task_reference(prompt)
+            engine='sd15_ip_adapter' if reference else 'instruct_pix2pix'
+            candidates=[(name,p) for name,p in installed.items() if p['engine']==engine]
+            if not candidates:
+                self.append_chat('Система','Для этой операции нужен установленный профиль '+engine+'. Выберите профиль в разделе медиа-заданий.')
+                return True
+            panel=self.kie_queue_panel
+            if panel._result_worker is not None:
+                self.append_chat('Система','Дождитесь завершения текущего медиа-задания.');return True
+            selected=panel.local_profile.currentData()
+            name,profile=next(((name,p) for name,p in candidates if name==selected),candidates[0])
+            sources=[str(self.source.path)]+([str(reference)] if reference else [])
+            request={'task':'image_reference' if reference else 'image_instruction','sources':sources,'prompt':prompt,
+                'generation':profile,'width':512,'height':512,'steps':20,'seed':0,'strength':.65,'guidance':7.5}
+            worker=self.local_media.worker(self.current_project,request=request)
+            panel.refresh();panel._launch_worker(worker)
+            self.append_chat('Система','Локальная генерация сохранена в очереди медиа-заданий.')
+            return True
+
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.append_chat('Система','Локальная генерация не запущена: '+type(exc).__name__)
+            return True
+
+    def try_semantic_local_generation(self,plan):
+        if getattr(self,'engine_mode',0)!=0:return False
+        from generative_models import profiles,describe_profile
+        installed=profiles()
+        use_reference=plan.action['use_reference']
+        engine='sd15_ip_adapter' if use_reference else 'instruct_pix2pix'
+        candidates=[(name,p) for name,p in installed.items() if p['engine']==engine]
+        if not candidates:return False
+        selected=self.kie_queue_panel.local_profile.currentData()
+        name,profile=next(((name,p) for name,p in candidates if name==selected),candidates[0])
+        declared=plan.snapshot.get('ui_context',{}).get('capabilities',{}).get('generative_profiles',{})
+        if declared.get(name)!=describe_profile(profile):raise ValueError('Local generative profile changed after analysis')
+        sources=[str(self.source.path)]
+        if use_reference:sources.append(str(self.reference.path))
+        catalog=plan.snapshot.get('media',{})
+        hashes=[]
+        for source in sources:
+            item=next((item for item in catalog.values() if item['path']==source),None)
+            if item is None:raise ValueError('Selected image was not issued in this project snapshot')
+            hashes.append(item.get('sha256'))
+        request={'task':'image_reference' if use_reference else 'image_instruction','sources':sources,'expected_sha256':hashes,
+            'prompt':plan.utterance,'generation':profile,'width':512,'height':512,'steps':20,'seed':0,'strength':.65,'guidance':7.5}
+        self._launch_semantic_local_request(plan,request)
+        return True
+
+    def semantic_local_done(self,owner,job,path):
+        identity=self._semantic_local_identity
+        if not identity or identity[0]!=owner or identity[3]!=job:return
+        try:
+            self.core.publish_result(owner,identity[2],path,active_project_id=owner,
+                operation_id='dialogue:'+owner+':'+identity[1]+':'+identity[2],dialogue_turn_id=identity[1])
+            self._record_dialogue_projection(self.core.workspace(owner),identity[1],status='applied',completion_verified=True)
+            self._semantic_local_identity=None
+            if owner==self.current_project:
+                self.register_ready_result(path,project_id=owner)
+                self.append_chat('Система','Медиа-результат проверен и сохранён в проекте.')
+        except (ValueError,RuntimeError,OSError,sqlite3.Error) as exc:
+            self.record_project_diagnostic('local_media_admission_failed',{'error_code':type(exc).__name__},owner)
+
+    def semantic_local_failed(self,owner,job,code):
+        self.record_project_diagnostic('local_media_execution_failed',{'job_id':job,'error_code':code},owner)
+        if owner==self.current_project:self.append_chat('Система','Локальное медиа-задание не завершено: '+code+'. Его можно повторить из очереди медиа.')
+
+    def semantic_local_stopped(self,owner,job):
+        if owner==self.current_project:self.append_chat('Система','Локальное медиа-задание остановлено. Исходные файлы сохранены.')
+
+    def semantic_local_finished(self):
+        if self.sender() is not self.media_worker:return
+        identity=self._semantic_local_identity
+        if identity is not None:
+            self._record_dialogue_projection(self.core.workspace(identity[0]),identity[1],status='tool_incomplete',completion_verified=False)
+        self._semantic_local_identity=None
+        self.media_worker=None
+        self.projects.setEnabled(True)
+        self.ai_status.setText('Готов')
+
+    def start_local_video_trim(self,owner,source,start,end,*,dialogue_turn_id=None):
+        if self.video_worker is not None:raise RuntimeError('A video worker still owns the slot')
+        worker=self.local_media.worker(owner,request={'task':'video_cut','sources':[source],'start':start,'end':end},
+                                       dialogue_turn_id=dialogue_turn_id)
+        self.video_worker=worker
+        worker.done.connect(self.local_video_done)
+        worker.failed.connect(self.local_video_failed)
+        worker.stopped.connect(self.local_video_stopped)
+        worker.finished.connect(self.video_finished)
+        self._track_background(worker)
+        worker.start()
+        self.append_chat('AI-менеджер','Видео обрабатывается локально; задание сохранено для восстановления.')
+
+    def local_video_done(self,owner,job,path):
+        self.video_done(path,project_id=owner)
+
+    def local_video_failed(self,owner,job,code):
+        if owner==self.current_project:self.append_chat('Ошибка локального видео',code)
+
+    def local_video_stopped(self,owner,job):
+        if owner==self.current_project:self.append_chat('Система','Локальная обработка видео остановлена; исходник сохранён.')
+
     def video_done(self, path, *, project_id=None):
         # Worker callbacks must never infer their owner from active GUI selection.
         pid = project_id
@@ -5384,6 +5647,7 @@ class Studio(QMainWindow):
             self.statusBar().showMessage('Видео не принято: ' + str(exc), 15000)
 
     def video_finished(self):
+        if self.sender() is not None and self.sender() is not self.video_worker:return
         self.video_worker=None
         self.ai_status.setText('Готов')
 

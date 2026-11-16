@@ -1,0 +1,1 @@
+{"status": "PASS", "real_model": true, "model": "Qwen/Qwen3-0.6B-GGUF Q8_0", "backend": "llama.cpp b12202 CPU", "elapsed_seconds": 0.93, "response": {"status": "ready", "note": "Ready for use."}, "paid_api_calls": 0, "windows_e2e": false}

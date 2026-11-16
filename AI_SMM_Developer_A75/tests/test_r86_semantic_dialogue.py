@@ -177,7 +177,7 @@ class SemanticDialogueTests(unittest.TestCase):
             out=run_text_task('можно уже к делу?',context,compound_runner=lambda req,state,**kw:{'action':'compound_clarify','answer':'Что уточнить?'})
         self.assertEqual(out['action'],'compound_clarify')
     def test_gui_front_door_contains_no_legacy_language_dispatch_calls(self):
-        tree=ast.parse((Path(__file__).parent/'app.py').read_text())
+        tree=ast.parse((Path(__file__).parent/'app.py').read_text(encoding='utf-8'))
         studio=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Studio')
         send=next(n for n in studio.body if isinstance(n,ast.FunctionDef) and n.name=='send_message')
         calls={n.func.attr if isinstance(n.func,ast.Attribute) else n.func.id if isinstance(n.func,ast.Name) else '' for n in ast.walk(send) if isinstance(n,ast.Call)}
@@ -190,7 +190,7 @@ class SemanticDialogueTests(unittest.TestCase):
     def test_trace_turn_merges_decision_and_result(self):
         with tempfile.TemporaryDirectory() as home:
             ident='f'*32;save_turn(home,ident,status='resolved',utterance='Exact');save_turn(home,ident,status='done')
-            out=json.loads((Path(home)/'drafts'/('dialogue_turn_'+ident+'.json')).read_text())
+            out=json.loads((Path(home)/'drafts'/('dialogue_turn_'+ident+'.json')).read_text(encoding='utf-8'))
             self.assertEqual(out['utterance'],'Exact');self.assertEqual(out['status'],'done')
     def test_voice_typing_events_and_partial_failure_release_keys(self):
         from voice_input import start_windows_dictation,_Input
@@ -216,7 +216,7 @@ class ReportTraceCoverageTests(unittest.TestCase):
     def tearDown(self):self.fixture.tearDown()
     def test_interface_history_alone_is_not_model_trace(self):
         d=self.fixture.workspace/'drafts';d.mkdir()
-        (d/'application_events.jsonl').write_text(json.dumps({'event':'interface_message','content':'Old history'})+'\n')
+        (d/'application_events.jsonl').write_text(json.dumps({'event':'interface_message','content':'Old history'})+'\n', encoding='utf-8')
         _,z=self.fixture.build()
         with z:
             summary=json.loads(z.read('SUMMARY.json'))
@@ -225,7 +225,7 @@ class ReportTraceCoverageTests(unittest.TestCase):
     def test_actual_model_events_are_counted_separately(self):
         d=self.fixture.workspace/'drafts';d.mkdir()
         (d/'application_events.jsonl').write_text('\n'.join(json.dumps({'event':kind,'time':'2026'}) for kind in
-            ('task_capture_started','model_call_started','model_call_completed','model_call_started','model_call_failed'))+'\n')
+            ('task_capture_started','model_call_started','model_call_completed','model_call_started','model_call_failed'))+'\n', encoding='utf-8')
         _,z=self.fixture.build()
         with z:
             summary=json.loads(z.read('SUMMARY.json'));coverage=summary['model_trace_coverage']

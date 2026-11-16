@@ -35,6 +35,15 @@ class ExecutionRuntime:
             return ExecutionReceipt(project_id,task_id,attempt)
         return self._atomic(op)
 
+    def _verify_receipt(self, receipt: ExecutionReceipt):
+        """Use the same identity boundary for success and failure callbacks."""
+        if not isinstance(receipt, ExecutionReceipt) or not isinstance(receipt.attempt, Attempt):
+            raise ValueError('Missing execution receipt')
+        if (receipt.project_id != receipt.attempt.project_id or
+                receipt.task_id != receipt.attempt.task_id):
+            raise ValueError('Inconsistent execution identity')
+        self.attempts.verify(receipt.attempt)
+
     def authorize_result(self, receipt: ExecutionReceipt, *, active_project_id: str):
         """Read-only authorization before applying ANY worker side effects.
 
@@ -42,28 +51,24 @@ class ExecutionRuntime:
         this gate prevents a stale callback from writing files or touching
         another project's visible state before that transaction starts.
         """
-        if not isinstance(receipt, ExecutionReceipt):
-            raise ValueError('Missing execution receipt')
-        if (receipt.project_id != receipt.attempt.project_id or
-                receipt.task_id != receipt.attempt.task_id):
-            raise ValueError('Inconsistent execution identity')
+        self._verify_receipt(receipt)
         if receipt.project_id != active_project_id:
             raise ValueError('Worker result belongs to a different active project')
-        self.attempts.verify(receipt.attempt)
         return True
 
     def finish(self, receipt: ExecutionReceipt, request: str):
         def op():
-            if receipt.project_id != receipt.attempt.project_id or receipt.task_id != receipt.attempt.task_id:
-                raise ValueError('Inconsistent execution identity')
-            self.attempts.verify(receipt.attempt)
+            self._verify_receipt(receipt)
             ident = self.tasks.finish(receipt.project_id,request,task_id=receipt.task_id)
             self.attempts.settle_after_task_completion(receipt.attempt)
             return ident
         return self._atomic(op)
 
     def fail(self, receipt: ExecutionReceipt):
-        return self._atomic(lambda:self.attempts.settle(receipt.attempt,success=False))
+        def op():
+            self._verify_receipt(receipt)
+            self.attempts.settle(receipt.attempt,success=False)
+        return self._atomic(op)
 
     def cancel(self, project_id, request, *, task_id):
         return self._atomic(lambda:self.tasks.finish(project_id,request,task_id=task_id,status='cancelled'))

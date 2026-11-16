@@ -69,7 +69,7 @@ class DurableFileEffects(unittest.TestCase):
         self.db.commit()
         self.assertFalse(self.receipt.exists())
         self.assertEqual(self._drain()['completed'], 3)
-        self.assertTrue(json.loads(self.receipt.read_text())['saved_and_read_back'])
+        self.assertTrue(json.loads(self.receipt.read_text(encoding='utf-8'))['saved_and_read_back'])
         self.assertFalse(self.pending.exists())
 
     def test_rollback_leaves_absent_receipt_absent(self):
@@ -89,7 +89,7 @@ class DurableFileEffects(unittest.TestCase):
         self.db.close()
         self.db = sqlite3.connect(self.dbfile, factory=ProjectConnection)
         self.assertEqual(self._drain(), {'completed':3,'failed':0,'pending':0})
-        self.assertTrue(json.loads(self.receipt.read_text())['saved_and_read_back'])
+        self.assertTrue(json.loads(self.receipt.read_text(encoding='utf-8'))['saved_and_read_back'])
         self.assertFalse(self.pending.exists())
 
     def test_rollback_drops_effects_and_preserves_checkpoint(self):
@@ -101,7 +101,7 @@ class DurableFileEffects(unittest.TestCase):
         self.db.rollback()
         self.assertEqual(self._drain()['completed'],0)
         self.assertTrue(self.pending.exists())
-        self.assertFalse(json.loads(self.receipt.read_text())['saved_and_read_back'])
+        self.assertFalse(json.loads(self.receipt.read_text(encoding='utf-8'))['saved_and_read_back'])
 
     def test_replay_idempotent(self):
         self._queue()
@@ -123,7 +123,7 @@ class DurableFileEffects(unittest.TestCase):
         self.db.commit()
         self.assertEqual(self._drain()['failed'],3)
         self.assertTrue(self.pending.exists())
-        self.assertFalse(json.loads(self.receipt.read_text())['saved_and_read_back'])
+        self.assertFalse(json.loads(self.receipt.read_text(encoding='utf-8'))['saved_and_read_back'])
 
     def test_mismatched_receipt_blocks_deletion(self):
         self._queue()
@@ -148,7 +148,7 @@ class DurableFileEffects(unittest.TestCase):
     def test_symlinked_drafts_are_blocked(self):
         other = Path(self.temp.name) / 'other'
         other.mkdir()
-        (self.root / 'drafts' / 'tmp').write_text('marker')
+        (self.root / 'drafts' / 'tmp').write_text('marker', encoding='utf-8')
         (self.root / 'drafts').rename(self.root / 'drafts_real')
         try:
             os.symlink(self.root / 'drafts_real', self.root / 'drafts', target_is_directory=True)

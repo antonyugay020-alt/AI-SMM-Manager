@@ -1,0 +1,15 @@
+{
+  "source": "bc067dbe810013577150c7ce5358775746840d78",
+  "scope": "physical Windows process diagnostic only",
+  "status": "DIAGNOSTIC_COMPLETE",
+  "passed": 26,
+  "subtests_passed": 9,
+  "failures": 0,
+  "skips": 0,
+  "archive_sha256": "27722654a98a65213c6e33726d950b7d4a0d97fc9f311dce5115b73e70bdb9e9",
+  "source_fingerprint": "b6cee5d6592b7f1cd9e091e0e22e17baf1abc1097d9e4c6090a76e65facfb0e2",
+  "verified_source_blobs": 928,
+  "cmd_crlf_equivalents": 9,
+  "target_clean_consecutive": 0,
+  "release_eligible": false
+}

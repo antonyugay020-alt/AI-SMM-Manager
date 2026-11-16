@@ -15,7 +15,7 @@ class CrashReplayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             drafts=Path(home)/'drafts'; drafts.mkdir()
             sig=hashlib.sha256((home+'\n'+request+'\n1\n1').encode()).hexdigest()
-            (drafts/f'publication_progress_{sig}.json').write_text(json.dumps({'signature':sig,'posts':{'1/Ср':post}}))
+            (drafts/f'publication_progress_{sig}.json').write_text(json.dumps({'signature':sig,'posts':{'1/Ср':post}}), encoding='utf-8')
             slot=DocumentDraft(drafts,sig,'publication_0'); slot.save(json.dumps(post,ensure_ascii=False,sort_keys=True),True,'candidate')
             original_save=DocumentDraft.save
             def crash_before_revocation(self,content,valid,reason,**kw):
@@ -31,7 +31,7 @@ class CrashReplayTests(unittest.TestCase):
             with patch.object(ct,'extract_facts',side_effect=StopAfterRecovery), self.assertRaises(StopAfterRecovery):
                 ct.execute_compound(request,{'project_workspace':home})
             self.assertFalse(slot.load()['valid'])
-            aggregate=json.loads((drafts/f'publication_progress_{sig}.json').read_text())
+            aggregate=json.loads((drafts/f'publication_progress_{sig}.json').read_text(encoding='utf-8'))
             self.assertNotIn('1/Ср',aggregate['posts'])
             self.assertFalse((drafts/f'final_review_revocations_{sig}.json').exists())
             self.assertIsNotNone(DocumentDraft(drafts,sig,'publication_rejected_0').load())
@@ -43,16 +43,16 @@ class CrashReplayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             drafts=Path(home)/'drafts'; drafts.mkdir()
             sig=hashlib.sha256((home+'\n'+request+'\n1\n1').encode()).hexdigest()
-            (drafts/f'publication_progress_{sig}.json').write_text(json.dumps({'signature':sig,'posts':{'1/Ср':post}}))
+            (drafts/f'publication_progress_{sig}.json').write_text(json.dumps({'signature':sig,'posts':{'1/Ср':post}}), encoding='utf-8')
             DocumentDraft(drafts,sig,'publication_0').save(json.dumps(post,ensure_ascii=False,sort_keys=True),True,'candidate')
             repair=drafts/('publication_repair_'+hashlib.sha256(sig.encode()).hexdigest()+'.json')
-            repair.write_text(json.dumps({'signature':sig,'drafts':{'1/Ср':{'post':stale,'issues':['old finding']}}}))
+            repair.write_text(json.dumps({'signature':sig,'drafts':{'1/Ср':{'post':stale,'issues':['old finding']}}}), encoding='utf-8')
             intent=drafts/f'final_review_revocations_{sig}.json'
-            intent.write_text(json.dumps({'schema':1,'signature':sig,'posts':{'1/Ср':post}}))
+            intent.write_text(json.dumps({'schema':1,'signature':sig,'posts':{'1/Ср':post}}), encoding='utf-8')
             class StopAfterRecovery(Exception): pass
             with patch.object(ct,'extract_facts',side_effect=StopAfterRecovery), self.assertRaises(StopAfterRecovery):
                 ct.execute_compound(request,{'project_workspace':home})
-            actual=json.loads(repair.read_text())['drafts']['1/Ср']
+            actual=json.loads(repair.read_text(encoding='utf-8'))['drafts']['1/Ср']
             self.assertEqual(actual['post'],post)
             self.assertEqual(actual['issues'],['old finding'])
             self.assertTrue(actual['revoked_by_final_review'])
@@ -66,7 +66,7 @@ class CrashReplayTests(unittest.TestCase):
             drafts=Path(home)/'drafts'; drafts.mkdir()
             sig=hashlib.sha256((home+'\n'+request+'\n1\n1').encode()).hexdigest()
             aggregate=drafts/f'publication_progress_{sig}.json'
-            aggregate.write_text(json.dumps({'signature':sig,'posts':{'1/Ср':post}}))
+            aggregate.write_text(json.dumps({'signature':sig,'posts':{'1/Ср':post}}), encoding='utf-8')
             slot=DocumentDraft(drafts,sig,'publication_0')
             slot.save(json.dumps(post,ensure_ascii=False,sort_keys=True),True,'candidate')
             real_write=ct.atomic_write_json
@@ -78,11 +78,11 @@ class CrashReplayTests(unittest.TestCase):
                 ct.execute_compound(request,{'project_workspace':home,'task_mode':'final_review_repair',
                                              'final_review_repair_slots':['1/Ср']})
             self.assertFalse(slot.load()['valid'])
-            self.assertIn('1/Ср',json.loads(aggregate.read_text())['posts'])
+            self.assertIn('1/Ср',json.loads(aggregate.read_text(encoding='utf-8'))['posts'])
             class StopAfterRecovery(Exception): pass
             with patch.object(ct,'extract_facts',side_effect=StopAfterRecovery),self.assertRaises(StopAfterRecovery):
                 ct.execute_compound(request,{'project_workspace':home})
-            self.assertNotIn('1/Ср',json.loads(aggregate.read_text())['posts'])
+            self.assertNotIn('1/Ср',json.loads(aggregate.read_text(encoding='utf-8'))['posts'])
             self.assertFalse((drafts/f'final_review_revocations_{sig}.json').exists())
 
 if __name__ == '__main__': unittest.main()

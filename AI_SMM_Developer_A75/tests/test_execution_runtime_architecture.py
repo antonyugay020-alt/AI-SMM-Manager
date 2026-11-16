@@ -38,3 +38,20 @@ class RuntimeIntegrationTests(unittest.TestCase):
         t=self.runtime.activate('a','one','q');r=self.runtime.begin('a',t)
         self.runtime.cancel('a','one',task_id=t)
         with self.assertRaises(ValueError):self.runtime.finish(r,'one')
+
+    def test_every_callback_rejects_inconsistent_receipt_without_settling(self):
+        task=self.runtime.activate('a','request','q')
+        receipt=self.runtime.begin('a',task)
+        for invalid in (None, ExecutionReceipt('b',task,receipt.attempt),
+                        ExecutionReceipt('a','foreign-task',receipt.attempt),
+                        ExecutionReceipt('a',task,None)):
+            for callback in (lambda r:self.runtime.authorize_result(r,active_project_id='a'),
+                             lambda r:self.runtime.finish(r,'request'),self.runtime.fail):
+                with self.subTest(receipt=invalid,callback=callback),self.assertRaises(ValueError):
+                    callback(invalid)
+                self.assertEqual(self.db.execute('SELECT state FROM execution_attempts').fetchall(),[('running',)])
+                self.assertEqual(self.db.execute('SELECT status FROM ai_task_registry').fetchall(),[('active',)])
+        self.runtime.fail(receipt)
+        self.assertEqual(self.db.execute('SELECT state FROM execution_attempts').fetchone(),('failed',))
+        self.assertEqual(self.db.execute('SELECT status FROM ai_task_registry').fetchone(),('active',))
+        with self.assertRaises(ValueError):self.runtime.fail(receipt)

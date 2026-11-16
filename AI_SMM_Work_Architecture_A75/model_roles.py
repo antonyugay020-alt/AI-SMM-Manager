@@ -8,13 +8,25 @@ from text_providers import is_ollama_cloud_tag, parse_cloud_model
 def model_family(name):
     value = str(name).strip().casefold()
     provider, sep, model_id = value.partition('/')
-    if sep and provider in ('openai','groq','openrouter','gemini'):
+    if sep and provider in ('openai','groq','openrouter','gemini','lmstudio'):
         # A different transport/provider is not an independent model voice.
         value=model_id.rsplit('/',1)[-1]
+    # GGUF publishers/quantizations and instruction/coder variants do not
+    # create independent base-model voices. Keep Qwen versions distinct.
+    qwen=re.match(r'^(qwen\d+(?:[._]\d+)?)(?=$|[-_:])',value)
+    if qwen:return qwen.group(1).replace('_','.')
+    llama=re.match(r'^(?:meta-)?llama[-_]?(\d+(?:\.\d+)?)(?=$|[-_:])',value)
+    if llama:return 'llama'+llama.group(1)
+    gemma=re.match(r'^gemma[-_]?(\d+)(?=$|[-_:])',value)
+    if gemma:return 'gemma'+gemma.group(1)
+    value=re.sub(r'(?:[-_]q\d[^/]*|\.gguf)$','',value)
     value=value.split(':',1)[0]
     # A provider's size suffix is the same technical model family as an
     # Ollama size tag. Changing transport or size must not create a reader.
-    return re.sub(r'-\d+(?:\.\d+)?[bm](?:-(?:instruct|it|thinking|base))?$', '', value)
+    value=re.sub(r'-\d+(?:\.\d+)?[bm](?:-(?:instruct|it|thinking|base))?$', '', value)
+    # Qwen 2.5 Coder is a derivative of the same foundation, not an
+    # independent family when the installed 14B base model writes/reviews.
+    return 'qwen2.5' if value=='qwen2.5-coder' else value
 
 
 MIN_REVIEWER_FAMILIES = 2

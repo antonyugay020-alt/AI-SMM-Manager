@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from http_response_budget import read_bounded_body
+from cooperative_cancellation import check_cancelled, TaskCancelled
 import urllib.error
 import urllib.request
 from provider_errors import ProviderHTTPError
+from model_completion_contract import require_completed
 
 _KEYS = {'groq': 'GROQ_API_KEY', 'openrouter': 'OPENROUTER_API_KEY',
-         'gemini': 'GEMINI_API_KEY', 'openai': 'OPENAI_API_KEY'}
+         'gemini': 'GEMINI_API_KEY', 'openai': 'OPENAI_API_KEY',
+         'anthropic': 'ANTHROPIC_API_KEY'}
+_ANTHROPIC_ALLOWED = frozenset({'claude-sonnet-5-5'})
 _GROQ_FREE_MODELS = frozenset({'openai/gpt-oss-20b','openai/gpt-oss-120b',
                                'qwen/qwen3.8-27b'})
 _GEMINI_FREE_MODELS = frozenset({'gemini-3.1-flash-lite'})
@@ -33,6 +39,8 @@ def parse_cloud_model(model: str):
         raise ValueError('Для бесплатного Groq задавайте модель из текущего Free Plan allowlist')
     if provider == 'gemini' and model_id not in _GEMINI_FREE_MODELS:
         raise ValueError('Для бесплатного Gemini разрешена только gemini-3.1-flash-lite')
+    if provider == 'anthropic' and model_id not in _ANTHROPIC_ALLOWED:
+        raise ValueError('Anthropic: модель не подтверждена для этого подключения')
     return provider, model_id
 
 
@@ -67,6 +75,9 @@ def configured_cloud_models(env=None):
                 str(env.get('AI_SMM_ENABLE_OPENAI_API', '')).strip() != '1' or
                 str(env.get('AI_SMM_ENABLE_OPENAI_ACCEPTANCE', '')).strip() != '1'):
             continue
+        if provider == 'anthropic' and (env.get('AI_SMM_ENABLE_ANTHROPIC_API') != '1'
+                                        or env.get('AI_SMM_ENABLE_ANTHROPIC_ACCEPTANCE') != '1'):
+            continue
         if provider == 'openai' and env is os.environ:
             # Runtime access and model selection must use the same explicit,
             # process-local credential source; do not export the key to child processes.
@@ -82,8 +93,75 @@ def configured_cloud_models(env=None):
     return result
 
 
+def _anthropic_chat(model_id, messages, timeout, api_key, temperature, response_format):
+    """Native Anthropic Messages API with strict roles, completion and JSON gates."""
+    if not isinstance(messages, list) or response_format not in (None, 'json_object'):
+        raise ValueError('Anthropic: invalid request')
+    system, chat = [], []
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get('role') not in ('system', 'user', 'assistant'):
+            raise ValueError('Anthropic: unsupported message role')
+        content = msg.get('content')
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError('Anthropic: empty or nontext content')
+        role = msg['role']
+        if role == 'system':
+            if chat:
+                raise ValueError('Anthropic: system messages must precede dialogue')
+            system.append(content)
+        elif chat and chat[-1]['role'] == role:
+            chat[-1]['content'] += '\n\n' + content
+        else:
+            chat.append({'role': role, 'content': content})
+    if not chat or chat[0]['role'] != 'user' or chat[-1]['role'] != 'user':
+        raise ValueError('Anthropic: expected conversation ending with user prompt')
+    if response_format == 'json_object':
+        system.append('Output exactly one valid JSON object without Markdown.')
+    # Newer Claude variants may reject sampling parameters while native
+    # reasoning settings are selected by the model. The independently verified
+    # direct Anthropic reviewer uses this same minimal Messages payload.
+    body = {'model': model_id, 'max_tokens': 4096, 'messages': chat}
+    if system:
+        body['system'] = '\n\n'.join(system)
+    req = urllib.request.Request(
+        'https://api.anthropic.com/v1/messages',
+        data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
+        headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01',
+                 'Content-Type': 'application/json'}, method='POST')
+    started=time.monotonic()
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        raw_response = read_bounded_body(response,max_bytes=16*1024*1024,
+            deadline=started+timeout,check=check_cancelled)
+        from diagnostic_report import record_model_event
+        record_model_event('cloud_transport_metadata',
+                           provider='anthropic', bytes_received=len(raw_response))
+        result = json.loads(raw_response)
+    if not isinstance(result, dict) or result.get('stop_reason') != 'end_turn':
+        raise ValueError('Anthropic: incomplete model response')
+    blocks = result.get('content')
+    if not isinstance(blocks, list) or not blocks or any(
+            not isinstance(block, dict) or block.get('type') != 'text'
+            or not isinstance(block.get('text'), str) for block in blocks):
+        raise ValueError('Anthropic: unexpected response content')
+    text = '\n'.join(block['text'] for block in blocks).strip()
+    if not text:
+        raise ValueError('Anthropic: empty response')
+    if response_format == 'json_object':
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError) as exc:
+            raise ValueError('Anthropic: malformed structured output') from exc
+        if not isinstance(parsed, dict):
+            raise ValueError('Anthropic: structured output must be JSON object')
+    usage = result.get('usage')
+    return text, usage if isinstance(usage, dict) else {}
+
+
 def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
                   response_format=None):
+    if provider == 'anthropic':
+        return _anthropic_chat(model_id, messages, timeout, api_key,
+                               temperature, response_format)
     if provider == 'gemini':
         system = '\n'.join(str(m.get('content') or '') for m in messages
                            if isinstance(m, dict) and m.get('role') == 'system')
@@ -98,11 +176,14 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
             data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
             headers={'x-goog-api-key': api_key, 'Content-Type': 'application/json'},
             method='POST')
+        started=time.monotonic()
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            raw_response=response.read()
+            raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
+                deadline=started+timeout,check=check_cancelled)
             from diagnostic_report import record_model_event
             record_model_event('cloud_transport_metadata',provider=provider,bytes_received=len(raw_response))
             result=json.loads(raw_response)
+        require_completed('gemini_interactions',result)
         text = str(result.get('output_text') or '').strip() if isinstance(result, dict) else ''
         if not text and isinstance(result, dict):
             parts = []
@@ -139,15 +220,15 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
         headers['X-Title'] = 'AI SMM Manager acceptance test'
     req = urllib.request.Request(url, data=json.dumps(body, ensure_ascii=False).encode('utf-8'),
                                  headers=headers, method='POST')
+    started=time.monotonic()
     with urllib.request.urlopen(req, timeout=timeout) as response:
-        raw_response=response.read()
+        raw_response=read_bounded_body(response,max_bytes=16*1024*1024,
+            deadline=started+timeout,check=check_cancelled)
         from diagnostic_report import record_model_event
         record_model_event('cloud_transport_metadata',provider=provider,bytes_received=len(raw_response))
         result=json.loads(raw_response)
-    choices = result.get('choices') if isinstance(result, dict) else None
-    if not isinstance(choices, list) or not choices:
-        raise ValueError(f'{provider} вернул пустой ответ')
-    message = choices[0].get('message') if isinstance(choices[0], dict) else None
+    choice = require_completed('chat_completions',result)
+    message = choice['message']
     content = message.get('content') if isinstance(message, dict) else None
     if isinstance(content, list):
         content = '\n'.join(str(x.get('text') or '') for x in content if isinstance(x, dict))
@@ -158,12 +239,19 @@ def _chat_request(provider, model_id, messages, timeout, api_key, temperature,
 
 
 def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=None,
-              environ=None):
+              environ=None, payment=None):
+    from cooperative_cancellation import check_cancelled
+    check_cancelled()
+    if os.environ.get('AI_SMM_QA_LOCAL_ONLY')=='1' or (environ or {}).get('AI_SMM_QA_LOCAL_ONLY')=='1':raise RuntimeError('All external model APIs disabled in local Windows QA')
     parsed = parse_cloud_model(model)
     if parsed is None:
         raise ValueError('Неизвестный формат облачной модели')
     provider, model_id = parsed
     env = os.environ if environ is None else environ
+    if provider == 'anthropic' and (
+            env.get('AI_SMM_ENABLE_ANTHROPIC_API') != '1'
+            or env.get('AI_SMM_ENABLE_ANTHROPIC_ACCEPTANCE') != '1'):
+        raise RuntimeError('Anthropic API отключён: требуется явное разрешение платных вызовов')
     key_name = _KEYS[provider]
     if provider == 'openai':
         from cloud_credentials import get_openai_key
@@ -172,6 +260,14 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         api_key = str(env.get(key_name, '') or '').strip()
     if not api_key:
         raise RuntimeError(f'Не задан {key_name}; облачный запрос не отправлен')
+    free_ack={'groq':'AI_SMM_GROQ_FREE_TIER_ACK','gemini':'AI_SMM_GEMINI_FREE_TIER_ACK'}.get(provider)
+    if free_ack and str(env.get(free_ack,'')).strip()!='1':
+        from cost_authorization import PaymentDenied
+        raise PaymentDenied('Direct free-provider dispatch requires explicit account free-tier confirmation')
+    if provider in ('openai','anthropic'):
+        from paid_text_runtime import claim_text
+        claim_text(model,messages,payment=payment,temperature=temperature,
+                   response_format=response_format)
     try:
         text, usage = _chat_request(provider, model_id, messages, timeout, api_key,
                                     temperature, response_format=response_format)
@@ -180,7 +276,8 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         # messages, response bodies, prompts, or authorization material.
         safe_code=''
         try:
-            response_body=exc.read().decode('utf-8','replace')
+            response_body=read_bounded_body(exc,max_bytes=8192,
+                deadline=time.monotonic()+5,check=check_cancelled).decode('utf-8','replace')
             from diagnostic_report import record_model_event
             record_model_event('cloud_provider_error',provider=provider,status=exc.code)
             payload=json.loads(response_body)
@@ -189,6 +286,8 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
                 code=error.get('code')
                 if isinstance(code,str) and len(code)<=80 and code.replace('_','').replace('-','').isalnum():
                     safe_code=code
+        except TaskCancelled:
+            raise
         except Exception:
             pass
         finally:
@@ -198,5 +297,6 @@ def call_text(model, messages, *, timeout=180, temperature=0.2, response_format=
         failure.provider_error_code=safe_code
         failure.args=(f'{provider}: API HTTP {exc.code}{suffix}; запрос не завершён',)
         raise failure from None
+    check_cancelled()
     return {'message': {'content': text}, 'done_reason': 'stop',
             'provider': provider, 'model': model_id, 'usage': usage}

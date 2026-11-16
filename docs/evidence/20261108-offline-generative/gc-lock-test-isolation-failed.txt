@@ -1,0 +1,39 @@
+.............................................F.F.......... [ 21%]
+................................... [ 34%]
+.................................................................. [ 58%]
+........................................................................ [ 85%]
+........................................             [100%]
+=================================== FAILURES ===================================
+_ NativeProcessOwnershipTests.test_actual_device_lock_excludes_a_second_process_and_releases_on_death _
+
+self = <test_generative_media.NativeProcessOwnershipTests testMethod=test_actual_device_lock_excludes_a_second_process_and_releases_on_death>
+
+    def test_actual_device_lock_excludes_a_second_process_and_releases_on_death(self):
+        import subprocess
+        code="import sys,time;sys.path.insert(0,sys.argv[1]);from generative_runner import device_lock\nwith device_lock():\n print('locked',flush=True);time.sleep(30)\n"
+        process=subprocess.Popen([sys.executable,'-c',code,str(Path(jobs.__file__).parent)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+>           self.assertEqual(process.stdout.readline().strip(),'locked')
+E           AssertionError: '' != 'locked'
+E           + locked
+
+ci/test_generative_media.py:251: AssertionError
+_ NativeProcessOwnershipTests.test_parent_channel_eof_terminates_the_actual_runner _
+
+self = <test_generative_media.NativeProcessOwnershipTests testMethod=test_parent_channel_eof_terminates_the_actual_runner>
+
+    def test_parent_channel_eof_terminates_the_actual_runner(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'request.json';path.write_text(json.dumps({'request':{},'inputs':[],'target':str(Path(temporary)/'output.png')}))
+            process=subprocess.Popen([sys.executable,str(Path(jobs.__file__).with_name('generative_runner.py')),'--request',str(path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            try:
+                process.stdin.close();process.wait(timeout=10)
+>               self.assertEqual(process.returncode,75)
+E               AssertionError: 1 != 75
+
+ci/test_generative_media.py:241: AssertionError
+=========================== short test summary info ============================
+FAILED ci/test_generative_media.py::NativeProcessOwnershipTests::test_actual_device_lock_excludes_a_second_process_and_releases_on_death
+FAILED ci/test_generative_media.py::NativeProcessOwnershipTests::test_parent_channel_eof_terminates_the_actual_runner
+2 failed, 269 passed, 77 subtests passed in 16.21s

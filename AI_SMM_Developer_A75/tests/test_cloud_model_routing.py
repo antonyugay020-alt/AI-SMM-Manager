@@ -18,10 +18,8 @@ class CloudModelRoutingTests(unittest.TestCase):
 
     def test_local_model_keeps_ollama_transport(self):
         import json
-        from unittest.mock import MagicMock
-        response=MagicMock();response.__enter__.return_value=response
-        response.__exit__.return_value=False
-        response.read.return_value=json.dumps({'message':{'content':'local'}}).encode()
+        import io
+        response=io.BytesIO(json.dumps({'message':{'content':'local'}}).encode())
         with patch('ollama_resilience.urllib.request.urlopen',return_value=response):
             result=request_chat({'model':'qwen3:8b','messages':[]},stage='test')
         self.assertEqual(result['message']['content'],'local')

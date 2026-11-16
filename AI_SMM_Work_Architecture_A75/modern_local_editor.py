@@ -3,17 +3,47 @@ Run in separate process to isolate PyTorch/VRAM failures from GUI.
 Requires separately installed diffusers, transformers, torch and model weights.
 """
 import argparse, json, os, sys, traceback, gc, time, re
-if hasattr(sys.stdout,"reconfigure"): sys.stdout.reconfigure(encoding="utf-8",errors="replace")
 from pathlib import Path
 from PIL import Image, ImageOps
 
 def log(stage):
     print(json.dumps({"stage":stage},ensure_ascii=False),flush=True)
 
+def validate_reference_inputs(source,reference,output,*,use_reference=False):
+    from project_file_boundary import reject_path_link
+    source=reject_path_link(Path(source)).resolve()
+    output=reject_path_link(Path(output)).resolve()
+    if reference and use_reference is not True:raise ValueError('Explicit reference permission required')
+    if use_reference is True and not reference:raise ValueError('Reference was requested but not supplied')
+    protected=[source]
+    if reference:
+        item=reject_path_link(Path(reference)).resolve()
+        if item==source or (item.exists() and source.exists() and item.samefile(source)):
+            raise ValueError('Source and reference must be different files')
+        protected.append(item)
+    if any(output==path or (output.exists() and path.exists() and output.samefile(path)) for path in protected):
+        raise ValueError('Output cannot overwrite source or reference')
+
+
+def select_cuda_dtype(torch):
+    """Prefer native BF16 only; Turing-class GPUs must not use BF16 emulation.
+
+    See docs.pytorch.org/docs/stable/generated/torch.cuda.is_bf16_supported.html.
+    This is precision compatibility, not evidence of model quality or VRAM fit.
+    """
+    major,_=torch.cuda.get_device_capability()
+    if major<8:return torch.float16
+    try:supported=torch.cuda.is_bf16_supported(including_emulation=False)
+    except TypeError:supported=torch.cuda.is_bf16_supported()
+    return torch.bfloat16 if supported else torch.float16
+
+
 def main():
+    if hasattr(sys.stdout,'reconfigure'):sys.stdout.reconfigure(encoding='utf-8',errors='replace')
     p=argparse.ArgumentParser()
     p.add_argument('--source',required=True)
     p.add_argument('--reference',default='')
+    p.add_argument('--use-reference',action='store_true')
     p.add_argument('--prompt',required=True)
     p.add_argument('--output',required=True)
     p.add_argument('--model',default='Qwen/Qwen-Image-Edit-2509')
@@ -22,14 +52,7 @@ def main():
     p.add_argument('--max-side',type=int,default=512)
     p.add_argument('--offload',choices=['sequential','model','group'],default='sequential')
     args=p.parse_args()
-    from reference_policy import reference_requested
-    if args.reference and not reference_requested(args.prompt):
-        raise ValueError('Нет явного разрешения использовать эталон.')
-    output_path=Path(args.output).resolve()
-    protected=[Path(args.source).resolve()]
-    if args.reference: protected.append(Path(args.reference).resolve())
-    if any(output_path == path or (output_path.exists() and path.exists() and output_path.samefile(path)) for path in protected):
-        raise ValueError('Результат не может перезаписывать исходник или эталон.')
+    validate_reference_inputs(args.source,args.reference,args.output,use_reference=args.use_reference)
     import torch
     # SDPA already manages attention memory; forcing attention slicing adds overhead.
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -48,7 +71,9 @@ def main():
         raise RuntimeError('Недостаточно свободной RAM (<8 ГБ). Закройте тяжёлые приложения и повторите.')
     load_started=time.monotonic()
     log('Загружаю уже скачанные веса модели в память…')
-    pipe=QwenImageEditPlusPipeline.from_pretrained(args.model_path,torch_dtype=torch.bfloat16,local_files_only=True)
+    dtype=select_cuda_dtype(torch)
+    log('Точность модели по возможностям GPU: '+str(dtype))
+    pipe=QwenImageEditPlusPipeline.from_pretrained(args.model_path,torch_dtype=dtype,local_files_only=True)
     # CPU offload saves VRAM but needs sufficient system RAM and can be very slow.
     if args.offload == 'sequential':
         log('Экономия VRAM: последовательная выгрузка модулей в RAM (может работать очень медленно).')
@@ -85,9 +110,6 @@ def main():
     with Image.open(args.source) as im: source=ImageOps.exif_transpose(im).convert('RGB')
     source.thumbnail((args.max_side,args.max_side))
     images=[source]
-    from reference_policy import reference_requested
-    if args.reference and not reference_requested(args.prompt):
-        raise ValueError('Нет явного разрешения использовать эталон.')
     if args.reference and os.path.normcase(os.path.abspath(args.reference)) == os.path.normcase(os.path.abspath(args.source)):
         raise ValueError('Исходник совпадает с эталоном. Обработка запрещена.')
     if args.reference:
@@ -98,7 +120,7 @@ def main():
     # Preserve the requested operation while reinforcing subject/background consistency.
     instruction = (args.prompt.strip() +
         '\nApply the requested edit faithfully. Preserve all elements that the user did not ask to change. '
-        'For background replacement, replace the background as requested while preserving the foreground subject, pose, clothing and identity. '
+        'Do not add operations that were not requested. '
         'Keep realistic perspective, shadows, lighting and texture. Do not introduce unrelated changes.')
     generation_started=time.monotonic()
     def step_progress(_pipe, step_index, timestep, callback_kwargs):

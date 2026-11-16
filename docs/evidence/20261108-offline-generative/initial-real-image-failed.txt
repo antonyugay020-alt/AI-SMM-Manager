@@ -1,0 +1,11 @@
+Fontconfig error: No writable cache directories
+This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+Traceback (most recent call last):
+  File "/workspace/AI-SMM-Manager/ci/studio_local_generative_smoke.py", line 67, in <module>
+    if __name__=='__main__':raise SystemExit(main())
+                                             ^^^^^^
+  File "/workspace/AI-SMM-Manager/ci/studio_local_generative_smoke.py", line 49, in main
+    assert row and row[1]=='completed',row
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('0ad140bf88154077a576cbc16a01a16b', 'failed', None, 'LOCAL_MODEL_EXECUTION_FAILED')

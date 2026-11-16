@@ -1,0 +1,9 @@
+Fontconfig error: No writable cache directories
+Traceback (most recent call last):
+  File "/workspace/AI-SMM-Manager/ci/studio_media_dialogue_smoke.py", line 107, in <module>
+    'cancelled':args.cancel,'paid_ledger_corrupt':args.corrupt_paid_ledger,'paid_api_calls':0,'real_model_tested':args.real_model,'executed_task':executed['task'],'output_geometry':[128,96],'seconds_per_image':.5,'windows_e2e':False}))
+                                 ^^^^^^
+  File "/workspace/AI-SMM-Manager/ci/studio_media_dialogue_smoke.py", line 85, in main
+    assert intake==(request,'failed' if args.cancel else 'resolved'),intake
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('Собери из этих двух изображений короткий ролик: 128 на 96 пикселей, каждое изображение показывать 0.5 секунды. Сохрани отдельно.', 'failed')

@@ -35,7 +35,7 @@ class AuditScheduling(unittest.TestCase):
             self.assertEqual(out['status'],'BLOCKED');self.assertTrue(out['finished'])
             self.assertEqual([c['status'] for c in out['cases']],['NOT_RUN','NOT_RUN'])
             self.assertTrue(all(out[k]['status']=='NOT_TESTED' for k in ('negative_control','operational_claim_control','explicit_fact_control')))
-            self.assertEqual(json.loads(destination.read_text()),out)
+            self.assertEqual(json.loads(destination.read_text(encoding='utf-8')),out)
     def test_ready_candidate_is_audited_and_skipped_sibling_cannot_become_pass(self):
         standalone={'workflow_type':'standalone_post','author_model':'writer','request':'Write.',
             'response':{'action':'write','answer':'A ready draft.','quality_review':{'pass':True,'issues':[],'review_errors':{}}}}
@@ -77,7 +77,7 @@ class AuditScheduling(unittest.TestCase):
             self.write(root,'one',packet());self.write(root,'two',packet())
             with patch.object(editor,'call_editor',side_effect=audit),self.assertRaises(Interrupted):
                 editor.review_saved_results(root,ready_only=True,checkpoint_path=destination)
-            saved=json.loads(destination.read_text())
+            saved=json.loads(destination.read_text(encoding='utf-8'))
             self.assertEqual([c['status'] for c in saved['cases']],['PASS','RUNNING'])
             self.assertFalse(saved['finished']);self.assertEqual(saved['active_case'],'two')
             self.assertEqual(saved['active_stage'],'case_started')
@@ -93,24 +93,24 @@ class TimeoutReport(unittest.TestCase):
             partial={'status':'FAIL','finished':False,'active_stage':'case_started','active_case':'two',
                      'cases':[{'case':'one','status':'PASS'},{'case':'two','status':'RUNNING'}]}
             def interrupt(args,**kwargs):
-                destination.write_text(json.dumps(partial))
+                destination.write_text(json.dumps(partial), encoding='utf-8')
                 raise subprocess.TimeoutExpired(args,kwargs.get('timeout',10),output=b'partial-output')
             with patch.object(windows,'OUT',root),patch.object(windows,'RESULT',{'checks':{}}), \
                  patch.object(subprocess,'run',side_effect=interrupt):
                 windows.child_run('independent_semantic_acceptance',[sys.executable,'-c','pass'],10,root)
                 check=windows.RESULT['checks']['independent_semantic_acceptance']
                 self.assertTrue(check['timed_out']);self.assertEqual(check['status'],'FAIL')
-            saved=json.loads(destination.read_text())
+            saved=json.loads(destination.read_text(encoding='utf-8'))
             self.assertEqual(saved['cases'],partial['cases']);self.assertEqual(saved['active_case'],'two')
             self.assertEqual(saved['status'],'BLOCKED');self.assertEqual(saved['review_state'],'timed_out')
-            self.assertIn('partial-output',(root/'independent_semantic_acceptance.log').read_text())
+            self.assertIn('partial-output',(root/'independent_semantic_acceptance.log').read_text(encoding='utf-8'))
     def test_timeout_before_first_checkpoint_still_has_a_diagnostic_report(self):
         with tempfile.TemporaryDirectory() as home:
             root=Path(home)
             with patch.object(windows,'OUT',root),patch.object(windows,'RESULT',{'checks':{}}), \
                  patch.object(subprocess,'run',side_effect=subprocess.TimeoutExpired(['a'],3,output=b'partial',stderr=b'error')):
                 windows.child_run('independent_semantic_acceptance',['a'],3,root)
-            saved=json.loads((root/'independent_editorial_results.json').read_text())
+            saved=json.loads((root/'independent_editorial_results.json').read_text(encoding='utf-8'))
             self.assertEqual(saved['active_stage'],'before_first_checkpoint');self.assertFalse(saved['finished'])
 
 

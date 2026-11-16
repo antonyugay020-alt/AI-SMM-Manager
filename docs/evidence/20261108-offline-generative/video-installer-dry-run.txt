@@ -1,0 +1,6 @@
+{
+  "engine": "animatediff_v2v",
+  "download_bytes": 7130564677,
+  "file_count": 20,
+  "download_authorized": false
+}

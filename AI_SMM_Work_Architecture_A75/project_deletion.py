@@ -273,6 +273,7 @@ def _reject_active_project_workers(db, project_id):
     for table, predicate in (
         ('execution_attempts', "state='running'"),
         ('batch_item_receipts', "status='running'"),
+        ('local_media_jobs', "state='running'"),
     ):
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             if db.execute('SELECT 1 FROM "'+table+'" WHERE project_id=? AND '+predicate+' LIMIT 1',

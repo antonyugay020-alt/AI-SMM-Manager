@@ -161,4 +161,37 @@ class BatchPublicationIntegration(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):self.core.batches.claim('a',run.batch_id,str(self.inputs['a']))
         self.assertEqual(self.core.batches.pending('a').paths,(str(self.inputs['a']),))
 
+    def test_path_alias_cannot_reuse_existing_artifact_for_new_claim(self):
+        run=self._new()
+        claim=self.core.batches.claim('a',run.batch_id,str(self.inputs['a']))
+        self.core.publish_result('a','image',str(self.outputs['a']),batch_claim=claim)
+        later=self._new()
+        next_claim=self.core.batches.claim('a',later.batch_id,str(self.inputs['a']))
+        # Retain the lexical alias (Path would normalize '.' immediately).
+        alias=str(self.outputs['a'].parent)+'/./'+self.outputs['a'].name
+        with self.assertRaisesRegex(ValueError,'already registered'):
+            self.core.publish_result('a','image',alias,batch_claim=next_claim)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM result_publication_events').fetchone()[0],1)
+        self.assertEqual(self.db.execute('SELECT status FROM batch_item_receipts WHERE batch_id=?',(later.batch_id,)).fetchone(),('running',))
+        self.assertFalse(self.db.in_transaction)
+
+    def test_output_changed_during_admission_cannot_get_a_receipt(self):
+        from unittest.mock import patch
+        from PIL import Image
+        run=self._new()
+        claim=self.core.batches.claim('a',run.batch_id,str(self.inputs['a']))
+        registry=self.core.publications.registry
+        admit=registry.admit_image
+        def changed(*args,**kwargs):
+            result=admit(*args,**kwargs)
+            Image.new('RGB',(3,3),color='red').save(self.outputs['a'])
+            return result
+        with patch.object(registry,'admit_image',side_effect=changed):
+            with self.assertRaisesRegex(ValueError,'changed during publication'):
+                self.core.publish_result('a','image',str(self.outputs['a']),batch_claim=claim)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM project_files WHERE kind='result'").fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM result_publication_events').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT status FROM batch_item_receipts').fetchone(),('running',))
+        self.assertFalse(self.db.in_transaction)
+
 if __name__=='__main__':unittest.main()

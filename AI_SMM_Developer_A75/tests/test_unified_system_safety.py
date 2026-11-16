@@ -49,7 +49,7 @@ class DocumentsAfterFailure(unittest.TestCase):
         self.txt=self.folder/'strategies'/('Title_'+self.doc[:8]+'.txt')
         self.pdf=self.folder/'pdf'/('Title_'+self.doc[:8]+'.pdf')
         self.txt.parent.mkdir();self.pdf.parent.mkdir()
-        self.txt.write_text('Old');self.pdf.write_bytes(b'%PDF-old')
+        self.txt.write_text('Old', encoding='utf-8');self.pdf.write_bytes(b'%PDF-old')
 
     def test_delete_removes_export_and_database_but_not_neighbors(self):
         neighbor=self.folder/'pdf'/'other.pdf';neighbor.write_bytes(b'%PDF-other')
@@ -63,7 +63,7 @@ class DocumentsAfterFailure(unittest.TestCase):
         self.db.commit()
         with self.assertRaises(sqlite3.DatabaseError):
             delete_project_data(self.db,self.project,'documents',self.folder,[self.doc])
-        self.assertEqual(self.txt.read_text(),'Old')
+        self.assertEqual(self.txt.read_text(encoding='utf-8'),'Old')
         self.assertEqual(self.pdf.read_bytes(),b'%PDF-old')
         self.assertEqual(self.db.execute('select count(*) from manager_documents').fetchone()[0],1)
 
@@ -73,10 +73,10 @@ class DocumentsAfterFailure(unittest.TestCase):
         import json
         rel=self.txt.relative_to(self.folder).as_posix()
         (stage/'manifest.json').write_text(json.dumps({'op_id':stage.name,'project_ref':self.project,
-            'scope':'documents','project_root':str(self.folder),'entries':[rel]}))
+            'scope':'documents','project_root':str(self.folder),'entries':[rel]}), encoding='utf-8')
         os.replace(self.txt,stage/'content'/rel)
         recover_deletions(self.db,[self.folder])
-        self.assertEqual(self.txt.read_text(),'Old')
+        self.assertEqual(self.txt.read_text(encoding='utf-8'),'Old')
 
     def test_committed_document_cleanup_can_resume(self):
         original=shutil.rmtree
@@ -118,7 +118,7 @@ class DocumentsAfterFailure(unittest.TestCase):
         self.pdf.unlink()
         (self.folder/'strategies').rmdir()
         outside=self.root/'outside';outside.mkdir()
-        (outside/self.txt.name).write_text('foreign original')
+        (outside/self.txt.name).write_text('foreign original', encoding='utf-8')
         try:
             (self.folder/'strategies').symlink_to(outside, target_is_directory=True)
         except OSError as exc:
@@ -127,7 +127,7 @@ class DocumentsAfterFailure(unittest.TestCase):
             raise
         with self.assertRaises(ValueError):
             delete_project_data(self.db,self.project,'documents',self.folder,[self.doc])
-        self.assertEqual((outside/self.txt.name).read_text(),'foreign original')
+        self.assertEqual((outside/self.txt.name).read_text(encoding='utf-8'),'foreign original')
         self.assertEqual(self.db.execute('select count(*) from manager_documents').fetchone()[0],1)
 
     def test_short_uuid_collision_blocks_document_deletion(self):
@@ -148,7 +148,7 @@ class DocumentsAfterFailure(unittest.TestCase):
              'project_dir':lambda *a:self.folder,'document_folder':lambda k:'strategies',
              'safe_file_label':lambda x:x}
         self.assertFalse(method('export_active_document',env)(view,False))
-        self.assertEqual(self.txt.read_text(),'Old')
+        self.assertEqual(self.txt.read_text(encoding='utf-8'),'Old')
         self.assertEqual(self.pdf.read_bytes(),b'%PDF-old')
         self.assertEqual(self.db.execute('select content from manager_documents').fetchone()[0],'Old')
         self.assertEqual(len(messages),1)

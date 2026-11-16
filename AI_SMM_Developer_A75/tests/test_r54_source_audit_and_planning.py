@@ -74,7 +74,7 @@ class PublicCopySourceAuditTests(unittest.TestCase):
     def test_boolean_fact_pass_is_insufficient_and_does_not_trigger_repair(self):
         draft = 'Мы выдаём каждому клиенту персональный набор.'
         assignments = dict(zip(review.CHECKS, ['r1', 'r2', 'r3', 'r4']))
-        with patch('generic_text_review.request_chat', return_value={'message': {'content':
+        with patch('generic_text_review.select_reviewer_models',side_effect=AssertionError('Explicit panel must not trigger roster qualification')), patch('generic_text_review.request_chat', return_value={'message': {'content':
                 '{"pass":true,"issues":[]}'}}) as model:
             result = review.run_quality_cycle('Напиши краткий текст.', {'action': 'write', 'answer': draft},
                 {}, model='author', reviewer_models=assignments,

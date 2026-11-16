@@ -257,10 +257,10 @@ class ReviewerQuickReport(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             root=Path(home);module=root/'windows_acceptance.py'
             module.write_bytes(Path(windows_acceptance.__file__).read_bytes())
-            out=root/'VALIDATION_RESULTS';out.mkdir();sentinel=out/'existing.json';sentinel.write_text('{"keep":true}')
+            out=root/'VALIDATION_RESULTS';out.mkdir();sentinel=out/'existing.json';sentinel.write_text('{"keep":true}', encoding='utf-8')
             spec=importlib.util.spec_from_file_location('read_only_acceptance_import',module)
             loaded=importlib.util.module_from_spec(spec);spec.loader.exec_module(loaded)
-            self.assertEqual(sentinel.read_text(),'{"keep":true}')
+            self.assertEqual(sentinel.read_text(encoding='utf-8'),'{"keep":true}')
         with tempfile.TemporaryDirectory() as home:
             root=Path(home);module=root/'windows_acceptance.py';module.write_bytes(Path(windows_acceptance.__file__).read_bytes())
             spec=importlib.util.spec_from_file_location('no_output_acceptance_import',module)
@@ -271,13 +271,13 @@ class ReviewerQuickReport(unittest.TestCase):
         from pathlib import Path
         import windows_acceptance as acceptance
         with tempfile.TemporaryDirectory() as home:
-            root=Path(home);full=root/'VALIDATION_RESULTS';full.mkdir();sentinel=full/'acceptance.json';sentinel.write_text('existing full report')
+            root=Path(home);full=root/'VALIDATION_RESULTS';full.mkdir();sentinel=full/'acceptance.json';sentinel.write_text('existing full report', encoding='utf-8')
             with patch.object(acceptance,'OUT',full/'REVIEWER_CHECK'), \
                  patch.object(acceptance,'RESULT',{'checks':{}}), \
                  patch('release_guard.verify_tree',return_value={'source_fingerprint':'f'*64}), \
                  patch.object(acceptance,'reviewer_model_probe',return_value=True) as probe:
                 self.assertEqual(acceptance.reviewer_check_only(),0);probe.assert_called_once()
-            self.assertEqual(sentinel.read_text(),'existing full report')
+            self.assertEqual(sentinel.read_text(encoding='utf-8'),'existing full report')
             with zipfile.ZipFile(full/'REVIEWER_CHECK.zip') as z:
                 result=json.loads(z.read('REVIEWER_CHECK/reviewer_qualification.json'))
             self.assertEqual(result['status'],'PASS');self.assertEqual(result['content_generation'],'NOT_RUN')

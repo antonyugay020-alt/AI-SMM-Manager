@@ -1,0 +1,2 @@
+Fontconfig error: No writable cache directories
+GUI_SMOKE_PASS: project isolation, Qt launch, navigation, PDF, reference opt-in

@@ -16,7 +16,7 @@ class WorkflowStateTests(unittest.TestCase):
         self.seed={'project_id':'a','request':self.original,'strategy':'Old strategy','posts':{'1/Ср':{'caption':'Old text'}},
             'slots':[{'week':1,'day':'Ср','platform':'Instagram','topic':'Old topic'}],'platform':'Instagram',
             'scope':{'weeks':1,'per_week':1,'total':1}}
-        (self.workspace/'drafts'/('revision_input_'+self.revision_id+'.json')).write_text(json.dumps(self.seed))
+        (self.workspace/'drafts'/('revision_input_'+self.revision_id+'.json')).write_text(json.dumps(self.seed), encoding='utf-8')
         self.db.execute('INSERT INTO ai_pending_tasks VALUES(?,?,?,?)',('a',self.original,'Which requirements now?',self.revision_id))
         self.db.execute('CREATE TABLE ai_semantic_tasks(project_id TEXT,request TEXT,context_json TEXT)')
         manifest={'semantic_authorized':True,'semantic_execution_kind':'bundle','semantic_schedule':self.seed['scope'],'semantic_requested_media':False}
@@ -31,7 +31,7 @@ class WorkflowStateTests(unittest.TestCase):
         self.assertNotEqual(request,self.original);self.assertNotEqual(state['revision_id'],self.revision_id)
         self.assertEqual(state['revision_seed']['request'],request)
         for key in ('posts','slots','strategy'):self.assertFalse(state['revision_seed'][key])
-        self.assertEqual(json.loads((self.workspace/'drafts'/('revision_input_'+self.revision_id+'.json')).read_text()),self.seed)
+        self.assertEqual(json.loads((self.workspace/'drafts'/('revision_input_'+self.revision_id+'.json')).read_text(encoding='utf-8')),self.seed)
     def test_explicit_unchanged_structure_reuses_only_an_unapproved_seed(self):
         _,state=self.compile(self.seed['scope'],True)
         self.assertEqual(state['revision_seed']['slots'],self.seed['slots'])

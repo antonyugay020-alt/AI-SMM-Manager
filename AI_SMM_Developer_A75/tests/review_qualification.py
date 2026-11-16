@@ -5,13 +5,17 @@ not arbitrary-text quality. No user text, credentials or paid-provider discovery
 """
 from __future__ import annotations
 import copy
+import hashlib
 import json
 import random
 import secrets
 import time
 from threading import RLock
 from review_arbitration import adjudicate_findings, FindingReviewUnavailable
-from ollama_resilience import model_call_role, request_chat
+from ollama_resilience import model_call_role, request_chat, capture_utf8_transport
+
+# One request may include a local 14B cold start; quality oracle is unchanged.
+LOCAL_REVIEW_TIMEOUT_SECONDS = 180
 
 PROTOCOL = 'review_qualification_host_scope_r77_v2'
 CERT_ENV = 'AI_SMM_REVIEW_QUALIFICATIONS'
@@ -102,6 +106,8 @@ def build_controls(seed):
 
 
 def _valid_record(record,model):
+    from local_text_runtime import configuration_identity
+    if isinstance(record,dict) and record.get('local_route')!=configuration_identity(model):return False
     if (not isinstance(record,dict) or record.get('protocol')!=PROTOCOL
             or record.get('model')!=model or record.get('pass') is not True
             or record.get('contract_pass') is not True
@@ -131,7 +137,9 @@ def cached_qualification(model):
     name=str(model).strip()
     with _LOCK:
         cached=_CACHE.get(name)
+        from local_text_runtime import configuration_identity
         if (isinstance(cached,dict) and cached.get('protocol')==PROTOCOL
+                and cached.get('local_route')==configuration_identity(name)
                 and type(cached.get('checked_at')) in (int,float)
                 and 0<=time.time()-cached['checked_at']<(8*3600 if cached.get('contract_pass') is True or cached.get('contract_errors') else 120)
                 and (cached.get('pass') is False or _valid_record(cached,name))):
@@ -162,6 +170,7 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
     send=transport or request_chat
     calls=0;contract=False;resolved=[];error='';response_diagnostics={}
     contract_errors=[];raw_reply='';raw_reply_truncated=False;author_response_compatible=False
+    utf8_evidence={}
     started=time.monotonic()
     def ask(reviewer,system,user,*,json_schema):
         nonlocal calls,response_diagnostics,raw_reply,raw_reply_truncated,author_response_compatible
@@ -170,12 +179,31 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
         body={'model':reviewer,'stream':False,'think':False,'format':json_schema,'keep_alive':0,
             'messages':[{'role':'system','content':system},{'role':'user','content':user}],
             'options':{'temperature':0,'num_ctx':8192,'num_predict':1800}}
-        response=send(body,stage='проверка компетенции модели-рецензента',timeout=45,attempts=1,report=report)
+        encoded=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode('utf-8',errors='strict')
+        utf8_evidence.update(input_sha256=hashlib.sha256(encoded).hexdigest(),
+            input_bytes=len(encoded),input_payload=body,encoding='utf-8',strict_roundtrip=json.loads(encoded.decode('utf-8'))==body)
+        with capture_utf8_transport() as wire_evidence:
+            try:
+                # Allow local 14B cold-start and 8K-context generation; admission oracle remains unchanged.
+                response=send(body,stage='проверка компетенции модели-рецензента',timeout=LOCAL_REVIEW_TIMEOUT_SECONDS,attempts=1,report=report)
+            except Exception as exc:
+                # Terminal completion rejection happens before ask receives a
+                # response. Retain its content-free counters/reason; never
+                # decode the partial reply or send another qualification call.
+                diagnostic=getattr(exc,'response_diagnostics',None)
+                if isinstance(diagnostic,dict):response_diagnostics=copy.deepcopy(diagnostic)
+                raise
+            finally:
+                utf8_evidence['wire']=wire_evidence
         from ollama_resilience import response_diagnostics as diagnostics
         response_diagnostics=diagnostics(response)
         content=response.get('message',{}).get('content','') if isinstance(response,dict) else ''
         raw_reply=content[:18000] if isinstance(content,str) else ''
         raw_reply_truncated=isinstance(content,str) and len(content)>18000
+        if isinstance(content,str):
+            encoded_reply=content.encode('utf-8',errors='strict')
+            utf8_evidence.update(reply_sha256=hashlib.sha256(encoded_reply).hexdigest(),
+                reply_bytes=len(encoded_reply),replacement_character_present='\ufffd' in content)
         try:
             author_response_compatible=(isinstance(content,str) and isinstance(json.loads(content),dict)
                 and response.get('done_reason')!='length')
@@ -204,12 +232,13 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
         wanted='confirmed' if expected['needs_change'] else 'dismissed'
         outcomes.append({'kind':expected['kind'],'field':field,'expected':wanted,'actual':actual,
             'pass':actual==wanted})
-    result={'protocol':PROTOCOL,'model':name,'seed':seed,'checked_at':time.time(),
+    from local_text_runtime import configuration_identity
+    result={'protocol':PROTOCOL,'model':name,'local_route':configuration_identity(name),'seed':seed,'checked_at':time.time(),
         'contract_pass':contract,'author_response_compatible':author_response_compatible,
         'pass':contract and all(row['pass'] for row in outcomes),
         'controls':outcomes,'model_calls':calls,'duration_s':round(time.monotonic()-started,2),
         'error':error or None,'response_diagnostics':response_diagnostics,
-        'contract_errors':contract_errors,'raw_reply':raw_reply,'raw_reply_truncated':raw_reply_truncated,
+        'utf8_evidence':utf8_evidence,'contract_errors':contract_errors,'raw_reply':raw_reply,'raw_reply_truncated':raw_reply_truncated,
         'semantic_controls_evaluated':len(outcomes) if contract else 0,
         'semantic_controls_correct':sum(row['pass'] for row in outcomes) if contract else None,
         'scope':'Elementary known-answer controls only; not certification of arbitrary-text quality'}
@@ -225,6 +254,6 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
 def qualification_envelope(records):
     # Keep bounded proofs in the child environment; raw diagnostic replies stay
     # in the report (Windows environment variables have a finite size).
-    keys=('protocol','model','seed','checked_at','contract_pass','pass','controls','model_calls')
+    keys=('protocol','model','local_route','seed','checked_at','contract_pass','pass','controls','model_calls')
     return {'protocol':PROTOCOL,'results':{row['model']:{key:copy.deepcopy(row[key])
         for key in keys if key in row} for row in records if row.get('pass') is True}}

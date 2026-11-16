@@ -1,0 +1,91 @@
+"""Owned FFmpeg/ffprobe subprocess boundary, independent of Qt and CUDA.
+
+Capture to disk, not PIPE: long encodes must never accumulate stderr in RAM.
+Windows children are assigned to an application-owned kill-on-close Job Object
+before they run. POSIX children use their own process group for bounded cleanup.
+"""
+from __future__ import annotations
+
+import math
+import os
+import subprocess
+import tempfile
+import time
+from owned_process_cleanup import close_owned_process
+
+
+MAX_PROBE_STDOUT = 1_048_576
+MAX_ERROR_TAIL = 8192
+MAX_ERROR_BYTES = 16 * 1024 * 1024
+
+
+def _stop(process, job):
+    """One shared tree owner for FFmpeg, ffprobe, native QA and CUDA."""
+    close_owned_process(process,job,grace=3)
+
+
+def run_owned_media_process(command, check=None, *, timeout=1200, capture_stdout=False):
+    """Return (exit_code, bounded_stdout, bounded_stderr_tail).
+
+    Raises on cancellation, deadline, spawn/ownership failure, or oversized
+    probe output. Never reads unbounded output into the parent process.
+    """
+    if (not isinstance(command, (tuple, list)) or not command
+            or any(not isinstance(item, (str, os.PathLike)) for item in command)):
+        raise ValueError('Invalid media process command')
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError('Invalid media process deadline')
+    if check is not None and not callable(check):
+        raise TypeError('Media cancellation check must be callable')
+    if type(capture_stdout) is not bool:
+        raise TypeError('Invalid media stdout capture mode')
+    process = job = None
+    with tempfile.TemporaryFile() as errors, tempfile.TemporaryFile() as output:
+        try:
+            if check is not None:
+                check()
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            if os.name == 'nt':
+                from windows_process_group import WindowsJob
+                job = WindowsJob()
+                flags |= 0x00000004 | 0x00000200  # suspended; new process group
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                stdout=output if capture_stdout else subprocess.DEVNULL,
+                stderr=errors, creationflags=flags,
+                start_new_session=os.name != 'nt')
+            if job is not None:
+                job.assign_resume(process)
+            deadline = time.monotonic() + timeout
+            while True:
+                if check is not None:
+                    check()
+                # Bound temporary disk usage while ffprobe is still running,
+                # not only after it exits. Never wait for an infinite producer.
+                if capture_stdout and os.fstat(output.fileno()).st_size > MAX_PROBE_STDOUT:
+                    raise ValueError('Media probe output exceeds safe bound')
+                if os.fstat(errors.fileno()).st_size > MAX_ERROR_BYTES:
+                    raise ValueError('Media tool diagnostics exceed safe disk bound')
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('Local media tool deadline exceeded')
+                try:
+                    code = process.wait(timeout=min(.1, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            error_size = errors.seek(0, 2)
+            if error_size > MAX_ERROR_BYTES:
+                raise ValueError('Media tool diagnostics exceed safe disk bound')
+            errors.seek(max(0, error_size - MAX_ERROR_TAIL))
+            tail = errors.read(MAX_ERROR_TAIL)
+            if capture_stdout:
+                size = output.seek(0, 2)
+                if size > MAX_PROBE_STDOUT:
+                    raise ValueError('Media probe output exceeds safe bound')
+                output.seek(0)
+                stdout = output.read(MAX_PROBE_STDOUT)
+            else:
+                stdout = b''
+            return code, stdout, tail
+        finally:
+            _stop(process, job)

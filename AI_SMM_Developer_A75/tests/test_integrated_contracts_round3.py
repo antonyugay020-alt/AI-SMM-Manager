@@ -22,7 +22,7 @@ class DurableAndConsistentTaskTests(unittest.TestCase):
             data={'signature':'boolean', 'completed':'false', 'outputs': {
                 'strategy':{'kind':'document','status':'accepted','revisions':0},
                 'calendar':{'kind':'document','status':'accepted','revisions':0}}}
-            (Path(tmp)/'task_orchestration_boolean.json').write_text(json.dumps(data))
+            (Path(tmp)/'task_orchestration_boolean.json').write_text(json.dumps(data), encoding='utf-8')
             ledger=TaskLedger.open(tmp,'boolean')
             self.assertIs(ledger.completed,False)
 
@@ -128,7 +128,7 @@ class NaturalLanguageContractTests(unittest.TestCase):
             data={'signature':'damaged','completed':True,'outputs':{
                 'strategy':{'kind':'document','status':'accepted','revisions':0},
                 'post':{'kind':'publication','status':'accepted','revisions':[]}}}
-            (Path(tmp)/'task_orchestration_damaged.json').write_text(json.dumps(data))
+            (Path(tmp)/'task_orchestration_damaged.json').write_text(json.dumps(data), encoding='utf-8')
             ledger=TaskLedger.open(tmp,'damaged')
             self.assertFalse(ledger.completed)
 

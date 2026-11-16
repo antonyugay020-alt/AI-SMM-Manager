@@ -20,7 +20,7 @@ REQUIRED = (
     'ollama_roundtrip', 'ollama_structured_json', 'ollama_constrained_schema',
     'ollama_inventory_map_schema', 'reviewer_models',
     'live_backend_content_pipeline', 'independent_semantic_acceptance',
-    'live_gui_full_workflow', 'full_real_task_end_to_end', 'evidence_integrity',
+    'live_gui_full_workflow', 'local_generative_media', 'full_real_task_end_to_end', 'evidence_integrity',
 )
 
 def sha256(path):

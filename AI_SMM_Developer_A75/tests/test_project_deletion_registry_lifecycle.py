@@ -19,7 +19,7 @@ class ProjectRegistryDeletionTests(unittest.TestCase):
         for pid in (self.a,self.b):
             folder=self.root/'disconnected-volume'/pid
             folder.mkdir(parents=True)
-            (folder/'note.txt').write_text(pid)
+            (folder/'note.txt').write_text(pid, encoding='utf-8')
             self.db.execute('INSERT INTO projects(id,name,created_at) VALUES(?,?,?)',(pid,pid,'now'))
             self.db.execute('INSERT INTO project_locations VALUES(?,?)',(pid,str(folder)))
             self.db.execute('INSERT INTO messages(project_id,role,content,created_at) VALUES(?,?,?,?)',

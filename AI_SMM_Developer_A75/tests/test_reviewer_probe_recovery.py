@@ -69,7 +69,7 @@ class ReviewerProbeRecoveryTests(unittest.TestCase):
                              ['qwen3:8b','llama3.1:8b','mistral:7b','gemma3:4b'])
         self.assertEqual(len(calls),5)
         self.assertTrue(all(call[0]['options']['num_predict']==1800 for call in calls))
-        self.assertTrue(all(timeout==45 for _,timeout in calls))
+        self.assertTrue(all(timeout==180 for _,timeout in calls))
         pool_events=[details for args,details in events if args and args[0]=='reviewer_models']
         self.assertEqual(pool_events[0]['reviewer_models'],
                          ['qwen3:8b','llama3.1:8b','mistral:7b','gemma3:4b'])

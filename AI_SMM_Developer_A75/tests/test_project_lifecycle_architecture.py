@@ -18,8 +18,8 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertTrue(all((base/x).is_dir() for x in PROJECT_FOLDERS))
         self.assertEqual(reconcile_project(self.db,pid),base)
     def test_existing_files_are_never_deleted(self):
-        pid=self.create();base=reconcile_project(self.db,pid);(base/'texts'/'owned.txt').write_text('important')
-        reconcile_projects(self.db);self.assertEqual((base/'texts'/'owned.txt').read_text(),'important')
+        pid=self.create();base=reconcile_project(self.db,pid);(base/'texts'/'owned.txt').write_text('important', encoding='utf-8')
+        reconcile_projects(self.db);self.assertEqual((base/'texts'/'owned.txt').read_text(encoding='utf-8'),'important')
     def test_registration_rolls_back_on_duplicate(self):
         pid=self.create();self.assertRaises(sqlite3.IntegrityError,self.create,project_id=pid)
         self.assertFalse(self.db.in_transaction)

@@ -1,0 +1,21 @@
+{
+  "protocol": "native_runtime_v1",
+  "status": "PASS",
+  "python": "/workspace/work/generative/venv/bin/python",
+  "child_pid": 47675,
+  "runtime": {
+    "cuda": false,
+    "name": "",
+    "capability": [],
+    "total": 0,
+    "device_count": 0,
+    "torch": "2.8.0+cpu",
+    "diffusers": "0.36.0",
+    "transformers": "4.57.3",
+    "accelerate": "1.12.0",
+    "safetensors": "0.7.0"
+  },
+  "exit_code": 0,
+  "log_bytes": 849,
+  "log_tail": "{\"stage\": \"runner_started\", \"monotonic_s\": 153626.862}\n{\"stage\": \"importing_torch\", \"monotonic_s\": 153626.862}\n{\"stage\": \"torch_imported\", \"monotonic_s\": 153627.69}\n{\"stage\": \"acquiring_device_lock\", \"monotonic_s\": 153627.69}\n{\"stage\": \"device_lock_acquired\", \"monotonic_s\": 153627.69}\n{\"stage\": \"importing_diffusers\", \"monotonic_s\": 153627.69}\n/workspace/work/generative/venv/lib/python3.12/site-packages/torch/amp/autocast_mode.py:266: UserWarning: User provided device_type of 'cuda', but CUDA is not available. Disabling\n  warnings.warn(\n{\"stage\": \"diffusers_imported\", \"monotonic_s\": 153629.369}\n{\"stage\": \"runtime_preflight_complete\", \"runtime\": {\"cuda\": false, \"name\": \"\", \"capability\": [], \"total\": 0, \"device_count\": 0, \"torch\": \"2.8.0+cpu\", \"diffusers\": \"0.36.0\", \"transformers\": \"4.57.3\", \"accelerate\": \"1.12.0\", \"safetensors\": \"0.7.0\"}}\n"
+}
