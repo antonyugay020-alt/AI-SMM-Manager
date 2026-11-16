@@ -6,6 +6,8 @@ resumes. No process-name/global taskkill. Actual Win32 acceptance is unrun here.
 import ctypes
 from ctypes import wintypes as w
 import os
+import math
+import time
 
 
 class WindowsJob:
@@ -23,6 +25,7 @@ class WindowsJob:
         self.api.SetInformationJobObject.argtypes=[w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD];self.api.SetInformationJobObject.restype=w.BOOL
         self.api.AssignProcessToJobObject.argtypes=[w.HANDLE,w.HANDLE];self.api.AssignProcessToJobObject.restype=w.BOOL
         self.api.CloseHandle.argtypes=[w.HANDLE];self.api.CloseHandle.restype=w.BOOL
+        self.api.TerminateJobObject.argtypes=[w.HANDLE,w.UINT];self.api.TerminateJobObject.restype=w.BOOL
         self.api.QueryInformationJobObject.argtypes=[w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD,ctypes.c_void_p];self.api.QueryInformationJobObject.restype=w.BOOL
         self.handle=self.api.CreateJobObjectW(None,None)
         if not self.handle:raise ctypes.WinError(ctypes.get_last_error())
@@ -44,6 +47,23 @@ class WindowsJob:
         data=Accounting()
         if not self.api.QueryInformationJobObject(self.handle,1,ctypes.byref(data),ctypes.sizeof(data),None):raise ctypes.WinError(ctypes.get_last_error())
         return data.active
+
+    def terminate_and_wait(self,*,timeout=5):
+        """Drain the owned tree before releasing its handles and output files.
+
+        KILL_ON_JOB_CLOSE requests termination asynchronously. Waiting only on
+        Popen may reap a venv redirector while its Python descendant still has
+        the log open. Keep the job queryable until every member has exited.
+        """
+        if type(timeout) not in (int,float) or not math.isfinite(timeout) or not 0<timeout<=10:
+            raise ValueError('Invalid Windows job drain timeout')
+        if not getattr(self,'handle',None):return
+        if not self.api.TerminateJobObject(self.handle,1):raise ctypes.WinError(ctypes.get_last_error())
+        deadline=time.monotonic()+timeout
+        while self.active():
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise TimeoutError('OWNED_WINDOWS_JOB_DRAIN_TIMEOUT')
+            time.sleep(min(.01,remaining))
 
     def close(self):
         if getattr(self,'handle',None):self.api.CloseHandle(self.handle);self.handle=None

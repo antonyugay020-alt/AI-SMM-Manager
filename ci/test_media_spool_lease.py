@@ -24,9 +24,13 @@ def test_lease_reuses_stable_lock_inode_and_releases(tmp_path):
     with spool_lease(tmp_path):
         lock=tmp_path/'.ingest_spool'/'.lease'
         first=lock.stat().st_ino
-        assert lock.read_bytes() == b'1'
+        assert lock.stat().st_size == 1
+    # Windows byte locks deny reads through another handle while held. Check
+    # the persisted sentinel after release, without weakening the actual lock.
+    assert lock.read_bytes() == b'1'
     with spool_lease(tmp_path):
         assert lock.stat().st_ino == first
+    assert lock.read_bytes() == b'1'
 
 
 def test_live_owner_blocks_gc_or_import_then_recovers(tmp_path):

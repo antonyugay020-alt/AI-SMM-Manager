@@ -15,9 +15,9 @@ from generative_models import verify_bundle
 from project_file_boundary import reject_path_link
 
 
-def _stage(name):
+def _stage(name,**evidence):
     # Captured by the owning local worker, never sent to an external service.
-    print(json.dumps({'stage':name,'monotonic_s':round(time.monotonic(),3)}),flush=True)
+    print(json.dumps({'stage':name,'monotonic_s':round(time.monotonic(),3),**evidence}),flush=True)
 
 
 def device_lock(path=None,*,wait=True,max_wait_seconds=180):
@@ -51,15 +51,23 @@ def initialize_pipeline_types():
         StableDiffusionInpaintPipeline,AnimateDiffVideoToVideoPipeline,MotionAdapter)
 
 
+def check_system_memory(task):
+    """Keep the CPU-offload safety floor and retain the actual rejection facts."""
+    import psutil
+    memory=psutil.virtual_memory()
+    minimum=(10 if task=='video_generative' else 6)*2**30
+    _stage('system_memory_preflight',available_bytes=memory.available,
+        total_bytes=memory.total,minimum_bytes=minimum,task=task)
+    if memory.available<minimum:raise RuntimeError('SYSTEM_RAM_INSUFFICIENT')
+
+
 def load_pipeline(request,torch):
     (StableDiffusionInstructPix2PixPipeline,StableDiffusionImg2ImgPipeline,
         StableDiffusionInpaintPipeline,AnimateDiffVideoToVideoPipeline,MotionAdapter)=initialize_pipeline_types()
     profile=request['generation'];root=Path(profile['bundle']);device=profile['device']
     dtype=device_policy(torch,device)
     if device=='cuda':
-        import psutil
-        minimum=10 if request['task']=='video_generative' else 6
-        if psutil.virtual_memory().available<minimum*2**30:raise RuntimeError('SYSTEM_RAM_INSUFFICIENT')
+        check_system_memory(request['task'])
     common={'torch_dtype':dtype,'local_files_only':True,'use_safetensors':True}
     task=request['task']
     _stage('loading_pipeline')

@@ -151,6 +151,7 @@ def monitor_vram(folder,stop):
                 result=subprocess.run(['nvidia-smi','--query-gpu=uuid,name,memory.total,memory.used,utilization.gpu','--format=csv,noheader,nounits'],capture_output=True,text=True,timeout=8)
                 data={'utc':datetime.now(timezone.utc).isoformat(),'exit_code':result.returncode,'samples':result.stdout.strip().splitlines(),'error':result.stderr[-500:]}
             except Exception as exc:data={'error':type(exc).__name__+': '+str(exc)}
+            data['system_memory']=system_memory_snapshot()
             log.write(json.dumps(data)+'\n');log.flush();stop.wait(1)
 
 
@@ -168,12 +169,15 @@ def run_child(command,env,folder,timeout=43200):
             if job.active()!=0:raise RuntimeError('QA process exited with live descendants; owned Job Object will clean them')
             return code
     finally:
-        job.close()
-        if child is not None and child.poll() is None:
-            try:child.terminate()
-            except OSError:
-                if child.poll() is None:raise
-            child.wait(timeout=15)
+        try:
+            job.terminate_and_wait(timeout=5)
+        finally:
+            job.close()
+            if child is not None and child.poll() is None:
+                try:child.terminate()
+                except OSError:
+                    if child.poll() is None:raise
+                child.wait(timeout=15)
 
 
 def execute(config,role,session,state):
@@ -382,6 +386,16 @@ def require_qa_environment(folder):
         raise RuntimeError('; '.join(report['issues'])+'. '+report['remedy'])
 
 
+def system_memory_snapshot():
+    try:
+        import psutil
+        memory=psutil.virtual_memory()
+        return {'available_bytes':memory.available,'total_bytes':memory.total,
+                'used_bytes':memory.used,'percent':memory.percent}
+    except Exception as exc:
+        return {'error':type(exc).__name__}
+
+
 def bootstrap_inventory(folder):
     from importlib.metadata import PackageNotFoundError
     dependencies={}
@@ -390,7 +404,8 @@ def bootstrap_inventory(folder):
         except PackageNotFoundError:dependencies[name]='NOT_INSTALLED'
     host={'platform':platform.platform(),'python':sys.version,'executable':sys.executable,
         'dependencies':dependencies,'tools':{name:shutil.which(name) for name in ('ffmpeg','ffprobe','nvidia-smi')},
-        'disk_free_bytes':shutil.disk_usage(folder).free,'windows_executed':os.name=='nt'}
+        'disk_free_bytes':shutil.disk_usage(folder).free,'windows_executed':os.name=='nt',
+        'system_memory':system_memory_snapshot()}
     if os.name=='nt' and host['tools']['nvidia-smi']:
         try:
             result=subprocess.run(['nvidia-smi','--query-gpu=name,memory.total,driver_version','--format=csv,noheader'],capture_output=True,text=True,timeout=15)

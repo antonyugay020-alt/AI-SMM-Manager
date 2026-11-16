@@ -182,6 +182,13 @@ def probe_qualification(model,*,seed=None,transport=None,force=False,report=None
             try:
                 # Allow local 14B cold-start and 8K-context generation; admission oracle remains unchanged.
                 response=send(body,stage='проверка компетенции модели-рецензента',timeout=LOCAL_REVIEW_TIMEOUT_SECONDS,attempts=1,report=report)
+            except Exception as exc:
+                # Terminal completion rejection happens before ask receives a
+                # response. Retain its content-free counters/reason; never
+                # decode the partial reply or send another qualification call.
+                diagnostic=getattr(exc,'response_diagnostics',None)
+                if isinstance(diagnostic,dict):response_diagnostics=copy.deepcopy(diagnostic)
+                raise
             finally:
                 utf8_evidence['wire']=wire_evidence
         from ollama_resilience import response_diagnostics as diagnostics

@@ -20,44 +20,54 @@ def close_owned_process(process, job=None, *, grace=3):
         raise ValueError('Invalid owned process cleanup grace')
     try:
         if job is not None:
-            job.close()
-        if process is None:
-            return
-        if os.name != 'nt' and type(getattr(process, 'pid', None)) is int and process.pid > 0:
-            group = process.pid  # Popen(start_new_session=True) guarantees this.
-            if process.poll() is None:
-                try:
-                    os.killpg(group, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
             try:
-                process.wait(timeout=grace)
-            except subprocess.TimeoutExpired:
-                pass
+                job.terminate_and_wait(timeout=grace)
             finally:
-                # The process group can outlive its reaped leader. Always
-                # kill remaining descendants before returning to the caller.
-                try:
-                    os.killpg(group, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
-            return
+                job.close()
+    finally:
+        # Even if draining fails, reap the leader and close our pipe. Preserve
+        # the cleanup error so a surviving descendant cannot become a PASS.
+        try:
+            _reap_owned_leader(process,grace)
+        finally:
+            if process is not None and getattr(process, 'stdin', None) is not None:
+                process.stdin.close()
+
+
+def _reap_owned_leader(process,grace):
+    if process is None:return
+    if os.name != 'nt' and type(getattr(process, 'pid', None)) is int and process.pid > 0:
+        group = process.pid  # Popen(start_new_session=True) guarantees this.
         if process.poll() is None:
             try:
-                process.terminate()
-            except OSError:
+                os.killpg(group, signal.SIGTERM)
+            except ProcessLookupError:
                 pass
         try:
             process.wait(timeout=grace)
         except subprocess.TimeoutExpired:
+            pass
+        finally:
+            # The process group can outlive its reaped leader. Always
+            # kill remaining descendants before returning to the caller.
             try:
-                process.kill()
-            except OSError:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
+        if process.poll() is None:
+            process.kill()
             process.wait(timeout=5)
-    finally:
-        if process is not None and getattr(process, 'stdin', None) is not None:
-            process.stdin.close()
+        return
+    if process.poll() is None:
+        try:
+            process.terminate()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.wait(timeout=5)

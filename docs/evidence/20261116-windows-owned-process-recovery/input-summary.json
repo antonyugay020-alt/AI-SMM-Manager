@@ -1,0 +1,124 @@
+{
+  "input_sha256": "c4011cb8262e4f3d87a46c46c25f4976afe164ccc16767498f7396fb472be156",
+  "input_bytes": 1075751,
+  "source_baseline": "83cf60a0dffe980bfbaaa4d99aab081d20720662",
+  "source_snapshot": {
+    "fingerprint": "f8344e329b5ea6792d56560f7d32f529ac327b59eb909f9a7883a406f8958c1b",
+    "matching_files": 924,
+    "different_files": [
+      "AI_SMM_Developer_A75/tests/CHECK_REVIEWERS.cmd",
+      "AI_SMM_Developer_A75/tests/RUN_ARCHITECTURE_CHECK.cmd",
+      "AI_SMM_Work_Architecture_A75/CHECK_REVIEWERS.cmd",
+      "AI_SMM_Work_Architecture_A75/RUN_AI_SMM_MANAGER.cmd",
+      "AI_SMM_Work_Architecture_A75/RUN_ARCHITECTURE_CHECK.cmd",
+      "RUN_10_FULL_WINDOWS_QA.cmd",
+      "RUN_WINDOWS_QA.cmd",
+      "SETUP_WINDOWS_QA.cmd"
+    ],
+    "untracked_files": [],
+    "crlf_equivalent_files": [
+      "AI_SMM_Developer_A75/tests/CHECK_REVIEWERS.cmd",
+      "AI_SMM_Developer_A75/tests/RUN_ARCHITECTURE_CHECK.cmd",
+      "AI_SMM_Work_Architecture_A75/CHECK_REVIEWERS.cmd",
+      "AI_SMM_Work_Architecture_A75/RUN_AI_SMM_MANAGER.cmd",
+      "AI_SMM_Work_Architecture_A75/RUN_ARCHITECTURE_CHECK.cmd",
+      "RUN_10_FULL_WINDOWS_QA.cmd",
+      "RUN_WINDOWS_QA.cmd",
+      "SETUP_WINDOWS_QA.cmd"
+    ]
+  },
+  "windows_unit_tests": {
+    "module_count": 263,
+    "passed": 2066,
+    "subtests": 1058
+  },
+  "windows_unit_skipped": 43,
+  "windows_ci": {
+    "passed": 568,
+    "failed": 3,
+    "skipped": 17,
+    "subtests_passed": 94
+  },
+  "windows_preflight": {
+    "cuda": true,
+    "name": "NVIDIA GeForce RTX 3080 Ti",
+    "capability": [
+      8,
+      6
+    ],
+    "total": 12884246528,
+    "device_count": 1,
+    "torch": "2.8.0+cu126",
+    "diffusers": "0.36.0",
+    "transformers": "4.57.3",
+    "accelerate": "1.12.0",
+    "safetensors": "0.7.0"
+  },
+  "vision_control": {
+    "status": "PASS",
+    "model": "gemma3:4b",
+    "digest": "68ceab7e468a31c988b44d5a4984a0e21f58c4f7158c6ce29c1804babac38df7",
+    "controls": [
+      {
+        "left": "red",
+        "right": "blue"
+      },
+      {
+        "left": "green",
+        "right": "red"
+      }
+    ],
+    "scope": "pixel control qualification; not proof of arbitrary editorial accuracy"
+  },
+  "reviewer_qualification": [
+    {
+      "model": "gemma3:4b",
+      "pass": false,
+      "contract_pass": true,
+      "correct": 3,
+      "error": null,
+      "request_roundtrip": true,
+      "response_utf8_valid": true
+    },
+    {
+      "model": "qwen3:8b",
+      "pass": false,
+      "contract_pass": true,
+      "correct": 5,
+      "error": null,
+      "request_roundtrip": true,
+      "response_utf8_valid": true
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "pass": false,
+      "contract_pass": true,
+      "correct": 3,
+      "error": "Применимость части замечаний не установлена",
+      "request_roundtrip": true,
+      "response_utf8_valid": true
+    },
+    {
+      "model": "llama3.1:8b",
+      "pass": false,
+      "contract_pass": false,
+      "correct": null,
+      "error": "Причина снятия замечания повторяет причину отказа; объясни ошибку рассуждения",
+      "request_roundtrip": true,
+      "response_utf8_valid": true
+    },
+    {
+      "model": "deepseek-r1:8b",
+      "pass": false,
+      "contract_pass": false,
+      "correct": null,
+      "error": "проверка компетенции модели-рецензента: Ollama model response is incomplete",
+      "request_roundtrip": true,
+      "response_utf8_valid": true
+    }
+  ],
+  "generation_failure": "SYSTEM_RAM_INSUFFICIENT: available host RAM below unchanged 6 GiB image floor. Exact available/total bytes absent from old report.",
+  "release_eligible": false,
+  "target_clean_consecutive": 0,
+  "raw_user_images_databases_archive_committed": false
+}

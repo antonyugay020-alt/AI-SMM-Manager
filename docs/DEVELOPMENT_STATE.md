@@ -1,3 +1,33 @@
+# Windows lifecycle/resource checkpoint — 2026-11-16
+
+Baseline `83cf60a0dffe980bfbaaa4d99aab081d20720662`, existing PR #4.
+Physical Windows report now reaches CUDA preflight, basic Qt and all 263 developer
+modules. It exposed one test incorrectly reading a locked Windows byte and two
+native cleanup failures (WinError 32 after timeout/log-budget rejection).
+
+WindowsJob now explicitly terminates/drains its owned process tree before handle
+closure; native/FFmpeg and QA ownership retain bounded fail-closed cleanup.
+Spool sentinel assertions follow Windows locking semantics. RAM floors remain
+6/10 GiB (image/video); actual memory evidence is now retained at rejection and
+in supervisor samples. Incomplete reviewer transport diagnostics survive into
+qualification without another model call or accepting a partial result.
+
+Final cloud results: focused **51 + 9 PASS**; all 263 modules **2109 + 1062 PASS**;
+full and forced-GC CI each **599 + 94 PASS, 2 Windows-only skips**. Actual cached
+tiny CPU Qt image/video and cancel/owner-death/same-ID/SQLite recovery PASS.
+Fingerprint `7c2acb69a33b2295e4c5b090867d4f703083de0564d5ac03ed254965216f0b1a`.
+[Sanitized Windows findings, tested bytes and full logs](evidence/20261116-windows-owned-process-recovery).
+
+Physical new-code Win32 drain acceptance remains unrun. The incoming run had
+0 qualified text reviewers (Qwen3 5/6 is still FAIL) and image generation blocked
+by available RAM below 6 GiB. UTF-8 was intact. Gemma3's two pixel controls passed
+but do not certify arbitrary visual quality or text-editor admission. Target 0/10.
+Next: current-source RTX 3080 Ti QA, reusing the prepared QA Python; collect the
+new memory/drain evidence and resolve reviewer capacity without lowering gates.
+No paid APIs, Actions, model downloads, main changes, merge or release.
+
+---
+
 # Windows QA bootstrap checkpoint — 2026-11-15
 
 Baseline `627dde311f247324dc008dd386f9914bbd790ab7`, existing PR #4.
