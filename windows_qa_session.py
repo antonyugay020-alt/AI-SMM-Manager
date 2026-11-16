@@ -180,6 +180,23 @@ def run_child(command,env,folder,timeout=43200):
                 child.wait(timeout=15)
 
 
+def execute_process_diagnostic(session,state):
+    """Physical process/file ownership check, with zero model/GPU requests."""
+    state.update(scope='owned_process_diagnostic',acceptance_run=False,
+                 clean_consecutive=0,target_clean_consecutive=0,release_eligible=False)
+    if os.name!='nt':raise RuntimeError('Actual Windows required for process diagnostic')
+    run=Path(session)/'run_01';run.mkdir()
+    report=run/'report';report.mkdir()
+    env=local_only_environment(os.environ,[])
+    code=run_child([sys.executable,str(ROOT/'ci/windows_process_diagnostic.py'),
+                    '--report',str(report)],env,run,timeout=180)
+    state.update(status='DIAGNOSTIC_COMPLETE' if code==0 else 'BLOCKED',
+        reason='Offline process tests completed; full Windows Qt/CUDA acceptance not run' if code==0
+            else 'Offline process tests failed; see latest_run/console.log',exit_code=code)
+    write_json(report/'process_diagnostic.json',state)
+    return code
+
+
 def execute(config,role,session,state):
     if os.name!='nt':raise RuntimeError('Actual Windows required; Linux does not advance counters')
     if role not in ROLES:raise ValueError('Unknown QA role')
@@ -423,6 +440,7 @@ def bootstrap_inventory(folder):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--role',choices=ROLES,required=True);parser.add_argument('--config',type=Path)
     parser.add_argument('--output',type=Path,default=output_root());parser.add_argument('--no-wizard',action='store_true')
+    parser.add_argument('--process-diagnostic',action='store_true')
     args=parser.parse_args();root=Path(os.path.abspath(args.output));root.mkdir(parents=True,exist_ok=True)
     session=root/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+args.role+'_'+uuid.uuid4().hex[:8]);session.mkdir()
     state={'status':'PREPARING','role':args.role,'clean_consecutive':0,'target_clean_consecutive':0,'required':1 if args.role=='preliminary_3080ti' else 10,'release_eligible':False,'session':str(session),'windows_executed':os.name=='nt'}
@@ -434,11 +452,14 @@ def main():
         write_json(session/'SOURCE_SNAPSHOT.json',source_snapshot(ROOT))
         bootstrap_inventory(session)
         require_qa_environment(session)
-        if not config_path.is_file() and not args.no_wizard:
-            if os.name!='nt':raise RuntimeError('Windows required; setup wizard not opened on Linux')
-            wizard(config_path)
-        config=read_config(config_path)
-        code=execute(config,args.role,session,state)
+        if args.process_diagnostic:
+            code=execute_process_diagnostic(session,state)
+        else:
+            if not config_path.is_file() and not args.no_wizard:
+                if os.name!='nt':raise RuntimeError('Windows required; setup wizard not opened on Linux')
+                wizard(config_path)
+            config=read_config(config_path)
+            code=execute(config,args.role,session,state)
     except BaseException as exc:
         state.update(status='BLOCKED',clean_consecutive=0,target_clean_consecutive=0,reason=str(exc),error=type(exc).__name__)
         write_json(session/'runner_error.json',{'error':type(exc).__name__,'reason':str(exc),'traceback':traceback.format_exc()});code=2

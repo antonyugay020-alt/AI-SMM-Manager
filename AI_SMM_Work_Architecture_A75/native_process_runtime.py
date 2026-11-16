@@ -71,7 +71,11 @@ def owned_native_process(command,*,env,stdout,stderr):
     finally:
         # The same owned-tree cleanup is used by FFmpeg/ffprobe and native
         # inference. A reaped POSIX leader must not orphan its descendants.
-        close_owned_process(process,job,grace=5)
+        try:
+            close_owned_process(process,job,grace=5)
+        finally:
+            if process is not None and job is not None:
+                process.owned_cleanup_evidence=getattr(job,'drain_evidence',None)
 
 
 def wait_owned_native(process, log, *, timeout, pump=None, max_log_bytes=None):

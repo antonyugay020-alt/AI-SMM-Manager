@@ -1,0 +1,97 @@
+{
+  "input_sha256": "662ae51db43fd1623aba11686db5841c933f8124e26f515fe6765bf512dd5cfc",
+  "input_bytes": 1082421,
+  "baseline": "07cf5d2ef3400b6bd60025c49557592519acc6b9",
+  "source": {
+    "fingerprint": "465bee9ee7d99d3c79e6e158cdc8fdf941ec94421c1b07d8688cd9cb33b0944c",
+    "exact_matches": 926,
+    "crlf_equivalent": [
+      "AI_SMM_Developer_A75/tests/CHECK_REVIEWERS.cmd",
+      "AI_SMM_Developer_A75/tests/RUN_ARCHITECTURE_CHECK.cmd",
+      "AI_SMM_Work_Architecture_A75/CHECK_REVIEWERS.cmd",
+      "AI_SMM_Work_Architecture_A75/RUN_AI_SMM_MANAGER.cmd",
+      "AI_SMM_Work_Architecture_A75/RUN_ARCHITECTURE_CHECK.cmd",
+      "RUN_10_FULL_WINDOWS_QA.cmd",
+      "RUN_WINDOWS_QA.cmd",
+      "SETUP_WINDOWS_QA.cmd"
+    ],
+    "other_changes": []
+  },
+  "windows_developer": {
+    "modules": 263,
+    "passed": 2066,
+    "subtests": 1058,
+    "skipped": 43
+  },
+  "windows_ci": {
+    "passed": 581,
+    "failed": 3,
+    "skipped": 17,
+    "subtests": 94
+  },
+  "remaining_failures": [
+    "test_native_log_budget: flooding child file still locked",
+    "test_native_log_budget: hanging child file still locked",
+    "test_windows_tree_drain: descendant inherited output still locked"
+  ],
+  "spool_lock_test_passed": true,
+  "startup_system_memory": {
+    "available_bytes": 6471036928,
+    "total_bytes": 34277433344,
+    "used_bytes": 27806396416,
+    "percent": 81.1
+  },
+  "generation_system_memory": {
+    "stage": "system_memory_preflight",
+    "monotonic_s": 598665.328,
+    "available_bytes": 5614284800,
+    "total_bytes": 34277433344,
+    "minimum_bytes": 6442450944,
+    "task": "image_instruction"
+  },
+  "reviewers": [
+    {
+      "model": "gemma3:4b",
+      "pass": false,
+      "correct": 3,
+      "contract_pass": true,
+      "error": null,
+      "completion": "stop"
+    },
+    {
+      "model": "qwen3:8b",
+      "pass": false,
+      "correct": 4,
+      "contract_pass": true,
+      "error": null,
+      "completion": "stop"
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "pass": false,
+      "correct": 3,
+      "contract_pass": true,
+      "error": "Применимость части замечаний не установлена",
+      "completion": "stop"
+    },
+    {
+      "model": "llama3.1:8b",
+      "pass": false,
+      "correct": 4,
+      "contract_pass": true,
+      "error": null,
+      "completion": "stop"
+    },
+    {
+      "model": "deepseek-r1:8b",
+      "pass": false,
+      "correct": 3,
+      "contract_pass": true,
+      "error": null,
+      "completion": "stop"
+    }
+  ],
+  "full_windows_pass": false,
+  "target_clean_consecutive": 0,
+  "raw_archive_committed": false
+}

@@ -21,6 +21,7 @@ def job_fixture(active):
     job.api=Mock()
     job.api.TerminateJobObject.return_value=True
     job.active=Mock(side_effect=active)
+    job.member_pids=Mock(return_value=[])
     return job
 
 
@@ -43,6 +44,44 @@ def test_windows_stuck_descendant_cannot_report_cleanup_success(monkeypatch):
         job.terminate_and_wait(timeout=1)
     assert job.handle==123
     job.close()
+
+
+def test_zero_accounting_does_not_replace_waiting_for_process_handles():
+    job=job_fixture([0])
+    job.member_pids.return_value=[10,20]
+    job.api.OpenProcess.side_effect=[101,102]
+    job.api.WaitForSingleObject.return_value=0
+    job.terminate_and_wait(timeout=1)
+    assert [call.args[0] for call in job.api.WaitForSingleObject.call_args_list]==[101,102]
+    assert job.drain_evidence=={'status':'DRAINED','member_pids':[10,20],'waited_pids':[10,20]}
+    assert [call.args[0] for call in job.api.CloseHandle.call_args_list]==[101,102]
+
+
+def test_unsignalled_member_is_failure_even_when_accounting_would_be_zero():
+    job=job_fixture([0])
+    job.member_pids.return_value=[10]
+    job.api.OpenProcess.return_value=101
+    job.api.WaitForSingleObject.return_value=0x102
+    with pytest.raises(TimeoutError,match='OWNED_WINDOWS_JOB_DRAIN_TIMEOUT'):
+        job.terminate_and_wait(timeout=1)
+    job.active.assert_not_called()
+    job.api.CloseHandle.assert_called_once_with(101)
+    assert job.drain_evidence['status']=='BLOCKED'
+
+
+def test_member_pid_query_grows_only_for_more_data(monkeypatch):
+    job=job_fixture([0])
+    del job.member_pids  # Exercise the class implementation.
+    def query(handle,kind,pointer,size,length):
+        assert handle==123 and kind==3
+        data=pointer._obj
+        if len(data.ids)==16:return False
+        data.listed=2;data.ids[0]=42;data.ids[1]=43
+        return True
+    job.api.QueryInformationJobObject.side_effect=query
+    monkeypatch.setattr(windows.ctypes,'get_last_error',lambda:234,raising=False)
+    assert job.member_pids()==[42,43]
+    assert job.api.QueryInformationJobObject.call_count==2
 
 
 def test_drain_failure_still_closes_job_reaps_leader_and_pipe():
@@ -80,10 +119,11 @@ def test_actual_descendant_output_handle_released_on_owner_exit(tmp_path):
     output=tmp_path/'owned.log'
     with output.open('wb') as log:
         with owned_native_process(native_command(sys.executable,script),env=os.environ,
-                                  stdout=log,stderr=log):
+                                      stdout=log,stderr=log) as child:
             deadline=time.monotonic()+10
             while not ready.exists() and time.monotonic()<deadline:time.sleep(.02)
             assert ready.exists()
     # A live Windows descendant's inherited output handle denies this unlink.
+    print('Owned cleanup evidence:',getattr(child,'owned_cleanup_evidence',None))
     output.unlink()
     assert not output.exists()

@@ -1,3 +1,32 @@
+# Windows process-signal checkpoint — 2026-11-16
+
+Baseline `07cf5d2ef3400b6bd60025c49557592519acc6b9`, existing PR #4.
+New physical report disproves the prior accounting-only drain as a complete
+fix: native log timeout/flood and explicit descendant output still produce
+WinError 32. The spool-lock test is fixed. Actual image preflight measured
+**5.23 GiB available RAM**, below unchanged 6 GiB; all five text reviewers failed
+qualification (no verdicts overridden).
+
+Windows cleanup now pins observed owned-job member handles before terminating
+and waits for process signals as well as zero active accounting. Handles close
+on all paths; observed/waited PIDs are retained for failed-test diagnostics.
+Added RUN_WINDOWS_PROCESS_QA.cmd for the three relevant offline test modules;
+DIAGNOSTIC_COMPLETE never counts as full Windows acceptance or advances 0/10.
+
+Final Linux: all 263 modules **2109 + 1062 PASS**; full/forced-GC CI each
+**605 + 94 PASS, 2 native-Windows skips**; focused **59 + 9 PASS**;
+actual short diagnostic **26 + 9 PASS**. Cached tiny CPU lifecycle verified;
+WinAPI behavior remains unverified physically. Runtime fingerprint:
+`5950aea8c7ebe4730ada1c18c45a3cd1df33d0e9b572f0fc09312c86e851ea45`.
+[Input facts, source binding, logs and tested bytes](evidence/20261116-windows-process-signals).
+
+Next: new source folder -> SETUP_WINDOWS_QA.cmd -> RUN_WINDOWS_PROCESS_QA.cmd.
+No full model QA is requested until this ownership check is resolved. RAM and
+independent-editor capacity remain separate blockers. No paid APIs, Actions,
+model downloads, main changes, merge or release.
+
+---
+
 # Windows lifecycle/resource checkpoint — 2026-11-16
 
 Baseline `83cf60a0dffe980bfbaaa4d99aab081d20720662`, existing PR #4.

@@ -26,6 +26,8 @@ class WindowsJob:
         self.api.AssignProcessToJobObject.argtypes=[w.HANDLE,w.HANDLE];self.api.AssignProcessToJobObject.restype=w.BOOL
         self.api.CloseHandle.argtypes=[w.HANDLE];self.api.CloseHandle.restype=w.BOOL
         self.api.TerminateJobObject.argtypes=[w.HANDLE,w.UINT];self.api.TerminateJobObject.restype=w.BOOL
+        self.api.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];self.api.OpenProcess.restype=w.HANDLE
+        self.api.WaitForSingleObject.argtypes=[w.HANDLE,w.DWORD];self.api.WaitForSingleObject.restype=w.DWORD
         self.api.QueryInformationJobObject.argtypes=[w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD,ctypes.c_void_p];self.api.QueryInformationJobObject.restype=w.BOOL
         self.handle=self.api.CreateJobObjectW(None,None)
         if not self.handle:raise ctypes.WinError(ctypes.get_last_error())
@@ -48,22 +50,61 @@ class WindowsJob:
         if not self.api.QueryInformationJobObject(self.handle,1,ctypes.byref(data),ctypes.sizeof(data),None):raise ctypes.WinError(ctypes.get_last_error())
         return data.active
 
+    def member_pids(self):
+        """Enumerate this job only; never enumerate/terminate system processes."""
+        capacity=16
+        while capacity<=4096:
+            class ProcessIds(ctypes.Structure):
+                _fields_=[('assigned',w.DWORD),('listed',w.DWORD),
+                          ('ids',ctypes.c_size_t*capacity)]
+            data=ProcessIds()
+            if self.api.QueryInformationJobObject(self.handle,3,ctypes.byref(data),ctypes.sizeof(data),None):
+                if data.listed>capacity:raise RuntimeError('Invalid owned job PID count')
+                return sorted(set(int(data.ids[i]) for i in range(data.listed)))
+            error=ctypes.get_last_error()
+            if error!=234:raise ctypes.WinError(error)  # ERROR_MORE_DATA
+            capacity*=2
+        raise RuntimeError('Owned job PID list exceeds safety limit')
+
     def terminate_and_wait(self,*,timeout=5):
         """Drain the owned tree before releasing its handles and output files.
 
         KILL_ON_JOB_CLOSE requests termination asynchronously. Waiting only on
         Popen may reap a venv redirector while its Python descendant still has
-        the log open. Keep the job queryable until every member has exited.
+        the log open. ActiveProcesses is an accounting counter, not a wait on
+        each process object's completion. Pin member handles before termination
+        and wait for their signals as well as the empty job accounting state.
         """
         if type(timeout) not in (int,float) or not math.isfinite(timeout) or not 0<timeout<=10:
             raise ValueError('Invalid Windows job drain timeout')
         if not getattr(self,'handle',None):return
-        if not self.api.TerminateJobObject(self.handle,1):raise ctypes.WinError(ctypes.get_last_error())
         deadline=time.monotonic()+timeout
-        while self.active():
-            remaining=deadline-time.monotonic()
-            if remaining<=0:raise TimeoutError('OWNED_WINDOWS_JOB_DRAIN_TIMEOUT')
-            time.sleep(min(.01,remaining))
+        handles=[]
+        self.drain_evidence={'status':'BLOCKED','member_pids':[],'waited_pids':[]}
+        try:
+            for pid in self.member_pids():
+                handle=self.api.OpenProcess(0x00100000,False,pid)  # SYNCHRONIZE only
+                if not handle:
+                    error=ctypes.get_last_error()
+                    if error==87 and pid not in self.member_pids():continue  # exited before OpenProcess
+                    raise ctypes.WinError(error)
+                handles.append((pid,handle))
+                self.drain_evidence['member_pids'].append(pid)
+            if not self.api.TerminateJobObject(self.handle,1):raise ctypes.WinError(ctypes.get_last_error())
+            for pid,handle in handles:
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('OWNED_WINDOWS_JOB_DRAIN_TIMEOUT')
+                result=self.api.WaitForSingleObject(handle,max(1,math.ceil(remaining*1000)))
+                if result==0x102:raise TimeoutError('OWNED_WINDOWS_JOB_DRAIN_TIMEOUT')
+                if result!=0:raise ctypes.WinError(ctypes.get_last_error())
+                self.drain_evidence['waited_pids'].append(pid)
+            while self.active():
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('OWNED_WINDOWS_JOB_DRAIN_TIMEOUT')
+                time.sleep(min(.01,remaining))
+            self.drain_evidence['status']='DRAINED'
+        finally:
+            for _,handle in handles:self.api.CloseHandle(handle)
 
     def close(self):
         if getattr(self,'handle',None):self.api.CloseHandle(self.handle);self.handle=None

@@ -24,12 +24,16 @@ class NativeLogBudgetTests(unittest.TestCase):
             script=root/'child.py'
             script.write_text(script_text,encoding='utf-8')
             with (root/'child.log').open('wb') as log:
-                with native.owned_native_process(
-                        native.native_command(sys.executable,script),
-                        env=os.environ,stdout=log,stderr=log) as child:
-                    return native.wait_owned_native(
-                        child,log,timeout=timeout,pump=pump,
-                        max_log_bytes=max_log_bytes)
+                child=None
+                try:
+                    with native.owned_native_process(
+                            native.native_command(sys.executable,script),
+                            env=os.environ,stdout=log,stderr=log) as child:
+                        return native.wait_owned_native(
+                            child,log,timeout=timeout,pump=pump,
+                            max_log_bytes=max_log_bytes)
+                finally:
+                    print('Native cleanup evidence:',getattr(child,'owned_cleanup_evidence',None))
 
     def test_normal_exit_and_nonzero_exit_are_reported(self):
         self.assertEqual(self._child("print('ok',flush=True)"),0)
